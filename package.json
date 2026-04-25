@@ -1,0 +1,35 @@
+{
+  "name": "@aefree/pi-unity",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-package-validation.test.ts"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  },
+  "description": "Pi tools and skills for Unity editor and batchmode workflows.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/aefreedman/pi-unity.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aefreedman/pi-unity/issues"
+  },
+  "homepage": "https://github.com/aefreedman/pi-unity#readme"
+}
