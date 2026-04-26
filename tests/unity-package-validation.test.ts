@@ -8,6 +8,8 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 };
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
+const screenshotSkillText = readFileSync(new URL("../skills/capturing-screenshots-unity/SKILL.md", import.meta.url), "utf8");
+const screenshotUtilityText = readFileSync(new URL("../skills/capturing-screenshots-unity/assets/ScreenshotUtility.cs", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
@@ -27,6 +29,12 @@ for (const snippet of ["unity_open_editor", "unity_launch_batchmode", "/unity-op
   assert(skillText.includes(snippet), `Expected skill doc to contain: ${snippet}`);
   assert(readmeText.includes(snippet), `Expected README to contain: ${snippet}`);
 }
+
+for (const snippet of ["capturing-screenshots-unity", "ScreenshotUtility.cs", "screenshots"]) {
+  assert(screenshotSkillText.includes(snippet) || readmeText.includes(snippet), `Expected screenshot skill or README to contain: ${snippet}`);
+}
+assert(screenshotUtilityText.includes("class ScreenshotUtility"), "Expected screenshot utility C# helper to be packaged.");
+assert(!screenshotSkillText.includes("@AGENTS.md"), "Expected screenshot skill to use Pi-friendly project guidance references.");
 
 for (const skillSnippet of [
   "Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly",
