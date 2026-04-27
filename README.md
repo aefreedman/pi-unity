@@ -36,6 +36,7 @@ pi install -l <path-to-pi-unity>
 - `unity_open_editor` launches the full Unity Editor GUI.
 - `unity_launch_batchmode` launches Unity CLI batchmode.
 - `unity_launch_batchmode` is test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tool prefers compact structured summaries over dumping full Unity logs into agent context.
+- `unity_launch_batchmode` checks Unity's native `Temp/UnityLockfile` before launch and uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity.
 - `/unity-open` is the user-facing GUI launcher helper.
 - The package resolves Unity project copies from a direct project root, a coordination root containing multiple copies, or another nearby folder.
 - Unity install probing is OS-aware and avoids machine-specific assumptions by using the project's `ProjectSettings/ProjectVersion.txt`, standard per-OS install locations, and optional `UNITY_EDITOR_PATH` overrides.
@@ -54,6 +55,7 @@ pi-unity/
     unity-batchmode.ts
     unity-launch.ts
     unity-processes.ts
+    unity-project-lock.ts
     unity-projects.ts
   skills/
     unity-batchmode-tests/

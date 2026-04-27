@@ -15,7 +15,7 @@
     ]
   },
   "scripts": {
-    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-package-validation.test.ts"
+    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-package-validation.test.ts"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",

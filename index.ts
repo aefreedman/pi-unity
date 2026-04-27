@@ -14,6 +14,7 @@ import {
 import { formatPathForUser } from "./src/unity-core";
 import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { listRunningUnityProcessesForProject } from "./src/unity-processes";
+import { assertUnityProjectNotBusy, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 
 const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same as batchmode/headless Unity.";
@@ -385,31 +386,41 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
-      throwIfAborted(signal);
-      const editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
-      const batchmode = createUnityBatchmodeCommand(editorPath, candidate.projectRoot, params.args ?? []);
-      const timeoutMs = (params.timeoutSeconds ?? 3600) * 1000;
-      const result = await pi.exec(batchmode.command, batchmode.args, { signal, timeout: timeoutMs });
-      throwIfAborted(signal);
-      const report = await buildBatchmodeReport(
-        ctx,
-        candidate,
-        editorPath,
-        { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
-        batchmode.args,
-        processWarning ?? discoveryWarning,
+
+      return withUnityProjectLaunchMutex(
+        candidate.projectRoot,
+        { mode: "batchmode", toolName: "unity_launch_batchmode" },
+        async () => {
+          throwIfAborted(signal);
+          await assertUnityProjectNotBusy(candidate.projectRoot);
+          throwIfAborted(signal);
+          const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
+          throwIfAborted(signal);
+          const editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
+          const batchmode = createUnityBatchmodeCommand(editorPath, candidate.projectRoot, params.args ?? []);
+          const timeoutMs = (params.timeoutSeconds ?? 3600) * 1000;
+          const result = await pi.exec(batchmode.command, batchmode.args, { signal, timeout: timeoutMs });
+          throwIfAborted(signal);
+          const report = await buildBatchmodeReport(
+            ctx,
+            candidate,
+            editorPath,
+            { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
+            batchmode.args,
+            processWarning ?? discoveryWarning,
+          );
+
+          if (result.killed) {
+            throw new Error(report.text);
+          }
+
+          return {
+            content: [{ type: "text", text: report.text }],
+            details: report.details,
+            isError: report.details.status === "failed",
+          };
+        },
       );
-
-      if (result.killed) {
-        throw new Error(report.text);
-      }
-
-      return {
-        content: [{ type: "text", text: report.text }],
-        details: report.details,
-        isError: report.details.status === "failed",
-      };
     },
     renderCall(args, theme) {
       return renderUnityToolCall("unity_launch_batchmode", args, theme, "batchmode", getBatchmodeVariantLabel(args.args));

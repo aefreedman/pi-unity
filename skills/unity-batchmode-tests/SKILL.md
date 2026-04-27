@@ -31,7 +31,8 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - reads `ProjectSettings/ProjectVersion.txt`
 - uses OS-aware standard install probing
 - supports explicit `UNITY_EDITOR_PATH` / `unityEditorPath` overrides
-- enforces the one-process-per-project rule before launch
+- checks Unity's native `Temp/UnityLockfile` and running Unity processes before launch
+- uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
 - can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
 
 Only fall back to direct CLI commands if the packaged Unity tools are unavailable or fail to resolve the environment correctly.
