@@ -14,6 +14,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
 - **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
 - **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
+- **Batch related tests into as few Unity launches as practical** - Unity startup/import/domain reload dominates test runtime, and same-project runs cannot use useful parallelism. Do not queue many sequential batchmode launches for individual tests when one broader run can cover the evidence needed.
 - **Distinguish graphics-agnostic test runs from graphics-required visual runs** - screenshot, render-texture, and other visual-capture tests require an active graphics device and must not use `-nographics`.
 - **Do not treat a graphics-disabled run as valid evidence for screenshot workflows** - graphics-required tests should fail clearly or be excluded from that run.
 
@@ -68,8 +69,13 @@ If not found, ask the user for their Unity install path.
 ### 4. Run the Tests
 
 Preferred path:
+- plan the test batch before launching Unity
+- group needed tests by project, `-testPlatform`, and graphics requirement; run at most one batchmode invocation per group
+- prefer a related suite, class/namespace-level filter, or project test category over many one-test Unity launches
+- use a single-test launch only for a quick smoke check or to isolate/rerun a known failure, then inspect results before deciding on another launch
+- do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary and decide whether another run is necessary
 - call `unity_launch_batchmode`
-- pass the explicit test arguments needed for the run
+- pass the explicit test arguments needed for the grouped run
 - always provide absolute `-testResults` and `-logFile` paths when practical so the tool can summarize results compactly for the agent
 - keep test-specific flags deliberate, especially around `-runTests` and `-quit`
 - decide up front whether the run is graphics-agnostic or graphics-required
