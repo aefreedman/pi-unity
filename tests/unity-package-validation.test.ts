@@ -44,6 +44,7 @@ for (const skillSnippet of [
 }
 
 assert(indexText.includes("For Unity Test Framework runs, always provide absolute -testResults and -logFile paths"), "Expected batchmode tool guidance for compact test summaries.");
+assert(indexText.includes('isError: report.details.status === "failed"'), "Expected failed Unity batchmode runs to be marked as tool errors.");
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");
 

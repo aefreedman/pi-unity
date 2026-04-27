@@ -408,6 +408,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: report.text }],
         details: report.details,
+        isError: report.details.status === "failed",
       };
     },
     renderCall(args, theme) {
