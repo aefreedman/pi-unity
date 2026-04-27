@@ -2,7 +2,8 @@
 
 Pi skill and tool package for reusable Unity workflows.
 
-Current contents:
+## Contents
+
 - skill: `unity-batchmode-tests`
 - skill: `capturing-screenshots-unity`
 - tool: `unity_open_editor`
@@ -11,7 +12,13 @@ Current contents:
 
 ## Install
 
-Local path install:
+From GitHub:
+
+```bash
+pi install git:git@github.com:aefreedman/pi-unity.git
+```
+
+Local development install:
 
 ```bash
 pi install <path-to-pi-unity>
@@ -27,7 +34,7 @@ pi install -l <path-to-pi-unity>
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
 - `unity_open_editor` launches the full Unity Editor GUI.
-- `unity_launch_batchmode` launches headless Unity batchmode.
+- `unity_launch_batchmode` launches Unity CLI batchmode.
 - `unity_launch_batchmode` is test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tool prefers compact structured summaries over dumping full Unity logs into agent context.
 - `/unity-open` is the user-facing GUI launcher helper.
 - The package resolves Unity project copies from a direct project root, a coordination root containing multiple copies, or another nearby folder.
@@ -56,11 +63,12 @@ pi-unity/
       assets/
       references/
   tests/
-    unity-core.test.ts
-    unity-processes.test.ts
-    unity-projects.test.ts
-    unity-batchmode.test.ts
-    unity-package-validation.test.ts
+```
+
+## Testing
+
+```bash
+npm test
 ```
 
 ## License
