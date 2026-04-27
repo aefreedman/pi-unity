@@ -13,7 +13,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find.
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
 - **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
-- **Use `unity_launch_batchmode` when you want Pi to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
+- **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
 - **Distinguish graphics-agnostic test runs from graphics-required visual runs** - screenshot, render-texture, and other visual-capture tests require an active graphics device and must not use `-nographics`.
 - **Do not treat a graphics-disabled run as valid evidence for screenshot workflows** - graphics-required tests should fail clearly or be excluded from that run.
 
