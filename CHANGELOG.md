@@ -13,7 +13,8 @@ and this project follows semantic versioning for public package releases.
 - Added Unity CLI status parsing for safer same-project busy checks before launching GUI or batchmode Unity.
 - Added `UNITY_CLI_PATH` support for overriding the Unity CLI executable.
 - Added `launcher` selection (`auto`, `unity-cli`, `editor-executable`) so workflows can bypass Unity CLI when forwarded arguments differ from direct Editor executable behavior.
-- Added unit coverage for Unity CLI command construction and status parsing.
+- Added Unity CLI argument normalization that strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding user args.
+- Added unit coverage for Unity CLI command construction, forwarded-argument normalization, and status parsing.
 
 ### Changed
 

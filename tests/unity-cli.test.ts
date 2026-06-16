@@ -3,6 +3,7 @@ import {
   createUnityCliBatchmodeReportArgs,
   createUnityCliOpenCommand,
   createUnityCliRunCommand,
+  normalizeUnityCliForwardedArgs,
   parseUnityCliStatusOutput,
   resolveUnityCliCommand,
 } from "../src/unity-cli";
@@ -23,7 +24,12 @@ assert.deepEqual(openWithPath.args, [
   "C:/Unity/Editor/Unity.exe",
 ]);
 
-const run = createUnityCliRunCommand("/workspace/My Game", ["-nographics", "-runTests", "-testPlatform", "EditMode"], {
+assert.deepEqual(
+  normalizeUnityCliForwardedArgs(["-batchmode", "-projectPath", "/workspace/Other", "-quit", "-logFile", "run.log", "-projectPath=C:/Other"]),
+  ["-logFile", "run.log"],
+);
+
+const run = createUnityCliRunCommand("/workspace/My Game", ["-nographics", "-quit", "-runTests", "-testPlatform", "EditMode"], {
   editorVersion: "6000.1.13f1",
   timeoutSeconds: 90,
 });

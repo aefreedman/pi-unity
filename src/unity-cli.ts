@@ -48,14 +48,42 @@ export function createUnityCliOpenCommand(projectRoot: string, options: UnityCli
   };
 }
 
+const UNITY_CLI_MANAGED_EDITOR_FLAGS_WITH_VALUES = new Set(["-projectpath"]);
+const UNITY_CLI_MANAGED_EDITOR_FLAGS = new Set(["-batchmode", "-quit"]);
+
+export function normalizeUnityCliForwardedArgs(extraEditorArgs: string[] = []): string[] {
+  const normalized: string[] = [];
+  for (let index = 0; index < extraEditorArgs.length; index += 1) {
+    const arg = extraEditorArgs[index];
+    const lower = arg.toLowerCase();
+    const equalsIndex = lower.indexOf("=");
+    const flagName = equalsIndex >= 0 ? lower.slice(0, equalsIndex) : lower;
+
+    if (UNITY_CLI_MANAGED_EDITOR_FLAGS.has(flagName)) {
+      continue;
+    }
+
+    if (UNITY_CLI_MANAGED_EDITOR_FLAGS_WITH_VALUES.has(flagName)) {
+      if (equalsIndex < 0) {
+        index += 1;
+      }
+      continue;
+    }
+
+    normalized.push(arg);
+  }
+  return normalized;
+}
+
 export function createUnityCliRunCommand(projectRoot: string, extraEditorArgs: string[] = [], options: UnityCliLaunchOptions = {}): UnityCliCommand {
   const args = [...unityCliBaseArgs(), "run", projectRoot];
+  const forwardedArgs = normalizeUnityCliForwardedArgs(extraEditorArgs);
   appendUnityCliEditorOptions(args, options);
   if (options.timeoutSeconds !== undefined) {
     args.push("--timeout", String(options.timeoutSeconds));
   }
-  if (extraEditorArgs.length > 0) {
-    args.push("--", ...extraEditorArgs);
+  if (forwardedArgs.length > 0) {
+    args.push("--", ...forwardedArgs);
   }
   return {
     command: resolveUnityCliCommand(options),

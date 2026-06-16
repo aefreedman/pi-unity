@@ -37,6 +37,7 @@ pi install -l <path-to-pi-unity>
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
 - `unity_launch_batchmode` prefers the installed `unity run` CLI when available, falling back to direct editor executable batchmode launch.
 - Both Unity launch tools expose `launcher` (`auto`, `unity-cli`, or `editor-executable`) so workflows can force direct Editor execution when Unity CLI argument handling differs from `Unity.exe`/`Unity`.
+- In Unity CLI mode, `unity_launch_batchmode` forwards args after `unity run <project> --` and strips direct-Editor flags managed by the CLI (`-batchmode`, `-projectPath`, `-quit`).
 - `unity_launch_batchmode` is test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tool prefers compact structured summaries over dumping full Unity logs into agent context.
 - `unity_launch_batchmode` checks Unity's native `Temp/UnityLockfile` before launch and uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity.
 - `/unity-open` is the user-facing GUI launcher helper.
