@@ -12,6 +12,7 @@ and this project follows semantic versioning for public package releases.
 - Added Unity CLI integration so `unity_open_editor` prefers `unity open` and `unity_launch_batchmode` prefers `unity run` when the installed `unity` command is available.
 - Added Unity CLI status parsing for safer same-project busy checks before launching GUI or batchmode Unity.
 - Added `UNITY_CLI_PATH` support for overriding the Unity CLI executable.
+- Added `launcher` selection (`auto`, `unity-cli`, `editor-executable`) so workflows can bypass Unity CLI when forwarded arguments differ from direct Editor executable behavior.
 - Added unit coverage for Unity CLI command construction and status parsing.
 
 ### Changed

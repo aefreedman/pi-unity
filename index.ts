@@ -42,16 +42,26 @@ type UnityToolDetails = {
   cliArgs?: string[];
 };
 
+const LAUNCHER_SCHEMA = Type.Optional(Type.Union([
+  Type.Literal("auto"),
+  Type.Literal("unity-cli"),
+  Type.Literal("editor-executable"),
+], { description: "Launch backend. Defaults to auto, which prefers the Unity CLI and falls back to direct editor executable launch when the CLI is unavailable." }));
+
+type UnityLauncherPreference = "auto" | "unity-cli" | "editor-executable";
+
 const OPEN_EDITOR_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
   unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
+  launcher: LAUNCHER_SCHEMA,
 });
 
 const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
   unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
-  args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project>." })),
+  args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project> for direct editor launch, or forwarded after `unity run <project> --` for Unity CLI launch." })),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Timeout in seconds for the batchmode process." })),
+  launcher: LAUNCHER_SCHEMA,
 });
 
 function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate): string {
@@ -299,6 +309,24 @@ async function canUseUnityCli(pi: ExtensionAPI, signal?: AbortSignal): Promise<b
   }
 }
 
+async function shouldUseUnityCli(
+  pi: ExtensionAPI,
+  launcher: UnityLauncherPreference | undefined,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const preference = launcher ?? "auto";
+  if (preference === "editor-executable") {
+    return false;
+  }
+
+  const available = await canUseUnityCli(pi, signal);
+  if (preference === "unity-cli" && !available) {
+    throw new Error("Unity CLI launcher was requested, but the `unity` command is not available. Set UNITY_CLI_PATH or use launcher='editor-executable'.");
+  }
+
+  return available;
+}
+
 function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text {
   const details = result.details as UnityToolDetails | undefined;
   const primaryText = getToolTextContent(result);
@@ -373,6 +401,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "This launches the GUI editor and is not the same as batchmode/headless Unity.",
       "Unity allows only one process per project folder; GUI and batchmode both count.",
       "If the target folder is ambiguous, ask the user to pick the project copy or pass path explicitly.",
+      "Use launcher='editor-executable' when Unity CLI argument handling or Hub project resolution is suspected to differ from direct Editor launch.",
     ],
     parameters: OPEN_EDITOR_PARAMS,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -381,7 +410,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
       throwIfAborted(signal);
-      const useUnityCli = await canUseUnityCli(pi, signal);
+      const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
       throwIfAborted(signal);
       let launcher: "unity-cli" | "editor-executable" = "editor-executable";
       let editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor");
@@ -433,6 +462,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "For Unity Test Framework runs, always provide absolute -testResults and -logFile paths when practical so the tool can summarize results compactly for the agent.",
       "Prefer reasoning over structured test results and concise excerpts instead of dumping full Unity logs into context.",
       "Do not add -quit automatically for test workflows that rely on the Unity Test Framework runTests behavior; pass only the arguments actually needed.",
+      "Use launcher='editor-executable' when a Unity CLI wrapper argument differs from direct Editor executable behavior; in auto mode, args are forwarded after `unity run <project> --`.",
     ],
     parameters: LAUNCH_BATCHMODE_PARAMS,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -451,7 +481,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           throwIfAborted(signal);
           const timeoutSeconds = params.timeoutSeconds ?? 3600;
           const timeoutMs = timeoutSeconds * 1000;
-          const useUnityCli = await canUseUnityCli(pi, signal);
+          const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
           throwIfAborted(signal);
           const editorPath = useUnityCli
             ? await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor")

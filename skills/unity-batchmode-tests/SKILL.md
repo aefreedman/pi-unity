@@ -33,6 +33,7 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - prefers the installed `unity run` CLI when available, falling back to OS-aware direct editor launch
 - uses OS-aware standard install probing
 - supports explicit `UNITY_EDITOR_PATH` / `unityEditorPath` overrides
+- supports `launcher: "editor-executable"` when Unity CLI argument forwarding differs from direct Editor executable behavior
 - checks Unity's native `Temp/UnityLockfile`, Unity CLI status, and running Unity processes before launch
 - uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
 - can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
@@ -77,6 +78,7 @@ Preferred path:
 - do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
 - call `unity_launch_batchmode`
 - pass the explicit test arguments needed for the bundled run
+- use `launcher: "editor-executable"` if the installed `unity run` wrapper rejects or changes an argument that works with direct Editor batchmode
 - always provide absolute `-testResults` and `-logFile` paths when practical so the tool can summarize results compactly for the agent
 - keep test-specific flags deliberate, especially around `-runTests` and `-quit`
 - decide up front whether the run is graphics-agnostic or graphics-required
