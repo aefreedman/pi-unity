@@ -8,6 +8,7 @@ import {
   normalizeUnityEditorOverride,
   type SupportedPlatform,
 } from "./unity-core";
+import { createUnityCliOpenCommand, type UnityCliLaunchOptions } from "./unity-cli";
 
 export async function resolveUnityEditorPath(
   unityVersion: string,
@@ -46,7 +47,7 @@ export async function resolveUnityEditorPath(
   );
 }
 
-export function launchUnityEditorDetached(editorPath: string, projectRoot: string): { pid: number | undefined; args: string[] } {
+export function launchUnityEditorDetached(editorPath: string, projectRoot: string): { pid: number | undefined; args: string[]; command: string } {
   const args = buildUnityOpenEditorArgs(projectRoot);
   const child = spawn(editorPath, args, {
     detached: true,
@@ -54,7 +55,21 @@ export function launchUnityEditorDetached(editorPath: string, projectRoot: strin
     windowsHide: false,
   });
   child.unref();
-  return { pid: child.pid, args };
+  return { pid: child.pid, args, command: editorPath };
+}
+
+export function launchUnityCliOpenDetached(
+  projectRoot: string,
+  options: UnityCliLaunchOptions = {},
+): { pid: number | undefined; args: string[]; command: string } {
+  const cli = createUnityCliOpenCommand(projectRoot, options);
+  const child = spawn(cli.command, cli.args, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: false,
+  });
+  child.unref();
+  return { pid: child.pid, args: cli.args, command: cli.command };
 }
 
 export function createUnityBatchmodeCommand(editorPath: string, projectRoot: string, extraArgs: string[] = []): { command: string; args: string[] } {

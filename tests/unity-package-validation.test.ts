@@ -17,12 +17,13 @@ assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep 
 assert(packageJson.scripts?.test?.includes("unity-core.test.ts"), "Expected pi-unity test script to run unity-core tests.");
 assert(packageJson.scripts?.test?.includes("unity-processes.test.ts"), "Expected pi-unity test script to run unity-process tests.");
 assert(packageJson.scripts?.test?.includes("unity-batchmode.test.ts"), "Expected pi-unity test script to run unity-batchmode tests.");
+assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
 assert(packageJson.peerDependencies?.["@mariozechner/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
 assert(packageJson.peerDependencies?.["@mariozechner/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "Unity allows only one process per project folder", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "Unity allows only one process per project folder", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "createUnityCliRunCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 

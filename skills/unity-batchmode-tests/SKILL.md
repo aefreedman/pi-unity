@@ -30,9 +30,10 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 `unity_launch_batchmode` should be the default path for agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder
 - reads `ProjectSettings/ProjectVersion.txt`
+- prefers the installed `unity run` CLI when available, falling back to OS-aware direct editor launch
 - uses OS-aware standard install probing
 - supports explicit `UNITY_EDITOR_PATH` / `unityEditorPath` overrides
-- checks Unity's native `Temp/UnityLockfile` and running Unity processes before launch
+- checks Unity's native `Temp/UnityLockfile`, Unity CLI status, and running Unity processes before launch
 - uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
 - can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
 
@@ -82,8 +83,9 @@ Preferred path:
 - exclude graphics-required screenshot/visual-capture tests from any `-nographics` run
 - prefer project test categories such as `RequiresGraphics` / `VisualCapture` when the project exposes them
 
-Direct CLI fallback template:
+Direct CLI fallback templates:
 ```
+unity run "<ProjectPath>" -- -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
 "<UnityEditorPath>" -batchmode -projectPath "<ProjectPath>" -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
 ```
 
