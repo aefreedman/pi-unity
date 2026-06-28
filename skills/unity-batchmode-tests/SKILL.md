@@ -23,6 +23,8 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 ### 1. Prefer the packaged Unity tools
 
 Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly:
+- `unity_project_status` to inspect lockfile/process state without launching Unity
+- `unity_inspect_artifacts` to summarize existing Unity logs/test XML without launching Unity
 - `unity_launch_batchmode` for headless Unity execution
 - `unity_open_editor` only when the user explicitly wants the GUI Editor
 - `/unity-open` as the user-facing GUI launcher helper
@@ -35,11 +37,14 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - supports explicit `UNITY_EDITOR_PATH` / `unityEditorPath` overrides
 - strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding args in Unity CLI mode
 - supports `launcher: "editor-executable"` when Unity CLI argument forwarding differs from direct Editor executable behavior
-- checks Unity's native `Temp/UnityLockfile`, Unity CLI status, and running Unity processes before launch
+- checks Unity CLI status and running Unity processes before launch
+- delegates stale native `Temp/UnityLockfile` handling to `unity run` when the Unity CLI launcher is selected; direct Editor executable mode still blocks on native lockfiles for safety
 - uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
 - can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
 
-Only fall back to direct CLI commands if the packaged Unity tools are unavailable or fail to resolve the environment correctly.
+After a failed run, prefer `unity_inspect_artifacts` for follow-up inspection of existing result XML/log files instead of ad hoc `bash`/`sed`/Python parsing. This avoids shell quoting mistakes and does not start another Unity process.
+
+If a launch is blocked by a native Unity lockfile, call `unity_project_status` before asking the user to remove anything. Only fall back to direct CLI commands if the packaged Unity tools are unavailable or fail to resolve the environment correctly.
 
 ### 2. Get the Project's Unity Version
 

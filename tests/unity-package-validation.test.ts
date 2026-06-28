@@ -23,16 +23,16 @@ assert(packageJson.peerDependencies?.["@mariozechner/pi-coding-agent"] === "*", 
 assert(packageJson.peerDependencies?.["@mariozechner/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "Unity allows only one process per project folder", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "createUnityCliRunCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "Unity allows only one process per project folder", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "createUnityCliRunCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
-for (const snippet of ["unity_open_editor", "unity_launch_batchmode", "/unity-open", "one process per project folder"]) {
+for (const snippet of ["unity_project_status", "unity_inspect_artifacts", "unity_open_editor", "unity_launch_batchmode", "/unity-open", "one process per project folder"]) {
   assert(skillText.includes(snippet), `Expected skill doc to contain: ${snippet}`);
   assert(readmeText.includes(snippet), `Expected README to contain: ${snippet}`);
 }
 
-for (const snippet of ["Temp/UnityLockfile", "Pi-side project mutex"]) {
+for (const snippet of ["Temp/UnityLockfile", "Pi-side project mutex", "unity_project_status"]) {
   assert(skillText.includes(snippet), `Expected skill doc to contain: ${snippet}`);
   assert(readmeText.includes(snippet), `Expected README to contain: ${snippet}`);
 }
@@ -51,6 +51,7 @@ for (const skillSnippet of [
 }
 
 assert(indexText.includes("For Unity Test Framework runs, always provide absolute -testResults and -logFile paths"), "Expected batchmode tool guidance for compact test summaries.");
+assert(indexText.includes("Summarize existing Unity log files and Unity Test Framework XML results without launching Unity"), "Expected artifact inspection guidance.");
 assert(indexText.includes('isError: report.details.status === "failed"'), "Expected failed Unity batchmode runs to be marked as tool errors.");
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");

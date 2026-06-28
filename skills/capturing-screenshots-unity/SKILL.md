@@ -1,14 +1,16 @@
 ---
 name: capturing-screenshots-unity
-description: Capture Unity gameplay and UI screenshots when the project workflow supports them
+description: Capture Unity gameplay and UI screenshots when explicitly requested or when project/review guidance requires visual evidence. Do not load for ordinary visual-feature implementation unless screenshot capture is part of the task.
 ---
 # Capturing Screenshots in Unity Skill
 
-Purpose: capture and share visual evidence for Unity UI/gameplay changes when the workflow supports screenshots.
+Purpose: capture and share visual evidence for Unity UI/gameplay changes when the user asks for screenshots or local workflow guidance requires them.
 
 ## When to Use
 
-- Visual changes in Unity (UI, gameplay, effects, scenes, lighting, animations).
+- The user explicitly asks to capture, attach, or upload screenshots.
+- Project review/delivery guidance explicitly requires screenshots for the current change.
+- Skip for ordinary visual-feature implementation when no screenshot evidence is requested or required.
 - Skip when there is no visual impact.
 - Skip when the workflow does not support screenshots.
 - For automated Unity screenshots, use a graphics-enabled workflow; `-nographics` is not valid for screenshot capture.

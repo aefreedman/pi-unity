@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.4.0] - 2026-06-27
+
+### Added
+
+- Added `unity_inspect_artifacts` to summarize existing Unity Test Framework XML results and Unity logs without launching Unity.
+
+### Changed
+
+- Updated Unity batchmode skill guidance to prefer `unity_inspect_artifacts` over ad hoc shell parsing after Unity failures.
+
+## [0.3.0] - 2026-06-27
+
+### Added
+
+- Added `unity_project_status` to inspect Unity native lockfile state, Unity CLI status, and running project processes without launching Unity.
+
+### Changed
+
+- In Unity CLI launcher mode, `unity_launch_batchmode` now delegates stale native `Temp/UnityLockfile` handling to `unity run` after verifying no running project process is active, while keeping direct Editor executable launches blocked by native lockfiles.
+- Tightened screenshot skill guidance so agents load it only when screenshot evidence is requested or required by project/review workflow.
+
 ## [0.2.0] - 2026-06-16
 
 ### Added

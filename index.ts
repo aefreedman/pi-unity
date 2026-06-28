@@ -1,11 +1,14 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
+import { readdir, stat } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { Text } from "@mariozechner/pi-tui";
 import {
   buildUnityBatchmodeAgentText,
   loadUnityBatchmodeArtifacts,
   parseUnityBatchmodeInvocation,
   parseUnityTestResultsXml,
+  formatParsedTestResultsForAgent,
   summarizeTextForAgent,
   type UnityBatchmodeArtifacts,
   type UnityBatchmodeInvocation,
@@ -15,14 +18,14 @@ import { formatPathForUser } from "./src/unity-core";
 import { createUnityCliBatchmodeReportArgs, createUnityCliRunCommand, listRunningUnityCliEditorsForProject, resolveUnityCliCommand } from "./src/unity-cli";
 import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { listRunningUnityProcessesForProject } from "./src/unity-processes";
-import { assertUnityProjectNotBusy, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
+import { assertUnityProjectNotBusy, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 
 const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same as batchmode/headless Unity.";
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
 
 type UnityToolDetails = {
-  mode: "gui" | "batchmode";
+  mode: "gui" | "batchmode" | "status" | "artifacts";
   projectRoot: string;
   unityVersion: string;
   editorPath: string;
@@ -62,6 +65,19 @@ const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project> for direct editor launch, or forwarded after `unity run <project> --` for Unity CLI launch." })),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Timeout in seconds for the batchmode process." })),
   launcher: LAUNCHER_SCHEMA,
+});
+
+const PROJECT_STATUS_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
+});
+
+const INSPECT_ARTIFACTS_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  testResultsPath: Type.Optional(Type.String({ description: "Unity Test Framework XML results path. Relative paths are resolved against cwd and the Unity project root." })),
+  logFilePath: Type.Optional(Type.String({ description: "Unity log file path. Relative paths are resolved against cwd and the Unity project root." })),
+  latestFromLogs: Type.Optional(Type.Boolean({ default: true, description: "When paths are omitted, inspect the newest .xml and .log files under the project's Logs folder." })),
+  maxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, default: 60, description: "Maximum log/output lines to include." })),
+  maxChars: Type.Optional(Type.Integer({ minimum: 500, maximum: 20000, default: 6000, description: "Maximum log/output characters to include." })),
 });
 
 function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate): string {
@@ -126,6 +142,11 @@ async function resolveProjectCandidate(
   return { candidate, discoveryWarning };
 }
 
+function joinWarnings(...warnings: Array<string | undefined>): string | undefined {
+  const present = warnings.filter((warning): warning is string => Boolean(warning && warning.trim().length > 0));
+  return present.length > 0 ? present.join("\n") : undefined;
+}
+
 async function enforceSingleProcessRule(projectRoot: string): Promise<string | undefined> {
   const cliStatus = await listRunningUnityCliEditorsForProject(projectRoot);
   if (cliStatus.processes.length > 0) {
@@ -156,6 +177,132 @@ async function enforceSingleProcessRule(projectRoot: string): Promise<string | u
   }
 
   return cliStatus.warning ?? running.warning;
+}
+
+async function buildProjectStatusReport(
+  ctx: ExtensionContext,
+  candidate: UnityProjectCandidate,
+): Promise<{ text: string; details: UnityToolDetails }> {
+  const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
+  const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot);
+  const processStatus = await listRunningUnityProcessesForProject(candidate.projectRoot);
+  const runningProcesses = [...cliStatus.processes, ...processStatus.processes];
+  const isBusy = runningProcesses.length > 0;
+  const staleLockSuspected = lockState.nativeLockfileExists && !isBusy && !processStatus.warning;
+  const warning = joinWarnings(cliStatus.warning, processStatus.warning);
+
+  const lines = [
+    `Unity project status for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
+    `- Native lockfile: ${lockState.nativeLockfileExists ? "present" : "absent"}`,
+    `- Lockfile path: ${lockState.nativeLockfilePath}`,
+    `- Running Unity processes targeting project: ${runningProcesses.length}`,
+  ];
+
+  if (runningProcesses.length > 0) {
+    lines.push(...runningProcesses.map((process) => `  - ${process.pid ?? "?"}: ${process.commandLine}`));
+  }
+
+  if (staleLockSuspected) {
+    lines.push("- Assessment: native lockfile may be stale; Unity CLI launches may be able to handle it, but direct Editor launches will be blocked by pi-unity safety checks.");
+  } else if (isBusy) {
+    lines.push("- Assessment: project is busy; do not start another GUI or batchmode Unity process for this project.");
+  } else {
+    lines.push("- Assessment: project appears available for a Unity launch.");
+  }
+
+  if (warning) {
+    lines.push("", warning);
+  }
+
+  return {
+    text: lines.join("\n"),
+    details: {
+      mode: "status",
+      projectRoot: candidate.projectRoot,
+      unityVersion: candidate.unityVersion,
+      editorPath: "",
+      warning,
+      status: isBusy ? "failed" : "passed",
+    },
+  };
+}
+
+async function findNewestFile(root: string, suffixes: string[]): Promise<string | undefined> {
+  let entries: Awaited<ReturnType<typeof readdir>>;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+
+  const files = await Promise.all(entries
+    .filter((entry) => entry.isFile() && suffixes.some((suffix) => entry.name.toLowerCase().endsWith(suffix)))
+    .map(async (entry) => {
+      const fullPath = join(root, entry.name);
+      const stats = await stat(fullPath);
+      return { fullPath, mtimeMs: stats.mtimeMs };
+    }));
+  return files.sort((left, right) => right.mtimeMs - left.mtimeMs)[0]?.fullPath;
+}
+
+function resolveArtifactPath(cwd: string, projectRoot: string, value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const trimmed = value.trim();
+  if (isAbsolute(trimmed)) return trimmed;
+  return resolve(cwd, trimmed).startsWith(projectRoot) ? resolve(cwd, trimmed) : resolve(projectRoot, trimmed);
+}
+
+async function buildArtifactInspectionReport(
+  ctx: ExtensionContext,
+  candidate: UnityProjectCandidate,
+  params: { testResultsPath?: string; logFilePath?: string; latestFromLogs?: boolean; maxLines?: number; maxChars?: number },
+): Promise<{ text: string; details: UnityToolDetails }> {
+  const useLatest = params.latestFromLogs !== false;
+  const logsRoot = join(candidate.projectRoot, "Logs");
+  const testResultsPath = resolveArtifactPath(ctx.cwd, candidate.projectRoot, params.testResultsPath)
+    ?? (useLatest ? await findNewestFile(logsRoot, [".xml"]) : undefined);
+  const logFilePath = resolveArtifactPath(ctx.cwd, candidate.projectRoot, params.logFilePath)
+    ?? (useLatest ? await findNewestFile(logsRoot, [".log", ".txt"]) : undefined);
+  const invocation: UnityBatchmodeInvocation = {
+    isTestRun: Boolean(testResultsPath),
+    usesNoGraphics: false,
+    testResultsPath,
+    logFilePath,
+  };
+  const artifacts = await loadUnityBatchmodeArtifacts(ctx.cwd, candidate.projectRoot, invocation);
+  const parsedTestResults = artifacts.testResultsXml ? parseUnityTestResultsXml(artifacts.testResultsXml) : null;
+  const status = parsedTestResults && ((parsedTestResults.failed ?? 0) > 0 || parsedTestResults.failedTests.length > 0)
+    ? "failed"
+    : "passed";
+  const lines = [
+    `Unity artifacts inspected for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
+    testResultsPath ? `Requested test results: ${testResultsPath}` : "Requested test results: (none found)",
+    logFilePath ? `Requested log file: ${logFilePath}` : "Requested log file: (none found)",
+  ];
+
+  if (parsedTestResults) {
+    lines.push(...formatParsedTestResultsForAgent(parsedTestResults));
+  }
+
+  for (const warning of artifacts.warnings) lines.push(warning);
+  const logSummary = summarizeTextForAgent(artifacts.logText, params.maxLines ?? 60, params.maxChars ?? 6000);
+  if (logSummary) {
+    lines.push("Relevant log output:", logSummary);
+  }
+
+  return {
+    text: lines.join("\n"),
+    details: {
+      mode: "artifacts",
+      projectRoot: candidate.projectRoot,
+      unityVersion: candidate.unityVersion,
+      editorPath: "",
+      invocation,
+      artifacts,
+      parsedTestResults,
+      status,
+    },
+  };
 }
 
 function buildEditorLaunchSummary(
@@ -342,12 +489,20 @@ function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text
       : details.status === "killed"
         ? theme.fg("warning", "! ")
         : theme.fg("error", "✗");
-  const title = details.mode === "gui" ? "Unity Editor" : getBatchmodeVariantLabel(details.args);
+  const title = details.mode === "gui"
+    ? "Unity Editor"
+    : details.mode === "status"
+      ? "Unity Project Status"
+      : details.mode === "artifacts"
+        ? "Unity Artifacts"
+        : getBatchmodeVariantLabel(details.args);
   const projectLabel = details.projectRoot ?? "(unknown project)";
   let text = `${icon} ${theme.fg("toolTitle", theme.bold(title))} ${theme.fg("muted", projectLabel)}`;
   if (details.mode === "batchmode") {
     text += buildBatchmodeStatusLine(details, theme);
     text += buildBatchmodeResultsLine(details, theme);
+  } else if (details.mode === "status") {
+    text += `\n  ${theme.fg("accent", `status=${details.status ?? "passed"}`)}`;
   }
 
   if (expanded && primaryText) {
@@ -388,6 +543,66 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
         ctx.ui.notify(message, "error");
       }
+    },
+  });
+
+  pi.registerTool({
+    name: "unity_project_status",
+    label: "Unity Project Status",
+    description: "Inspect Unity project lockfile and running-process status without launching Unity.",
+    promptSnippet: "Show whether a Unity project appears busy, has a native Unity lockfile, or has a stale lockfile before launch.",
+    promptGuidelines: [
+      "Use this when Unity launch attempts are blocked by project lockfiles or when you need to know whether a Unity project is currently open.",
+      "Do not delete Unity lockfiles automatically; report the status and safe next action to the user.",
+      "If Unity CLI is configured, status includes Unity CLI process discovery plus direct process scanning.",
+    ],
+    parameters: PROJECT_STATUS_PARAMS,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      throwIfAborted(signal);
+      const report = await buildProjectStatusReport(ctx, candidate);
+      return {
+        content: [{ type: "text", text: report.text }],
+        details: report.details,
+        isError: report.details.status === "failed",
+      };
+    },
+    renderCall(args, theme) {
+      return renderUnityToolCall("unity_project_status", args, theme, "status", "inspects project lock");
+    },
+    renderResult(result, { expanded }, theme) {
+      return renderUnityToolResult(result, expanded, theme);
+    },
+  });
+
+  pi.registerTool({
+    name: "unity_inspect_artifacts",
+    label: "Unity Inspect Artifacts",
+    description: "Summarize existing Unity log files and Unity Test Framework XML results without launching Unity.",
+    promptSnippet: "Inspect existing Unity logs or test result XML files without launching Unity.",
+    promptGuidelines: [
+      "Use unity_inspect_artifacts after Unity failures when existing -testResults or -logFile artifacts need concise parsing without another Unity launch.",
+      "Prefer unity_inspect_artifacts over ad hoc bash parsing of Unity XML/log files when paths are known or Logs/ contains recent artifacts.",
+      "unity_inspect_artifacts does not launch Unity and is safe to use even when the Unity project is busy.",
+    ],
+    parameters: INSPECT_ARTIFACTS_PARAMS,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      throwIfAborted(signal);
+      const report = await buildArtifactInspectionReport(ctx, candidate, params);
+      return {
+        content: [{ type: "text", text: report.text }],
+        details: report.details,
+        isError: report.details.status === "failed",
+      };
+    },
+    renderCall(args, theme) {
+      return renderUnityToolCall("unity_inspect_artifacts", args, theme, "artifacts", "reads logs/results");
+    },
+    renderResult(result, { expanded }, theme) {
+      return renderUnityToolResult(result, expanded, theme);
     },
   });
 
@@ -459,6 +674,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "Use this tool for Unity CLI batchmode execution, not for opening the GUI editor.",
       "Unity allows only one process per project folder; GUI and batchmode both count.",
       "Never run batchmode against a project that is already open in the GUI editor or already running in batchmode.",
+      "If a launch is blocked by a Unity lockfile, call unity_project_status before asking the user to remove anything.",
       "For Unity Test Framework runs, always provide absolute -testResults and -logFile paths when practical so the tool can summarize results compactly for the agent.",
       "Prefer reasoning over structured test results and concise excerpts instead of dumping full Unity logs into context.",
       "Do not add -quit automatically for test workflows that rely on the Unity Test Framework runTests behavior; pass only the arguments actually needed.",
@@ -475,13 +691,18 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         { mode: "batchmode", toolName: "unity_launch_batchmode" },
         async () => {
           throwIfAborted(signal);
-          await assertUnityProjectNotBusy(candidate.projectRoot);
-          throwIfAborted(signal);
-          const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
-          throwIfAborted(signal);
           const timeoutSeconds = params.timeoutSeconds ?? 3600;
           const timeoutMs = timeoutSeconds * 1000;
           const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
+          throwIfAborted(signal);
+          const lockState = useUnityCli
+            ? await inspectUnityProjectBusyState(candidate.projectRoot)
+            : await assertUnityProjectNotBusy(candidate.projectRoot);
+          throwIfAborted(signal);
+          const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
+          const lockWarning = useUnityCli && lockState.nativeLockfileExists
+            ? `Unity CLI launch selected; native Unity lockfile exists at ${lockState.nativeLockfilePath}. No running project process was found by pi-unity preflight, so the launch is being delegated to the Unity CLI instead of blocked as a stale lockfile.`
+            : undefined;
           throwIfAborted(signal);
           const editorPath = useUnityCli
             ? await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor")
@@ -502,7 +723,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
             editorPath,
             { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
             reportArgs,
-            processWarning ?? discoveryWarning,
+            joinWarnings(processWarning, lockWarning, discoveryWarning),
           );
           report.details.command = command.command;
           report.details.cliArgs = useUnityCli ? command.args : undefined;
