@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import {
   createUnityCliBatchmodeReportArgs,
+  createUnityCliEditorExitCommand,
   createUnityCliOpenCommand,
   createUnityCliRunCommand,
   normalizeUnityCliForwardedArgs,
@@ -50,6 +51,18 @@ assert.deepEqual(run.args, [
 ]);
 
 assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"]), ["-batchmode", "-projectPath", "/workspace/My Game", "-quit"]);
+
+const exit = createUnityCliEditorExitCommand("/workspace/My Game", { timeoutSeconds: 7 });
+assert.deepEqual(exit.args, [
+  "--no-banner",
+  "--non-interactive",
+  "eval",
+  "--project-path",
+  "/workspace/My Game",
+  "--timeout",
+  "7",
+  "UnityEditor.EditorApplication.Exit(0);",
+]);
 
 const statusOutput = JSON.stringify({
   success: true,

@@ -13,6 +13,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find.
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
 - **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
+- **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards** - use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
 - **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
 - **Bundle tests into one Unity batchmode turn whenever practical** - starting/stopping Unity, importing assets, and domain reloads dominate runtime. A broader single run is usually faster than many sequential one-test Unity launches, and same-project runs cannot use useful parallelism.
 - **Distinguish graphics-agnostic test runs from graphics-required visual runs** - screenshot, render-texture, and other visual-capture tests require an active graphics device and must not use `-nographics`.
@@ -38,7 +39,9 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding args in Unity CLI mode
 - supports `launcher: "editor-executable"` when Unity CLI argument forwarding differs from direct Editor executable behavior
 - checks Unity CLI status and running Unity processes before launch
-- delegates stale native `Temp/UnityLockfile` handling to `unity run` when the Unity CLI launcher is selected; direct Editor executable mode still blocks on native lockfiles for safety
+- can close same-project blocking Unity processes only when `closeBlockingUnityProcess: true` is set and `piUnity.allowCloseRunningUnityProcess` is enabled in Pi settings; by default this is limited to Unity Test Framework runs
+- may remove the exact resolved project's stale `Temp/UnityLockfile` after a guarded same-call process close, but only after verifying no matching Unity process remains
+- delegates stale native `Temp/UnityLockfile` handling to `unity run` when the Unity CLI launcher is selected; direct Editor executable mode still blocks on native lockfiles for safety unless pi-unity just created the stale-lockfile condition through a guarded close
 - uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
 - can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
 
@@ -83,6 +86,8 @@ Preferred path:
 - use a single-test launch only for a quick smoke check or to isolate/rerun a known failure; do not use one-test launches as the default validation strategy
 - do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
 - call `unity_launch_batchmode`
+- pass `closeBlockingUnityProcess: true` only when a same-project Unity process is blocking the run and Pi settings enable `piUnity.allowCloseRunningUnityProcess`
+- prefer `launcher: "auto"` or `launcher: "unity-cli"` when using `closeBlockingUnityProcess: true`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required
 - pass the explicit test arguments needed for the bundled run
 - rely on the tool to remove direct-Editor lifecycle flags (`-batchmode`, `-projectPath`, `-quit`) before forwarding args through `unity run`
 - use `launcher: "editor-executable"` if the installed `unity run` wrapper rejects or changes another argument that works with direct Editor batchmode

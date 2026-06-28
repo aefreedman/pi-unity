@@ -44,6 +44,9 @@ pi install -l <path-to-pi-unity>
 - In Unity CLI mode, `unity_launch_batchmode` forwards args after `unity run <project> --` and strips direct-Editor flags managed by the CLI (`-batchmode`, `-projectPath`, `-quit`).
 - `unity_launch_batchmode` is test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tool prefers compact structured summaries over dumping full Unity logs into agent context.
 - `unity_launch_batchmode` uses Unity CLI status and direct process scans before launch. In Unity CLI mode, stale native `Temp/UnityLockfile` detection is delegated to `unity run`; direct Editor executable mode still blocks on the native lockfile for safety. A Pi-side project mutex prevents duplicate packaged batchmode calls from spawning Unity concurrently.
+- `unity_launch_batchmode` can close a same-project blocking Unity process only when the tool call sets `closeBlockingUnityProcess: true` and Pi settings enable `piUnity.allowCloseRunningUnityProcess`. The tool re-scans and selects matching Unity processes itself; it never accepts a model-supplied PID.
+- After a guarded same-call close, `unity_launch_batchmode` may remove the exact resolved project's stale `Temp/UnityLockfile` only after verifying no matching Unity process remains. It still refuses general lockfile deletion outside that guarded continuation.
+- When using `closeBlockingUnityProcess: true`, prefer `launcher: "auto"` or `launcher: "unity-cli"`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required.
 - If a Unity launch is blocked by a lockfile, run `unity_project_status` before asking a user to remove anything.
 - `/unity-open` is the user-facing GUI launcher helper.
 - The package resolves Unity project copies from a direct project root, a coordination root containing multiple copies, or another nearby folder.
@@ -52,6 +55,24 @@ pi install -l <path-to-pi-unity>
 - The `unity-batchmode-tests` skill is intended for Unity Test Framework CLI runs.
 - The `capturing-screenshots-unity` skill is intended for Unity gameplay and UI screenshot workflows when the project supports capture.
 - Keep skill-specific references and helper assets under the skill directory beside `SKILL.md`.
+
+## Settings
+
+`pi-unity` reads optional package-specific settings from global `~/.pi/agent/settings.json` and, for trusted projects, project `.pi/settings.json`:
+
+```json
+{
+  "piUnity": {
+    "allowCloseRunningUnityProcess": false,
+    "closeRunningUnityProcessOnlyForTests": true,
+    "closeRunningUnityProcessTimeoutMs": 30000
+  }
+}
+```
+
+- `allowCloseRunningUnityProcess` defaults to `false`. When enabled, `unity_launch_batchmode` may close only Unity processes that target the resolved project and only when the tool call explicitly sets `closeBlockingUnityProcess: true`.
+- `closeRunningUnityProcessOnlyForTests` defaults to `true`, limiting process closure to Unity Test Framework launches (`-runTests`).
+- `closeRunningUnityProcessTimeoutMs` defaults to `30000` and is clamped between 1000 and 120000 milliseconds.
 
 ## Package layout
 

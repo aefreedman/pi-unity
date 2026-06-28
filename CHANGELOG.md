@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.5.0] - 2026-06-28
+
+### Added
+
+- Added `piUnity.allowCloseRunningUnityProcess` settings support so `unity_launch_batchmode` can close same-project blocking Unity processes only when explicitly enabled and requested with `closeBlockingUnityProcess`.
+- Added `piUnity.closeRunningUnityProcessOnlyForTests` and `piUnity.closeRunningUnityProcessTimeoutMs` safeguards for constrained Unity process closure.
+
+### Changed
+
+- Updated guarded process closing to request graceful Editor exit through `unity eval 'UnityEditor.EditorApplication.Exit(0);'` before falling back to OS-level process termination.
+- Updated guarded process closing to clean up the exact resolved project's stale `Temp/UnityLockfile` only when pi-unity closed the matching Unity process in the same batchmode call and verifies no matching process remains.
+- Updated Windows process termination to retry `taskkill` with `/F` only when Windows reports that force is required.
+- Updated `unity_project_status`, README, and batchmode skill guidance to surface the new guarded process-closing settings.
+- Updated the interactive Unity project picker so up/down navigation wraps between the first and last workspace options.
+
 ## [0.4.0] - 2026-06-27
 
 ### Added

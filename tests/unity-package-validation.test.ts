@@ -16,6 +16,7 @@ assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to
 assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep its skills registered.");
 assert(packageJson.scripts?.test?.includes("unity-core.test.ts"), "Expected pi-unity test script to run unity-core tests.");
 assert(packageJson.scripts?.test?.includes("unity-processes.test.ts"), "Expected pi-unity test script to run unity-process tests.");
+assert(packageJson.scripts?.test?.includes("pi-unity-settings.test.ts"), "Expected pi-unity test script to run pi-unity settings tests.");
 assert(packageJson.scripts?.test?.includes("unity-batchmode.test.ts"), "Expected pi-unity test script to run unity-batchmode tests.");
 assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
@@ -23,11 +24,11 @@ assert(packageJson.peerDependencies?.["@mariozechner/pi-coding-agent"] === "*", 
 assert(packageJson.peerDependencies?.["@mariozechner/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "Unity allows only one process per project folder", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "createUnityCliRunCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
-for (const snippet of ["unity_project_status", "unity_inspect_artifacts", "unity_open_editor", "unity_launch_batchmode", "/unity-open", "one process per project folder"]) {
+for (const snippet of ["unity_project_status", "unity_inspect_artifacts", "unity_open_editor", "unity_launch_batchmode", "/unity-open", "one process per project folder", "piUnity.allowCloseRunningUnityProcess"]) {
   assert(skillText.includes(snippet), `Expected skill doc to contain: ${snippet}`);
   assert(readmeText.includes(snippet), `Expected README to contain: ${snippet}`);
 }

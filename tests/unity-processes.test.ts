@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { parsePosixUnityProcessList, parseWindowsUnityProcessList } from "../src/unity-processes.ts";
+import { dedupeRunningUnityProcesses, parsePosixUnityProcessList, parseWindowsUnityProcessList, shouldRetryWindowsTaskkillWithForce, terminateRunningUnityProcesses } from "../src/unity-processes.ts";
 
 const windowsJson = JSON.stringify([
   {
@@ -23,5 +23,32 @@ const posixOutput = [
 const posixMatches = parsePosixUnityProcessList(posixOutput, "/Users/test/Game", "darwin");
 assert.equal(posixMatches.length, 1);
 assert.equal(posixMatches[0].pid, 301);
+
+const deduped = dedupeRunningUnityProcesses([
+  { pid: 10, commandLine: "Unity -projectPath Game" },
+  { pid: 10, commandLine: "Unity duplicate" },
+  { pid: null, commandLine: "Unity no pid" },
+  { pid: null, commandLine: "Unity no pid" },
+]);
+assert.equal(deduped.length, 2);
+
+const terminatedPids: number[] = [];
+const termination = await terminateRunningUnityProcesses([
+  { pid: 42, commandLine: "Unity -projectPath Game" },
+  { pid: 42, commandLine: "Unity duplicate" },
+  { pid: null, commandLine: "Unity CLI status: Game" },
+], {
+  terminator: async (process) => {
+    if (process.pid !== null) terminatedPids.push(process.pid);
+    return { forced: true };
+  },
+});
+assert.deepEqual(terminatedPids, [42]);
+assert.equal(termination.terminated.length, 1);
+assert.equal(termination.forceTerminated.length, 1);
+assert.equal(termination.skipped.length, 1);
+
+assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "Reason: This process can only be terminated forcefully (with /F option)." }), true);
+assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "ERROR: The process could not be found." }), false);
 
 console.log("free-unity-pi unity-process tests passed");

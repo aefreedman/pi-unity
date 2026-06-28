@@ -95,6 +95,24 @@ export function createUnityCliBatchmodeReportArgs(projectRoot: string, extraEdit
   return buildUnityBatchmodeArgs(projectRoot, extraEditorArgs);
 }
 
+export function createUnityCliEditorExitCommand(
+  projectRoot: string,
+  options: { cliCommand?: string; timeoutSeconds?: number } = {},
+): UnityCliCommand {
+  return {
+    command: resolveUnityCliCommand(options),
+    args: [
+      ...unityCliBaseArgs(),
+      "eval",
+      "--project-path",
+      projectRoot,
+      "--timeout",
+      String(options.timeoutSeconds ?? 5),
+      "UnityEditor.EditorApplication.Exit(0);",
+    ],
+  };
+}
+
 function execFileCollect(command: string, args: string[], options: { timeout?: number } = {}): Promise<ExecFileResult> {
   return new Promise((resolve) => {
     execFile(command, args, { timeout: options.timeout ?? 5000, windowsHide: true }, (error, stdout, stderr) => {

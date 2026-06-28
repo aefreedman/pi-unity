@@ -9,6 +9,18 @@ export type RunningUnityProcess = {
   commandLine: string;
 };
 
+export type UnityProcessTerminationInfo = {
+  forced?: boolean;
+};
+
+export type UnityProcessTerminator = (process: RunningUnityProcess) => Promise<void | UnityProcessTerminationInfo>;
+
+export type TerminateUnityProcessesResult = {
+  terminated: RunningUnityProcess[];
+  forceTerminated: RunningUnityProcess[];
+  skipped: RunningUnityProcess[];
+};
+
 export function parseWindowsUnityProcessList(output: string, projectRoot: string): RunningUnityProcess[] {
   const trimmed = output.trim();
   if (!trimmed) {
@@ -57,6 +69,98 @@ export function parsePosixUnityProcessList(output: string, projectRoot: string, 
       } satisfies RunningUnityProcess;
     })
     .filter((entry): entry is RunningUnityProcess => entry !== null);
+}
+
+export function dedupeRunningUnityProcesses(processes: RunningUnityProcess[]): RunningUnityProcess[] {
+  const seenPids = new Set<number>();
+  const seenCommandLines = new Set<string>();
+  const unique: RunningUnityProcess[] = [];
+
+  for (const runningProcess of processes) {
+    if (typeof runningProcess.pid === "number" && Number.isInteger(runningProcess.pid) && runningProcess.pid > 0) {
+      if (seenPids.has(runningProcess.pid)) continue;
+      seenPids.add(runningProcess.pid);
+      unique.push(runningProcess);
+      continue;
+    }
+
+    if (seenCommandLines.has(runningProcess.commandLine)) continue;
+    seenCommandLines.add(runningProcess.commandLine);
+    unique.push(runningProcess);
+  }
+
+  return unique;
+}
+
+function getErrorText(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return String(error ?? "");
+  }
+
+  const record = error as { stdout?: unknown; stderr?: unknown; message?: unknown };
+  return [record.stdout, record.stderr, record.message]
+    .filter((value): value is string => typeof value === "string")
+    .join("\n");
+}
+
+export function shouldRetryWindowsTaskkillWithForce(error: unknown): boolean {
+  const text = getErrorText(error).toLowerCase();
+  return text.includes("/f") && (
+    text.includes("forcefully") ||
+    text.includes("terminated forcefully") ||
+    text.includes("child process") ||
+    text.includes("child processes")
+  );
+}
+
+export async function defaultUnityProcessTerminator(
+  runningProcess: RunningUnityProcess,
+  platform: SupportedPlatform = process.platform,
+): Promise<UnityProcessTerminationInfo> {
+  if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
+    throw new Error(`Cannot close Unity process because no valid PID was reported: ${runningProcess.commandLine}`);
+  }
+
+  if (platform === "win32") {
+    try {
+      await execFileAsync("taskkill.exe", ["/PID", String(runningProcess.pid), "/T"], { timeout: 5000, windowsHide: true });
+      return { forced: false };
+    } catch (error) {
+      if (!shouldRetryWindowsTaskkillWithForce(error)) {
+        throw error;
+      }
+      await execFileAsync("taskkill.exe", ["/PID", String(runningProcess.pid), "/T", "/F"], { timeout: 5000, windowsHide: true });
+      return { forced: true };
+    }
+  }
+
+  process.kill(runningProcess.pid, "SIGTERM");
+  return { forced: false };
+}
+
+export async function terminateRunningUnityProcesses(
+  processes: RunningUnityProcess[],
+  options: { terminator?: UnityProcessTerminator } = {},
+): Promise<TerminateUnityProcessesResult> {
+  const terminator = options.terminator ?? defaultUnityProcessTerminator;
+  const terminated: RunningUnityProcess[] = [];
+  const forceTerminated: RunningUnityProcess[] = [];
+  const skipped: RunningUnityProcess[] = [];
+
+  for (const runningProcess of dedupeRunningUnityProcesses(processes)) {
+    if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
+      skipped.push(runningProcess);
+      continue;
+    }
+
+    const terminationInfo = await terminator(runningProcess);
+    terminated.push(runningProcess);
+    if (terminationInfo?.forced === true) {
+      forceTerminated.push(runningProcess);
+    }
+  }
+
+  return { terminated, forceTerminated, skipped };
 }
 
 export async function listRunningUnityProcessesForProject(
