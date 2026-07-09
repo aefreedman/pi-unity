@@ -16,7 +16,9 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards** - use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
 - **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
 - **Bundle tests into one Unity batchmode turn whenever practical** - starting/stopping Unity, importing assets, and domain reloads dominate runtime. A broader single run is usually faster than many sequential one-test Unity launches, and same-project runs cannot use useful parallelism.
+- **Default to headless/no-graphics validation** - `unity_launch_batchmode` adds `-nographics` by default to reduce focus stealing and unnecessary graphics initialization.
 - **Distinguish graphics-agnostic test runs from graphics-required visual runs** - screenshot, render-texture, and other visual-capture tests require an active graphics device and must not use `-nographics`.
+- **Only request graphics when required by the user's work** - set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
 - **Do not treat a graphics-disabled run as valid evidence for screenshot workflows** - graphics-required tests should fail clearly or be excluded from that run.
 
 ## Workflow
@@ -94,13 +96,15 @@ Preferred path:
 - always provide absolute `-testResults` and `-logFile` paths when practical so the tool can summarize results compactly for the agent
 - keep test-specific flags deliberate, especially around `-runTests` and `-quit`
 - decide up front whether the run is graphics-agnostic or graphics-required
-- exclude graphics-required screenshot/visual-capture tests from any `-nographics` run
+- rely on the default `useGraphics: false` / `-nographics` mode for ordinary EditMode, non-visual PlayMode, asset import, build, and CI-style checks
+- set `useGraphics: true` only when the requested work requires an active graphics device
+- exclude graphics-required screenshot/visual-capture tests from no-graphics runs
 - prefer project test categories such as `RequiresGraphics` / `VisualCapture` when the project exposes them
 
 Direct CLI fallback templates:
 ```
-unity run "<ProjectPath>" -- -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
-"<UnityEditorPath>" -batchmode -projectPath "<ProjectPath>" -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
+unity run "<ProjectPath>" -- -nographics -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
+"<UnityEditorPath>" -batchmode -nographics -projectPath "<ProjectPath>" -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
 ```
 
 Fallback parameters:

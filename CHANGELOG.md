@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## Unreleased
+
+### Changed
+
+- Updated `unity_launch_batchmode` to add `-nographics` by default, with an explicit `useGraphics` opt-in for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
+- Updated Unity batchmode skill and README guidance to steer agents toward no-graphics validation unless the requested work requires graphics.
+
 ## [0.5.0] - 2026-06-28
 
 ### Added

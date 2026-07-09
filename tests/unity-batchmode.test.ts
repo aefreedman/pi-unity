@@ -34,7 +34,7 @@ assert.equal(invocation.logFilePath, "Logs/run.log");
 
 const headlessInvocation = parseUnityBatchmodeInvocation([
   "-batchmode",
-  "-nographics",
+  "-NoGraphics",
   "-projectPath",
   "/repo/game",
 ]);

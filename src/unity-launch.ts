@@ -72,9 +72,14 @@ export function launchUnityCliOpenDetached(
   return { pid: child.pid, args: cli.args, command: cli.command };
 }
 
-export function createUnityBatchmodeCommand(editorPath: string, projectRoot: string, extraArgs: string[] = []): { command: string; args: string[] } {
+export function createUnityBatchmodeCommand(
+  editorPath: string,
+  projectRoot: string,
+  extraArgs: string[] = [],
+  options: { useGraphics?: boolean } = {},
+): { command: string; args: string[] } {
   return {
     command: editorPath,
-    args: buildUnityBatchmodeArgs(projectRoot, extraArgs),
+    args: buildUnityBatchmodeArgs(projectRoot, extraArgs, options),
   };
 }

@@ -1,9 +1,11 @@
 import { strict as assert } from "node:assert";
 import {
+  applyDefaultUnityBatchmodeArgs,
   buildUnityBatchmodeArgs,
   buildUnityEditorCandidates,
   buildUnityOpenEditorArgs,
   commandTargetsProject,
+  hasUnityCommandLineFlag,
   normalizeUnityEditorOverride,
   parseUnityVersionText,
 } from "../src/unity-core.ts";
@@ -12,7 +14,10 @@ assert.equal(parseUnityVersionText("m_EditorVersion: 2022.3.18f1\n"), "2022.3.18
 assert.equal(parseUnityVersionText("foo\nbar\n"), null);
 
 assert.deepEqual(buildUnityOpenEditorArgs("/repo/game"), ["-projectPath", "/repo/game"]);
-assert.deepEqual(buildUnityBatchmodeArgs("/repo/game", ["-quit", "-logFile", "-"]), ["-batchmode", "-projectPath", "/repo/game", "-quit", "-logFile", "-"]);
+assert.deepEqual(buildUnityBatchmodeArgs("/repo/game", ["-quit", "-logFile", "-"]), ["-batchmode", "-projectPath", "/repo/game", "-nographics", "-quit", "-logFile", "-"]);
+assert.deepEqual(buildUnityBatchmodeArgs("/repo/game", ["-quit"], { useGraphics: true }), ["-batchmode", "-projectPath", "/repo/game", "-quit"]);
+assert.deepEqual(applyDefaultUnityBatchmodeArgs(["-nographics", "-runTests"]), ["-nographics", "-runTests"]);
+assert(hasUnityCommandLineFlag(["-NoGraphics"], "-nographics"), "Expected command-line flag detection to be case-insensitive.");
 
 const normalizeSlashes = (value: string): string => value.replace(/\\/g, "/");
 

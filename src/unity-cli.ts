@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { buildUnityBatchmodeArgs, commandTargetsProject } from "./unity-core";
+import { applyDefaultUnityBatchmodeArgs, buildUnityBatchmodeArgs, commandTargetsProject } from "./unity-core";
 import type { RunningUnityProcess } from "./unity-processes";
 
 export const DEFAULT_UNITY_CLI_COMMAND = "unity";
@@ -14,6 +14,7 @@ export type UnityCliLaunchOptions = {
   editorPath?: string;
   timeoutSeconds?: number;
   cliCommand?: string;
+  useGraphics?: boolean;
 };
 
 type ExecFileResult = {
@@ -77,7 +78,7 @@ export function normalizeUnityCliForwardedArgs(extraEditorArgs: string[] = []): 
 
 export function createUnityCliRunCommand(projectRoot: string, extraEditorArgs: string[] = [], options: UnityCliLaunchOptions = {}): UnityCliCommand {
   const args = [...unityCliBaseArgs(), "run", projectRoot];
-  const forwardedArgs = normalizeUnityCliForwardedArgs(extraEditorArgs);
+  const forwardedArgs = normalizeUnityCliForwardedArgs(applyDefaultUnityBatchmodeArgs(extraEditorArgs, { useGraphics: options.useGraphics }));
   appendUnityCliEditorOptions(args, options);
   if (options.timeoutSeconds !== undefined) {
     args.push("--timeout", String(options.timeoutSeconds));
@@ -91,8 +92,8 @@ export function createUnityCliRunCommand(projectRoot: string, extraEditorArgs: s
   };
 }
 
-export function createUnityCliBatchmodeReportArgs(projectRoot: string, extraEditorArgs: string[] = []): string[] {
-  return buildUnityBatchmodeArgs(projectRoot, extraEditorArgs);
+export function createUnityCliBatchmodeReportArgs(projectRoot: string, extraEditorArgs: string[] = [], options: { useGraphics?: boolean } = {}): string[] {
+  return buildUnityBatchmodeArgs(projectRoot, extraEditorArgs, options);
 }
 
 export function createUnityCliEditorExitCommand(

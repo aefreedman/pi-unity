@@ -67,8 +67,34 @@ export function buildUnityOpenEditorArgs(projectRoot: string): string[] {
   return ["-projectPath", projectRoot];
 }
 
-export function buildUnityBatchmodeArgs(projectRoot: string, extraArgs: string[] = []): string[] {
-  return ["-batchmode", "-projectPath", projectRoot, ...extraArgs];
+export type UnityBatchmodeArgsOptions = {
+  useGraphics?: boolean;
+};
+
+export function hasUnityCommandLineFlag(args: string[], flag: string): boolean {
+  const normalizedFlag = flag.toLowerCase();
+  return args.some((arg) => {
+    const lower = arg.toLowerCase();
+    return lower === normalizedFlag || lower.startsWith(`${normalizedFlag}=`);
+  });
+}
+
+export function applyDefaultUnityBatchmodeArgs(
+  extraArgs: string[] = [],
+  options: UnityBatchmodeArgsOptions = {},
+): string[] {
+  if (options.useGraphics || hasUnityCommandLineFlag(extraArgs, "-nographics")) {
+    return [...extraArgs];
+  }
+  return ["-nographics", ...extraArgs];
+}
+
+export function buildUnityBatchmodeArgs(
+  projectRoot: string,
+  extraArgs: string[] = [],
+  options: UnityBatchmodeArgsOptions = {},
+): string[] {
+  return ["-batchmode", "-projectPath", projectRoot, ...applyDefaultUnityBatchmodeArgs(extraArgs, options)];
 }
 
 export function normalizeForCommandSearch(value: string, platform: SupportedPlatform = process.platform): string {

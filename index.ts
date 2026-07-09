@@ -15,7 +15,7 @@ import {
   type UnityBatchmodeInvocation,
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
-import { formatPathForUser } from "./src/unity-core";
+import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
 import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, listRunningUnityCliEditorsForProject, resolveUnityCliCommand } from "./src/unity-cli";
 import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
@@ -68,7 +68,8 @@ const OPEN_EDITOR_PARAMS = Type.Object({
 const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
   unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
-  args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project> for direct editor launch, or forwarded after `unity run <project> --` for Unity CLI launch." })),
+  args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project> for direct editor launch, or forwarded after `unity run <project> --` for Unity CLI launch. pi-unity adds -nographics by default unless useGraphics=true." })),
+  useGraphics: Type.Optional(Type.Boolean({ default: false, description: "Set true only when the requested Unity batchmode work requires an active graphics device, such as screenshots, rendering, or visual PlayMode tests. Defaults to false, which adds -nographics." })),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Timeout in seconds for the batchmode process." })),
   launcher: LAUNCHER_SCHEMA,
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false, description: "When true, pi-unity may close a running Unity process for the resolved project before launch, but only if piUnity.allowCloseRunningUnityProcess is enabled in Pi settings. The process is selected by project matching, not by model-supplied PID." })),
@@ -926,6 +927,9 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "When closeBlockingUnityProcess=true, prefer launcher='auto' or launcher='unity-cli' unless direct Editor execution is explicitly required; Unity CLI mode is safer around stale native lockfiles.",
       "If pi-unity closes the matching Unity process during the same guarded batchmode call, it may remove that exact project's stale Temp/UnityLockfile after verifying no matching Unity process remains; do not remove Unity lockfiles yourself.",
       "If a launch is blocked by a Unity lockfile, call unity_project_status before asking the user to remove anything.",
+      "By default, pi-unity adds -nographics to batchmode launches to avoid unnecessary graphics initialization and focus stealing.",
+      "Leave useGraphics=false for ordinary EditMode, non-visual PlayMode, asset import, build, and CI-style validation runs.",
+      "Set useGraphics=true only when the requested work requires an active graphics device, such as screenshots, render-texture checks, visual capture, or graphics-dependent PlayMode tests.",
       "For Unity Test Framework runs, always provide absolute -testResults and -logFile paths when practical so the tool can summarize results compactly for the agent.",
       "Prefer reasoning over structured test results and concise excerpts instead of dumping full Unity logs into context.",
       "Do not add -quit automatically for test workflows that rely on the Unity Test Framework runTests behavior; pass only the arguments actually needed.",
@@ -944,7 +948,12 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           throwIfAborted(signal);
           const timeoutSeconds = params.timeoutSeconds ?? 3600;
           const timeoutMs = timeoutSeconds * 1000;
-          const invocation = parseUnityBatchmodeInvocation(params.args ?? []);
+          const extraArgs = params.args ?? [];
+          const useGraphics = Boolean(params.useGraphics);
+          if (useGraphics && hasUnityCommandLineFlag(extraArgs, "-nographics")) {
+            throw new Error("useGraphics=true conflicts with an explicit -nographics argument. Remove -nographics or leave useGraphics=false.");
+          }
+          const invocation = parseUnityBatchmodeInvocation(createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics }));
           const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
           throwIfAborted(signal);
           const closeReport = await closeBlockingUnityProcessesForBatchmode(
@@ -971,15 +980,16 @@ export default function freeUnityPi(pi: ExtensionAPI) {
             ? await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor")
             : await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
           const command = useUnityCli
-            ? createUnityCliRunCommand(candidate.projectRoot, params.args ?? [], {
+            ? createUnityCliRunCommand(candidate.projectRoot, extraArgs, {
               editorVersion: candidate.unityVersion,
               editorPath: params.unityEditorPath,
               timeoutSeconds,
+              useGraphics,
             })
-            : createUnityBatchmodeCommand(editorPath, candidate.projectRoot, params.args ?? []);
+            : createUnityBatchmodeCommand(editorPath, candidate.projectRoot, extraArgs, { useGraphics });
           const result = await pi.exec(command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs });
           throwIfAborted(signal);
-          const reportArgs = useUnityCli ? createUnityCliBatchmodeReportArgs(candidate.projectRoot, params.args ?? []) : command.args;
+          const reportArgs = useUnityCli ? createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics }) : command.args;
           const report = await buildBatchmodeReport(
             ctx,
             candidate,
@@ -1009,7 +1019,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       );
     },
     renderCall(args, theme) {
-      return renderUnityToolCall("unity_launch_batchmode", args, theme, "batchmode", getBatchmodeVariantLabel(args.args));
+      const displayArgs = args.useGraphics ? args.args : ["-nographics", ...(args.args ?? [])];
+      return renderUnityToolCall("unity_launch_batchmode", args, theme, "batchmode", getBatchmodeVariantLabel(displayArgs));
     },
     renderResult(result, { expanded }, theme) {
       return renderUnityToolResult(result, expanded, theme);

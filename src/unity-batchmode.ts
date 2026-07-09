@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { hasUnityCommandLineFlag } from "./unity-core";
 
 export type UnityBatchmodeInvocation = {
   isTestRun: boolean;
@@ -49,8 +50,8 @@ export function parseUnityBatchmodeInvocation(args: string[]): UnityBatchmodeInv
   };
 
   return {
-    isTestRun: args.includes("-runTests"),
-    usesNoGraphics: args.includes("-nographics"),
+    isTestRun: hasUnityCommandLineFlag(args, "-runTests"),
+    usesNoGraphics: hasUnityCommandLineFlag(args, "-nographics"),
     testPlatform: getValue("-testPlatform"),
     testFilter: getValue("-testFilter"),
     testResultsPath: getValue("-testResults"),

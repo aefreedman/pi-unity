@@ -30,7 +30,7 @@ assert.deepEqual(
   ["-logFile", "run.log"],
 );
 
-const run = createUnityCliRunCommand("/workspace/My Game", ["-nographics", "-quit", "-runTests", "-testPlatform", "EditMode"], {
+const run = createUnityCliRunCommand("/workspace/My Game", ["-quit", "-runTests", "-testPlatform", "EditMode"], {
   editorVersion: "6000.1.13f1",
   timeoutSeconds: 90,
 });
@@ -50,7 +50,18 @@ assert.deepEqual(run.args, [
   "EditMode",
 ]);
 
-assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"]), ["-batchmode", "-projectPath", "/workspace/My Game", "-quit"]);
+assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"]), ["-batchmode", "-projectPath", "/workspace/My Game", "-nographics", "-quit"]);
+assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"], { useGraphics: true }), ["-batchmode", "-projectPath", "/workspace/My Game", "-quit"]);
+
+const graphicsRun = createUnityCliRunCommand("/workspace/My Game", ["-runTests"], { useGraphics: true });
+assert.deepEqual(graphicsRun.args, [
+  "--no-banner",
+  "--non-interactive",
+  "run",
+  "/workspace/My Game",
+  "--",
+  "-runTests",
+]);
 
 const exit = createUnityCliEditorExitCommand("/workspace/My Game", { timeoutSeconds: 7 });
 assert.deepEqual(exit.args, [
