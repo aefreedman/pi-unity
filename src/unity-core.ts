@@ -122,17 +122,23 @@ function realpathMatchesOnDarwin(candidatePath: string, projectRoot: string, pla
 }
 
 export function projectPathsMatch(candidatePath: string, projectRoot: string, platform: SupportedPlatform = process.platform): boolean {
-  const pathApi = pathApiForPlatform(platform);
-  if (!pathApi.isAbsolute(candidatePath.trim()) || !pathApi.isAbsolute(projectRoot.trim())) {
+  const trimmedCandidatePath = candidatePath.trim();
+  const trimmedProjectRoot = projectRoot.trim();
+  const isWindowsStyleAbsolutePath = (value: string): boolean => /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+  const comparisonPlatform = isWindowsStyleAbsolutePath(trimmedCandidatePath) && isWindowsStyleAbsolutePath(trimmedProjectRoot)
+    ? "win32"
+    : platform;
+  const pathApi = pathApiForPlatform(comparisonPlatform);
+  if (!pathApi.isAbsolute(trimmedCandidatePath) || !pathApi.isAbsolute(trimmedProjectRoot)) {
     return false;
   }
 
-  const realpathMatch = realpathMatchesOnDarwin(candidatePath.trim(), projectRoot.trim(), platform);
+  const realpathMatch = realpathMatchesOnDarwin(trimmedCandidatePath, trimmedProjectRoot, comparisonPlatform);
   if (realpathMatch !== null) {
     return realpathMatch;
   }
 
-  return normalizeForCommandSearch(candidatePath, platform) === normalizeForCommandSearch(projectRoot, platform);
+  return normalizeForCommandSearch(trimmedCandidatePath, comparisonPlatform) === normalizeForCommandSearch(trimmedProjectRoot, comparisonPlatform);
 }
 
 export function parseCommandLineArguments(commandLine: string): string[] {

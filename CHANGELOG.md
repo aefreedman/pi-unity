@@ -11,6 +11,10 @@ and this project follows semantic versioning for public package releases.
 
 - Migrated Pi extension imports and peer dependencies to the `@earendil-works` package scope.
 
+### Fixed
+
+- Recognize Windows-style absolute Unity project paths with Windows path semantics when status output is validated on another operating system.
+
 ## [0.7.0] - 2026-07-09
 
 ### Added
