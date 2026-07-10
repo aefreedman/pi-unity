@@ -10,6 +10,7 @@ Pi skill and tool package for reusable Unity workflows.
 - tool: `unity_inspect_artifacts`
 - tool: `unity_open_editor`
 - tool: `unity_launch_batchmode`
+- tool: `unity_run_test_batch`
 - command: `/unity-open`
 
 ## Install
@@ -39,11 +40,13 @@ pi install -l <path-to-pi-unity>
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
 - `unity_project_status` reports native Unity lockfile state, Unity CLI status output, and running Unity processes for a project without launching Unity.
 - `unity_inspect_artifacts` summarizes existing Unity Test Framework XML results and Unity logs without launching Unity, reducing ad hoc shell parsing after failures.
-- `unity_launch_batchmode` prefers the installed `unity run` CLI when available, falling back to direct editor executable batchmode launch.
+- `unity_run_test_batch` is the preferred ordinary Unity Test Framework entry point. It runs exactly one EditMode or PlayMode batch, combines filter/category arrays into one launch, creates collision-safe absolute XML/log paths under the project `Logs` directory, omits `-quit`, and uses the same guarded launcher as `unity_launch_batchmode`.
+- `unity_launch_batchmode` prefers the installed `unity run` CLI when available, falling back to direct editor executable batchmode launch; use it when custom raw Editor arguments are required.
 - `unity_launch_batchmode` adds `-nographics` by default to avoid unnecessary graphics initialization and reduce focus stealing; set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
-- Both Unity launch tools expose `launcher` (`auto`, `unity-cli`, or `editor-executable`) so workflows can force direct Editor execution when Unity CLI argument handling differs from `Unity.exe`/`Unity`.
+- Unity GUI, generic batchmode, and test-batch tools expose `launcher` (`auto`, `unity-cli`, or `editor-executable`) so workflows can force direct Editor execution when Unity CLI argument handling differs from `Unity.exe`/`Unity`.
 - In Unity CLI mode, `unity_launch_batchmode` forwards args after `unity run <project> --` and strips direct-Editor flags managed by the CLI (`-batchmode`, `-projectPath`, `-quit`).
-- `unity_launch_batchmode` is test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tool prefers compact structured summaries over dumping full Unity logs into agent context.
+- `unity_run_test_batch` and `unity_launch_batchmode` are test-aware: when Unity Test Framework runs write `-testResults` and `-logFile`, the tools prefer compact structured summaries over dumping full Unity logs into agent context. Zero-test, missing-result, malformed-result, and failing batches are not reported as passing evidence; full artifacts remain on disk while session details retain bounded excerpts and byte counts.
+- Validation guidance treats explicit user/project PlayMode skips as authoritative, distinguishes baseline compile/EditMode evidence from optional PlayMode evidence, and stops unchanged relaunch loops after hangs or infrastructure failures in favor of one inspection of the exact current-run artifact paths.
 - `unity_launch_batchmode` uses Unity CLI status and direct process scans before launch. In Unity CLI mode, stale native `Temp/UnityLockfile` detection is delegated to `unity run`; direct Editor executable mode still blocks on the native lockfile for safety. A Pi-side project mutex prevents duplicate packaged batchmode calls from spawning Unity concurrently.
 - `unity_launch_batchmode` can close a same-project blocking Unity process only when the tool call sets `closeBlockingUnityProcess: true` and Pi settings enable `piUnity.allowCloseRunningUnityProcess`. The tool re-scans and selects matching Unity processes itself; it never accepts a model-supplied PID.
 - After a guarded same-call close, `unity_launch_batchmode` may remove the exact resolved project's stale `Temp/UnityLockfile` only after verifying no matching Unity process remains. It still refuses general lockfile deletion outside that guarded continuation.

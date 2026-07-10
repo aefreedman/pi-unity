@@ -52,6 +52,7 @@ const deduped = dedupeRunningUnityProcesses([
 assert.equal(deduped.length, 2);
 
 const terminatedPids: number[] = [];
+const journaledPids: number[] = [];
 const termination = await terminateRunningUnityProcesses([
   { pid: 42, commandLine: "Unity -projectPath Game" },
   { pid: 42, commandLine: "Unity duplicate" },
@@ -61,8 +62,12 @@ const termination = await terminateRunningUnityProcesses([
     if (process.pid !== null) terminatedPids.push(process.pid);
     return { forced: true };
   },
+  onTerminated: (process, info) => {
+    if (process.pid !== null && info.forced) journaledPids.push(process.pid);
+  },
 });
 assert.deepEqual(terminatedPids, [42]);
+assert.deepEqual(journaledPids, [42], "Expected completed terminations to be journaled immediately for error disclosure.");
 assert.equal(termination.terminated.length, 1);
 assert.equal(termination.forceTerminated.length, 1);
 assert.equal(termination.skipped.length, 1);

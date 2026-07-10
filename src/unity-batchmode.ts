@@ -7,6 +7,7 @@ export type UnityBatchmodeInvocation = {
   usesNoGraphics: boolean;
   testPlatform?: string;
   testFilter?: string;
+  testCategory?: string;
   testResultsPath?: string;
   logFilePath?: string;
 };
@@ -32,6 +33,9 @@ export type UnityBatchmodeArtifacts = {
   logFilePath?: string;
   testResultsXml?: string;
   logText?: string;
+  testResultsBytes?: number;
+  logBytes?: number;
+  logExcerpt?: string;
   warnings: string[];
 };
 
@@ -54,6 +58,7 @@ export function parseUnityBatchmodeInvocation(args: string[]): UnityBatchmodeInv
     usesNoGraphics: hasUnityCommandLineFlag(args, "-nographics"),
     testPlatform: getValue("-testPlatform"),
     testFilter: getValue("-testFilter"),
+    testCategory: getValue("-testCategory"),
     testResultsPath: getValue("-testResults"),
     logFilePath: getValue("-logFile"),
   };
@@ -83,6 +88,11 @@ function parseAttributes(tagSource: string): Record<string, string> {
   return attributes;
 }
 
+function truncateEvidence(value: string | undefined, maxChars: number): string | undefined {
+  if (!value) return undefined;
+  return value.length <= maxChars ? value : `${value.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
 function parseOptionalNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
@@ -91,7 +101,8 @@ function parseOptionalNumber(value: string | undefined): number | undefined {
 
 export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | null {
   const testRunMatch = xml.match(/<test-run\b([^>]*)>/i);
-  if (!testRunMatch) {
+  const testRunCloseIndex = xml.search(/<\/test-run\s*>/i);
+  if (!testRunMatch || testRunCloseIndex < (testRunMatch.index ?? 0) + testRunMatch[0].length) {
     return null;
   }
 
@@ -109,16 +120,18 @@ export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | 
 
     const failureMessage = body.match(/<message[^>]*>([\s\S]*?)<\/message>/i);
     const stackTrace = body.match(/<stack-trace[^>]*>([\s\S]*?)<\/stack-trace>/i);
-    failedTests.push({
-      name: attributes.fullname ?? attributes.name ?? "(unknown test)",
-      message: decodeXmlText(failureMessage?.[1]),
-      stackTrace: decodeXmlText(stackTrace?.[1]),
-    });
+    if (failedTests.length < 50) {
+      failedTests.push({
+        name: truncateEvidence(attributes.fullname ?? attributes.name ?? "(unknown test)", 500) ?? "(unknown test)",
+        message: truncateEvidence(decodeXmlText(failureMessage?.[1]), 1_000),
+        stackTrace: truncateEvidence(decodeXmlText(stackTrace?.[1]), 4_000),
+      });
+    }
   }
 
   const skipped = parseOptionalNumber(rootAttributes.skipped) ?? parseOptionalNumber(rootAttributes.inconclusive);
 
-  return {
+  const parsed: UnityParsedTestResults = {
     total: parseOptionalNumber(rootAttributes.total) ?? parseOptionalNumber(rootAttributes.testcasecount),
     passed: parseOptionalNumber(rootAttributes.passed),
     failed: parseOptionalNumber(rootAttributes.failed),
@@ -127,6 +140,10 @@ export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | 
     durationSeconds: parseOptionalNumber(rootAttributes.duration),
     failedTests,
   };
+  if (parsed.total === undefined && parsed.passed === undefined && parsed.failed === undefined && parsed.failedTests.length === 0) {
+    return null;
+  }
+  return parsed;
 }
 
 function buildArtifactCandidates(cwd: string, projectRoot: string, rawPath: string): string[] {
@@ -242,12 +259,23 @@ export type UnityBatchmodeAgentTextInput = {
   singleProcessWarning: string;
 };
 
-function getOutcomeLabel(input: UnityBatchmodeAgentTextInput): "passed" | "failed" | "killed" {
-  if (input.killed) return "killed";
-  if (input.parsedTestResults && (input.parsedTestResults.failed ?? input.parsedTestResults.failedTests.length ?? 0) > 0) {
+export function deriveUnityBatchmodeStatus(
+  exitCode: number,
+  killed: boolean,
+  invocation: UnityBatchmodeInvocation,
+  parsedTestResults?: UnityParsedTestResults | null,
+): "passed" | "failed" | "killed" {
+  if (killed) return "killed";
+  if (invocation.isTestRun && invocation.testResultsPath && !parsedTestResults) return "failed";
+  if (invocation.isTestRun && parsedTestResults?.total === 0) return "failed";
+  if (parsedTestResults && (parsedTestResults.failed ?? parsedTestResults.failedTests.length ?? 0) > 0) {
     return "failed";
   }
-  return input.exitCode === 0 ? "passed" : "failed";
+  return exitCode === 0 ? "passed" : "failed";
+}
+
+function getOutcomeLabel(input: UnityBatchmodeAgentTextInput): "passed" | "failed" | "killed" {
+  return deriveUnityBatchmodeStatus(input.exitCode, input.killed, input.invocation, input.parsedTestResults);
 }
 
 function getBatchmodeVariantLabel(invocation: UnityBatchmodeInvocation): "Unity (headless)" | "Unity (graphics)" {
@@ -269,15 +297,22 @@ export function buildUnityBatchmodeAgentText(input: UnityBatchmodeAgentTextInput
     lines.push("Run type: Unity Test Framework");
     if (input.invocation.testPlatform) lines.push(`Test platform: ${input.invocation.testPlatform}`);
     if (input.invocation.testFilter) lines.push(`Test filter: ${input.invocation.testFilter}`);
+    if (input.invocation.testCategory) lines.push(`Test category: ${input.invocation.testCategory}`);
   }
 
   if (input.parsedTestResults) {
     lines.push(...formatParsedTestResultsForAgent(input.parsedTestResults));
+    if (input.parsedTestResults.total === 0) {
+      lines.push("Unity reported zero executed tests; this batch is not passing evidence.");
+    }
   }
 
   if (input.artifacts.testResultsPath) lines.push(`Test results: ${input.artifacts.testResultsPath}`);
   if (input.artifacts.logFilePath) lines.push(`Log file: ${input.artifacts.logFilePath}`);
   for (const artifactWarning of input.artifacts.warnings) lines.push(artifactWarning);
+  if (input.invocation.testResultsPath && input.artifacts.testResultsXml && !input.parsedTestResults) {
+    lines.push(`Unity test results XML could not be parsed: ${input.artifacts.testResultsPath ?? input.invocation.testResultsPath}`);
+  }
   if (input.warning) lines.push(input.warning);
 
   const preferredOutput = input.parsedTestResults

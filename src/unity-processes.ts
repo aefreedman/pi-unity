@@ -183,7 +183,11 @@ export async function verifyUnityProcessIdentity(
 
 export async function terminateRunningUnityProcesses(
   processes: RunningUnityProcess[],
-  options: { terminator?: UnityProcessTerminator; identityVerifier?: UnityProcessIdentityVerifier } = {},
+  options: {
+    terminator?: UnityProcessTerminator;
+    identityVerifier?: UnityProcessIdentityVerifier;
+    onTerminated?: (runningProcess: RunningUnityProcess, info: UnityProcessTerminationInfo) => void;
+  } = {},
 ): Promise<TerminateUnityProcessesResult> {
   const terminator = options.terminator ?? defaultUnityProcessTerminator;
   const terminated: RunningUnityProcess[] = [];
@@ -206,6 +210,7 @@ export async function terminateRunningUnityProcesses(
     if (terminationInfo?.forced === true) {
       forceTerminated.push(runningProcess);
     }
+    options.onTerminated?.(runningProcess, terminationInfo ?? {});
   }
 
   return { terminated, forceTerminated, skipped };

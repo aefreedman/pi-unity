@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [Unreleased]
+
+### Added
+
+- Added `unity_run_test_batch` for one-platform Unity Test Framework batches with normalized filter/category arrays, collision-safe absolute XML/log paths under project `Logs`, and the existing guarded Unity launcher on Windows and macOS.
+- Added Windows CI alongside the existing macOS package validation workflow.
+
+### Changed
+
+- Added Unity validation scope and stop guidance so explicit PlayMode skips are honored, compile/EditMode and optional PlayMode evidence are distinguished, and unchanged infrastructure failures are inspected once using exact current-run artifact paths rather than retried in launch loops.
+- Refactored generic batchmode and test-batch execution through one project-mutex, process-authorization, lockfile, launcher, and artifact-reporting path; cancellation now stops before forced-close fallback, while any completed closure is journaled into subsequent errors.
+
+### Fixed
+
+- Prevent Unity Test Framework runs with zero executed tests or requested but missing/unparseable result XML from being labeled passed, and make artifact inspection fail clearly when no requested evidence is available.
+- Keep raw Unity XML/log/stdout/stderr evidence on disk instead of duplicating unbounded content into session details; retain paths, byte counts, parsed results, and bounded excerpts.
+- Signal failed Unity batches and failed artifact inspections through thrown tool errors instead of unsupported `isError` return fields.
+
 ## [0.6.0] - 2026-07-09
 
 ### Changed

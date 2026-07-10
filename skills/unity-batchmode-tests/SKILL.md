@@ -21,6 +21,15 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Only request graphics when required by the user's work** - set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
 - **Do not treat a graphics-disabled run as valid evidence for screenshot workflows** - graphics-required tests should fail clearly or be excluded from that run.
 
+## Validation Scope and Stop Rules
+
+- Explicit user instructions and project guidance to skip PlayMode tests override generic validation defaults. Record PlayMode as intentionally skipped; do not launch it anyway to seek extra evidence.
+- Treat project-required compile validation and relevant EditMode tests as the baseline when they apply. PlayMode is additional evidence only when the user requests it, project/review guidance requires it, or the behavior cannot be validated honestly outside PlayMode.
+- Plan and bundle the applicable evidence before launching Unity. Do not turn validation into an open-ended sequence of one-test processes.
+- After a timeout, hang, missing-results infrastructure failure, or killed Unity process, call `unity_inspect_artifacts` once with the exact current-run `-testResults`/`-logFile` paths and `latestFromLogs: false`, then stop relaunching. Do not use an older "latest" artifact as evidence for the failed run. Retry only when there is a new, stated hypothesis that changes the command/environment, or the user explicitly requests another attempt.
+- A failing product assertion may justify a targeted rerun after an implementation change. An unchanged infrastructure failure does not.
+- Report required evidence as passed, failed, intentionally skipped, or blocked. Never imply an unrun PlayMode check passed.
+
 ## Workflow
 
 ### 1. Prefer the packaged Unity tools
@@ -28,11 +37,14 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly:
 - `unity_project_status` to inspect lockfile/process state without launching Unity
 - `unity_inspect_artifacts` to summarize existing Unity logs/test XML without launching Unity
-- `unity_launch_batchmode` for headless Unity execution
+- `unity_run_test_batch` for ordinary Unity Test Framework runs with one platform and bundled filters/categories
+- `unity_launch_batchmode` for custom headless Unity execution that needs raw Editor arguments
 - `unity_open_editor` only when the user explicitly wants the GUI Editor
 - `/unity-open` as the user-facing GUI launcher helper
 
-`unity_launch_batchmode` should be the default path for agent-run headless Unity work because it already:
+`unity_run_test_batch` should be the default for ordinary Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`.
+
+`unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder
 - reads `ProjectSettings/ProjectVersion.txt`
 - prefers the installed `unity run` CLI when available, falling back to OS-aware direct editor launch
@@ -87,7 +99,9 @@ Preferred path:
 - when several specific tests are relevant, prefer a broader class/namespace/suite/category filter, or no `-testFilter` for the affected platform, over separate Unity launches
 - use a single-test launch only for a quick smoke check or to isolate/rerun a known failure; do not use one-test launches as the default validation strategy
 - do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
-- call `unity_launch_batchmode`
+- call `unity_run_test_batch` for ordinary tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
+- pass one `testPlatform` (`EditMode` or `PlayMode`) and bundle applicable `testFilters`/`testCategories`; empty arrays mean all tests on that platform
+- use the generated exact result/log paths from the tool report for any follow-up artifact inspection
 - pass `closeBlockingUnityProcess: true` only when a same-project Unity process is blocking the run and Pi settings enable `piUnity.allowCloseRunningUnityProcess`
 - prefer `launcher: "auto"` or `launcher: "unity-cli"` when using `closeBlockingUnityProcess: true`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required
 - pass the explicit test arguments needed for the bundled run

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   buildUnityBatchmodeAgentText,
+  deriveUnityBatchmodeStatus,
   formatParsedTestResultsForAgent,
   loadUnityBatchmodeArtifacts,
   parseUnityBatchmodeInvocation,
@@ -62,6 +63,9 @@ const failedXml = `<?xml version="1.0" encoding="utf-8"?>
     </failure>
   </test-case>
 </test-run>`;
+assert.equal(parseUnityTestResultsXml("<test-run></test-run>"), null, "A test-run element without result evidence must not be treated as valid XML evidence.");
+assert.equal(parseUnityTestResultsXml('<test-run total="1" passed="1" failed="0">'), null, "Truncated test result XML must not be treated as passing evidence.");
+
 const parsedFailed = parseUnityTestResultsXml(failedXml);
 assert(parsedFailed, "Expected failed Unity test XML to parse.");
 assert.equal(parsedFailed?.failed, 1);
@@ -70,6 +74,9 @@ assert.equal(parsedFailed?.failedTests[0]?.message, "Expected true but was false
 
 const formatted = formatParsedTestResultsForAgent(parsed!);
 assert(formatted.some((line) => line.includes("passed=2")), "Expected formatted results summary.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, null), "failed", "Requested but missing test results must not pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, { total: 0, passed: 0, failed: 0, failedTests: [] }), "failed", "A Unity test batch that runs zero tests must not pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, headlessInvocation, null), "passed", "A successful non-test batchmode run may pass without test XML.");
 
 const excerpt = summarizeTextForAgent(["a", "b", "c", "d"].join("\n"), 2, 100);
 assert.equal(excerpt, "[showing last 2 of 4 lines]\nc\nd");
@@ -106,6 +113,37 @@ try {
   assert(summaryText.includes("Run type: Unity Test Framework"), "Expected test-run marker.");
   assert(summaryText.includes("Results: total=2, passed=2, failed=0"), "Expected summarized test counts.");
   assert(!summaryText.includes("Relevant output:"), "Expected no raw output section when structured test results exist.");
+
+  const missingResultsText = buildUnityBatchmodeAgentText({
+    displayProjectPath: "ws1/game",
+    unityVersion: "2022.3.18f1",
+    editorPath: "/Unity",
+    exitCode: 0,
+    killed: false,
+    invocation,
+    artifacts: { warnings: ["Unity test results file was not found: Logs/results.xml"] },
+    parsedTestResults: null,
+    stdout: "",
+    stderr: "",
+    singleProcessWarning: "Unity allows only one process per project folder.",
+  });
+  assert(missingResultsText.includes("Unity (graphics) failed for ws1/game"), "Missing requested test results must not be labeled passed.");
+
+  const malformedResultsText = buildUnityBatchmodeAgentText({
+    displayProjectPath: "ws1/game",
+    unityVersion: "2022.3.18f1",
+    editorPath: "/Unity",
+    exitCode: 0,
+    killed: false,
+    invocation,
+    artifacts: { testResultsPath: "Logs/results.xml", testResultsXml: "<not-test-results />", warnings: [] },
+    parsedTestResults: null,
+    stdout: "",
+    stderr: "",
+    singleProcessWarning: "Unity allows only one process per project folder.",
+  });
+  assert(malformedResultsText.includes("Unity (graphics) failed for ws1/game"), "Malformed requested test results must not be labeled passed.");
+  assert(malformedResultsText.includes("could not be parsed"), "Malformed requested test results should produce an actionable warning.");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
