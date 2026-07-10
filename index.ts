@@ -19,7 +19,7 @@ import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
 import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, listRunningUnityCliEditorsForProject, resolveUnityCliCommand } from "./src/unity-cli";
 import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
-import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, terminateRunningUnityProcesses, type RunningUnityProcess } from "./src/unity-processes";
+import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
 import { assertUnityProjectNotBusy, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 
@@ -349,7 +349,9 @@ async function closeBlockingUnityProcessesForBatchmode(
     }
   }
 
-  const result = await terminateRunningUnityProcesses(closable);
+  const result = await terminateRunningUnityProcesses(closable, {
+    identityVerifier: (runningProcess) => verifyUnityProcessIdentity(runningProcess, candidate.projectRoot),
+  });
 
   await waitForBlockingUnityProcessesToExit(candidate.projectRoot, settings.closeRunningUnityProcessTimeoutMs, signal);
   const closedSummary = formatProcessSummary(result.terminated);

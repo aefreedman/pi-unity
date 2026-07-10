@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -97,13 +98,115 @@ export function buildUnityBatchmodeArgs(
   return ["-batchmode", "-projectPath", projectRoot, ...applyDefaultUnityBatchmodeArgs(extraArgs, options)];
 }
 
+function pathApiForPlatform(platform: SupportedPlatform): typeof path.win32 | typeof path.posix {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
 export function normalizeForCommandSearch(value: string, platform: SupportedPlatform = process.platform): string {
-  const normalized = path.normalize(value).replace(/\\/g, "/");
+  const normalized = pathApiForPlatform(platform).normalize(value.trim());
   return platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
+function realpathMatchesOnDarwin(candidatePath: string, projectRoot: string, platform: SupportedPlatform): boolean | null {
+  if (platform !== "darwin" || process.platform !== "darwin") {
+    return null;
+  }
+
+  try {
+    return realpathSync.native(candidatePath) === realpathSync.native(projectRoot);
+  } catch {
+    // Only use filesystem identity when both paths can be resolved. Falling back
+    // to the case-sensitive textual comparison preserves case-sensitive APFS.
+    return null;
+  }
+}
+
+export function projectPathsMatch(candidatePath: string, projectRoot: string, platform: SupportedPlatform = process.platform): boolean {
+  const pathApi = pathApiForPlatform(platform);
+  if (!pathApi.isAbsolute(candidatePath.trim()) || !pathApi.isAbsolute(projectRoot.trim())) {
+    return false;
+  }
+
+  const realpathMatch = realpathMatchesOnDarwin(candidatePath.trim(), projectRoot.trim(), platform);
+  if (realpathMatch !== null) {
+    return realpathMatch;
+  }
+
+  return normalizeForCommandSearch(candidatePath, platform) === normalizeForCommandSearch(projectRoot, platform);
+}
+
+export function parseCommandLineArguments(commandLine: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: "\"" | "'" | null = null;
+  let tokenStarted = false;
+
+  const pushCurrent = (): void => {
+    if (tokenStarted) {
+      args.push(current);
+      current = "";
+      tokenStarted = false;
+    }
+  };
+
+  for (const character of commandLine) {
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "\"" || character === "'") {
+      quote = character;
+      tokenStarted = true;
+    } else if (/\s/.test(character)) {
+      pushCurrent();
+    } else {
+      current += character;
+      tokenStarted = true;
+    }
+  }
+
+  pushCurrent();
+  return args;
+}
+
+export function extractUnityProjectPathArguments(commandLine: string): string[] {
+  const values: string[] = [];
+  const flagPattern = /(?:^|\s)-projectpath(?=\s|=)/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = flagPattern.exec(commandLine)) !== null) {
+    let index = flagPattern.lastIndex;
+    while (/\s/.test(commandLine[index] ?? "")) index += 1;
+    if (commandLine[index] === "=") {
+      index += 1;
+      while (/\s/.test(commandLine[index] ?? "")) index += 1;
+    }
+
+    const quote = commandLine[index] === "\"" || commandLine[index] === "'" ? commandLine[index] : null;
+    if (quote) {
+      const end = commandLine.indexOf(quote, index + 1);
+      if (end >= 0) {
+        values.push(commandLine.slice(index + 1, end));
+        flagPattern.lastIndex = end + 1;
+      }
+      continue;
+    }
+
+    const remainder = commandLine.slice(index);
+    const nextFlag = remainder.search(/\s+-[A-Za-z][A-Za-z0-9-]*(?=\s|=|$)/);
+    const value = (nextFlag >= 0 ? remainder.slice(0, nextFlag) : remainder).trim();
+    if (value) values.push(value);
+  }
+
+  return values;
+}
+
 export function commandTargetsProject(commandLine: string, projectRoot: string, platform: SupportedPlatform = process.platform): boolean {
-  const normalizedCommand = normalizeForCommandSearch(commandLine, platform);
-  const normalizedProject = normalizeForCommandSearch(projectRoot, platform);
-  return normalizedCommand.includes(normalizedProject);
+  return extractUnityProjectPathArguments(commandLine)
+    .some((candidatePath) => projectPathsMatch(candidatePath, projectRoot, platform));
 }

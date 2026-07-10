@@ -5,9 +5,12 @@ import {
   buildUnityEditorCandidates,
   buildUnityOpenEditorArgs,
   commandTargetsProject,
+  extractUnityProjectPathArguments,
   hasUnityCommandLineFlag,
   normalizeUnityEditorOverride,
+  parseCommandLineArguments,
   parseUnityVersionText,
+  projectPathsMatch,
 } from "../src/unity-core.ts";
 
 assert.equal(parseUnityVersionText("m_EditorVersion: 2022.3.18f1\n"), "2022.3.18f1");
@@ -40,8 +43,23 @@ assert.equal(
   "C:/Program Files/Unity/Hub/Editor/2022.3.18f1/Editor/Unity.exe",
 );
 
-assert(commandTargetsProject('"C:/Program Files/Unity/Hub/Editor/2022.3.18f1/Editor/Unity.exe" -projectPath "C:/Repo/Game"', "c:/repo/game", "win32"));
+assert.deepEqual(
+  parseCommandLineArguments('"C:/Program Files/Unity/Editor/Unity.exe" -projectPath "C:/Repo/My Game"'),
+  ["C:/Program Files/Unity/Editor/Unity.exe", "-projectPath", "C:/Repo/My Game"],
+);
+assert(commandTargetsProject('"C:/Program Files/Unity/Hub/Editor/2022.3.18f1/Editor/Unity.exe" -projectPath "C:/Repo/Game"', "c:\\repo\\game", "win32"));
+assert(commandTargetsProject('Unity.exe -projectPath="C:/Repo/My Game"', "c:\\repo\\my game", "win32"));
+assert.deepEqual(
+  extractUnityProjectPathArguments("Unity -projectPath /Users/test/My Game -logFile -"),
+  ["/Users/test/My Game"],
+  "Unquoted process-list paths may contain spaces before the next Unity flag.",
+);
+assert(commandTargetsProject("Unity -projectPath /Users/test/My Game -logFile -", "/Users/test/My Game", "darwin"));
+assert(!commandTargetsProject("Unity -projectPath relative/Game", "/workspace/relative/Game", "darwin"), "Relative process paths must not match without a process cwd.");
+assert(!commandTargetsProject('Unity.exe -projectPath C:/Repo/GameBackup', "C:/Repo/Game", "win32"), "Project prefixes must not match.");
+assert(!commandTargetsProject('Unity.exe -logFile "C:/Repo/Game" -projectPath C:/Repo/Other', "C:/Repo/Game", "win32"), "Unrelated arguments must not match.");
 assert(commandTargetsProject('/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.app/Contents/MacOS/Unity -projectPath /Users/test/Game', "/Users/test/Game", "darwin"));
 assert(!commandTargetsProject('/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.app/Contents/MacOS/Unity -projectPath /Users/test/Other', "/Users/test/Game", "darwin"));
+assert(!projectPathsMatch("/tmp/__pi_unity_case_match__/game", "/tmp/__pi_unity_case_match__/Game", "darwin"), "Darwin project paths must remain case-sensitive.");
 
 console.log("free-unity-pi unity-core tests passed");

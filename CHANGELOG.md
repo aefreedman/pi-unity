@@ -5,10 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
-## Unreleased
+## [0.6.0] - 2026-07-09
 
 ### Changed
 
+- Hardened same-project Unity process matching to parse only exact `-projectPath` arguments, use platform-correct path identity, and avoid treating unrelated Unity CLI status fields as project paths.
+- Revalidate the Unity executable, project argument, PID, and command line immediately before guarded OS-level termination so recycled PIDs are skipped.
+- Added macOS CI coverage for tests and package validation.
 - Updated `unity_launch_batchmode` to add `-nographics` by default, with an explicit `useGraphics` opt-in for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
 - Updated Unity batchmode skill and README guidance to steer agents toward no-graphics validation unless the requested work requires graphics.
 

@@ -14,6 +14,7 @@ export type UnityProcessTerminationInfo = {
 };
 
 export type UnityProcessTerminator = (process: RunningUnityProcess) => Promise<void | UnityProcessTerminationInfo>;
+export type UnityProcessIdentityVerifier = (process: RunningUnityProcess) => Promise<boolean>;
 
 export type TerminateUnityProcessesResult = {
   terminated: RunningUnityProcess[];
@@ -59,7 +60,7 @@ export function parsePosixUnityProcessList(output: string, projectRoot: string, 
       if (!match) return null;
       const pid = Number.parseInt(match[1], 10);
       const commandLine = match[2] ?? "";
-      const looksLikeUnity = /(^|[\/\s])Unity(?:\.app\/Contents\/MacOS\/Unity)?(\s|$)/.test(commandLine);
+      const looksLikeUnity = /(^|[\/\s"'])Unity(?:\.app\/Contents\/MacOS\/Unity)?(?=$|[\s"'])/.test(commandLine);
       if (!commandLine || !looksLikeUnity || !commandTargetsProject(commandLine, projectRoot, platform)) {
         return null;
       }
@@ -138,9 +139,51 @@ export async function defaultUnityProcessTerminator(
   return { forced: false };
 }
 
+export function unityProcessIdentityMatchesCandidates(
+  runningProcess: RunningUnityProcess,
+  candidates: RunningUnityProcess[],
+): boolean {
+  return candidates.some((candidate) => candidate.pid === runningProcess.pid
+    && (runningProcess.commandLine.startsWith("Unity CLI status") || candidate.commandLine === runningProcess.commandLine));
+}
+
+export async function verifyUnityProcessIdentity(
+  runningProcess: RunningUnityProcess,
+  projectRoot: string,
+  platform: SupportedPlatform = process.platform,
+): Promise<boolean> {
+  if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
+    return false;
+  }
+
+  try {
+    if (platform === "win32") {
+      const script = [
+        "$ErrorActionPreference='Stop';",
+        `Get-CimInstance Win32_Process -Filter \"ProcessId = ${runningProcess.pid}\"`,
+        "| Select-Object ProcessId, CommandLine",
+        "| ConvertTo-Json -Compress",
+      ].join(" ");
+      const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], { timeout: 5000, windowsHide: true });
+      return unityProcessIdentityMatchesCandidates(
+        runningProcess,
+        parseWindowsUnityProcessList(stdout, projectRoot),
+      );
+    }
+
+    const { stdout } = await execFileAsync("ps", ["-p", String(runningProcess.pid), "-o", "pid=,command="], { timeout: 5000 });
+    return unityProcessIdentityMatchesCandidates(
+      runningProcess,
+      parsePosixUnityProcessList(stdout, projectRoot, platform),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function terminateRunningUnityProcesses(
   processes: RunningUnityProcess[],
-  options: { terminator?: UnityProcessTerminator } = {},
+  options: { terminator?: UnityProcessTerminator; identityVerifier?: UnityProcessIdentityVerifier } = {},
 ): Promise<TerminateUnityProcessesResult> {
   const terminator = options.terminator ?? defaultUnityProcessTerminator;
   const terminated: RunningUnityProcess[] = [];
@@ -149,6 +192,11 @@ export async function terminateRunningUnityProcesses(
 
   for (const runningProcess of dedupeRunningUnityProcesses(processes)) {
     if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
+      skipped.push(runningProcess);
+      continue;
+    }
+
+    if (options.identityVerifier && !(await options.identityVerifier(runningProcess))) {
       skipped.push(runningProcess);
       continue;
     }

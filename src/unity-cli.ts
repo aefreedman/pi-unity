@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { applyDefaultUnityBatchmodeArgs, buildUnityBatchmodeArgs, commandTargetsProject } from "./unity-core";
+import { applyDefaultUnityBatchmodeArgs, buildUnityBatchmodeArgs, projectPathsMatch } from "./unity-core";
 import type { RunningUnityProcess } from "./unity-processes";
 
 export const DEFAULT_UNITY_CLI_COMMAND = "unity";
@@ -154,15 +154,14 @@ function instancePid(instance: Record<string, unknown>): number | null {
   return getNumber(instance.pid) ?? getNumber(instance.PID) ?? getNumber(instance.processId) ?? getNumber(instance.processID);
 }
 
-function instanceProjectText(instance: Record<string, unknown>): string {
-  const direct = [
+function instanceProjectPaths(instance: Record<string, unknown>): string[] {
+  return [
     instance.projectPath,
     instance.project,
     instance.path,
     instance.projectRoot,
     instance.projectDirectory,
-  ].find((value) => typeof value === "string" && value.trim().length > 0);
-  return typeof direct === "string" ? direct : JSON.stringify(instance);
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 }
 
 export function parseUnityCliStatusOutput(output: string, projectRoot: string): RunningUnityProcess[] {
@@ -174,13 +173,13 @@ export function parseUnityCliStatusOutput(output: string, projectRoot: string): 
     .map((entry) => {
       const instance = getRecord(entry);
       if (!instance) return null;
-      const projectText = instanceProjectText(instance);
-      if (!commandTargetsProject(projectText, projectRoot)) return null;
+      const projectPath = instanceProjectPaths(instance).find((candidate) => projectPathsMatch(candidate, projectRoot));
+      if (!projectPath) return null;
       const pid = instancePid(instance);
       const port = instance.port ?? instance.editorPort ?? instance.hostPort;
       return {
         pid,
-        commandLine: `Unity CLI status${port !== undefined ? ` port=${String(port)}` : ""}: ${projectText}`,
+        commandLine: `Unity CLI status${port !== undefined ? ` port=${String(port)}` : ""}: ${projectPath}`,
       } satisfies RunningUnityProcess;
     })
     .filter((entry): entry is RunningUnityProcess => entry !== null);

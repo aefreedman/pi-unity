@@ -83,6 +83,7 @@ const statusOutput = JSON.stringify({
     instances: [
       { pid: 123, port: 64000, projectPath: "/workspace/My Game", version: "6000.1.13f1" },
       { pid: 456, port: 64001, projectPath: "/workspace/Other", version: "6000.1.13f1" },
+      { pid: 999, port: 64002, projectPath: "/workspace/My Game Backup", version: "6000.1.13f1" },
     ],
   },
 });
@@ -100,6 +101,15 @@ const fallbackFieldOutput = JSON.stringify({
   },
 });
 assert.equal(parseUnityCliStatusOutput(fallbackFieldOutput, "C:/Projects/Game")[0].pid, 789);
+
+const nestedProjectOnlyOutput = JSON.stringify({
+  data: {
+    instances: [
+      { pid: 901, metadata: { projectPath: "/workspace/My Game" }, message: "project /workspace/My Game" },
+    ],
+  },
+});
+assert.deepEqual(parseUnityCliStatusOutput(nestedProjectOnlyOutput, "/workspace/My Game"), [], "Only direct project fields may identify a Unity CLI instance.");
 
 assert.deepEqual(parseUnityCliStatusOutput("not json", "/workspace/My Game"), []);
 
