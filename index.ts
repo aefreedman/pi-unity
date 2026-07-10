@@ -1,10 +1,10 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { StringEnum } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { getKeybindings, Text, truncateToWidth } from "@mariozechner/pi-tui";
+import { getKeybindings, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   buildUnityBatchmodeAgentText,
   deriveUnityBatchmodeStatus,

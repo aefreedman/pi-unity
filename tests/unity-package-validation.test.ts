@@ -23,9 +23,9 @@ assert(packageJson.scripts?.test?.includes("unity-batchmode.test.ts"), "Expected
 assert(packageJson.scripts?.test?.includes("unity-test-batch.test.ts"), "Expected pi-unity test script to run test-batch planner tests.");
 assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
-assert(packageJson.peerDependencies?.["@mariozechner/pi-ai"] === "*", "Expected pi-ai peer dependency for StringEnum schemas.");
-assert(packageJson.peerDependencies?.["@mariozechner/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
-assert(packageJson.peerDependencies?.["@mariozechner/pi-tui"] === "*", "Expected pi-tui peer dependency.");
+assert(packageJson.peerDependencies?.["@earendil-works/pi-ai"] === "*", "Expected pi-ai peer dependency for StringEnum schemas.");
+assert(packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
+assert(packageJson.peerDependencies?.["@earendil-works/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
 
 for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {

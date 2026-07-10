@@ -1,7 +1,7 @@
 {
   "name": "@aefree/pi-unity",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "keywords": [
     "pi-package"
@@ -18,9 +18,9 @@
     "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-package-validation.test.ts"
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "description": "Pi tools and skills for Unity editor and batchmode workflows.",
