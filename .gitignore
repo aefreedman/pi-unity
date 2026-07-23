@@ -1,0 +1,3 @@
+evals/**/latest-results.json
+evals/**/results/
+evals/**/*.eval-results.json

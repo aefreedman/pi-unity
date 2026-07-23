@@ -1,12 +1,20 @@
 import { strict as assert } from "node:assert";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createUnityCliBatchmodeReportArgs,
   createUnityCliEditorExitCommand,
   createUnityCliOpenCommand,
   createUnityCliRunCommand,
+  haveSameKnownProcessIds,
   normalizeUnityCliForwardedArgs,
+  parseUnityCliCommandListOutput,
+  parseUnityCliPipelineListOutput,
   parseUnityCliStatusOutput,
+  readDeclaredUnityPipelineVersion,
   resolveUnityCliCommand,
+  summarizeUnityCliText,
 } from "../src/unity-cli";
 
 const open = createUnityCliOpenCommand("/workspace/My Game", { editorVersion: "6000.1.13f1" });
@@ -67,12 +75,13 @@ const exit = createUnityCliEditorExitCommand("/workspace/My Game", { timeoutSeco
 assert.deepEqual(exit.args, [
   "--no-banner",
   "--non-interactive",
-  "eval",
+  "command",
   "--project-path",
   "/workspace/My Game",
   "--timeout",
   "7",
-  "UnityEditor.EditorApplication.Exit(0);",
+  "eval",
+  "UnityEditor.EditorApplication.Exit(0); return true;",
 ]);
 
 const statusOutput = JSON.stringify({
@@ -112,5 +121,54 @@ const nestedProjectOnlyOutput = JSON.stringify({
 assert.deepEqual(parseUnityCliStatusOutput(nestedProjectOnlyOutput, "/workspace/My Game"), [], "Only direct project fields may identify a Unity CLI instance.");
 
 assert.deepEqual(parseUnityCliStatusOutput("not json", "/workspace/My Game"), []);
+assert.equal(summarizeUnityCliText(`${"v".repeat(300)}\nignored`, 200, 1), `${"v".repeat(200)}…`);
+
+const pipelineList = parseUnityCliPipelineListOutput(JSON.stringify({
+  data: {
+    latestVersion: "0.3.1-exp.1",
+    instances: [
+      { projectPath: "/workspace/My Game", pid: 321, editorVersion: "6000.3.7f1", pipelineVersion: "0.3.0-exp.1", isRunning: true, pipelineServer: { isReachable: true, apiUrl: "http://127.0.0.1:7801" } },
+      { projectPath: "/workspace/My Game Copy", pid: 654, port: 7802, packageVersion: "0.3.1-exp.1" },
+    ],
+  },
+}), "/workspace/My Game");
+assert.equal(pipelineList.latestVersion, "0.3.1-exp.1");
+assert.deepEqual(pipelineList.instances, [{
+  projectPath: "/workspace/My Game",
+  pid: 321,
+  port: 7801,
+  unityVersion: "6000.3.7f1",
+  pipelineVersion: "0.3.0-exp.1",
+  state: "running",
+  reachable: true,
+}]);
+
+assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({
+  success: true,
+  data: { commands: [{ name: "run_tests" }, { command: "eval" }, "recompile", { name: "eval" }] },
+})), ["eval", "recompile", "run_tests"]);
+assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({ success: false, data: { commands: ["eval"] } })), []);
+assert.deepEqual(parseUnityCliCommandListOutput("not json"), []);
+assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({ success: true, data: { commands: [] } })), []);
+assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({
+  success: true,
+  data: { commands: ["eval\nforged", "x".repeat(121), ...Array.from({ length: 300 }, (_, index) => `command_${index}`)] },
+})).length, 256);
+
+assert.equal(haveSameKnownProcessIds([{ pid: 10 }, { pid: 20 }], [{ pid: 20 }, { pid: 10 }]), true);
+assert.equal(haveSameKnownProcessIds([{ pid: 10 }], [{ pid: 11 }]), false);
+assert.equal(haveSameKnownProcessIds([{ pid: null }], [{ pid: null }]), false);
+assert.equal(haveSameKnownProcessIds([], []), false);
+
+const packageProject = await mkdtemp(join(tmpdir(), "pi-unity-cli-test-"));
+try {
+  await mkdir(join(packageProject, "Packages"));
+  await writeFile(join(packageProject, "Packages", "manifest.json"), JSON.stringify({ dependencies: { "com.unity.pipeline": "0.3.0-exp.1" } }));
+  assert.equal(await readDeclaredUnityPipelineVersion(packageProject), "0.3.0-exp.1");
+  await writeFile(join(packageProject, "Packages", "packages-lock.json"), JSON.stringify({ dependencies: { "com.unity.pipeline": { version: "0.3.1-exp.1" } } }));
+  assert.equal(await readDeclaredUnityPipelineVersion(packageProject), "0.3.1-exp.1");
+} finally {
+  await rm(packageProject, { recursive: true, force: true });
+}
 
 console.log("free-unity-pi unity-cli tests passed");

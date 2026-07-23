@@ -102,6 +102,24 @@ assert.equal(recycledPidTerminated, false, "A PID whose identity changed must no
 assert.equal(recycledPid.terminated.length, 0);
 assert.equal(recycledPid.skipped.length, 1);
 
+const abortController = new AbortController();
+const abortedTerminationPids: number[] = [];
+await assert.rejects(
+  terminateRunningUnityProcesses([
+    { pid: 101, commandLine: "Unity -projectPath /Users/test/Game" },
+    { pid: 102, commandLine: "Unity -projectPath /Users/test/Game" },
+  ], {
+    signal: abortController.signal,
+    terminator: async (process) => {
+      if (process.pid !== null) abortedTerminationPids.push(process.pid);
+      abortController.abort();
+      return { forced: false };
+    },
+  }),
+  /abort/i,
+);
+assert.deepEqual(abortedTerminationPids, [101], "Cancellation after one closure must prevent later process termination.");
+
 assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "Reason: This process can only be terminated forcefully (with /F option)." }), true);
 assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "ERROR: The process could not be found." }), false);
 

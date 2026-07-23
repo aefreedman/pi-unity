@@ -4,8 +4,11 @@ Pi skill and tool package for reusable Unity workflows.
 
 ## Contents
 
+- skill: `unity-connected-workflows`
 - skill: `unity-batchmode-tests`
 - skill: `capturing-screenshots-unity`
+- skill: `auditing-unity-agent-guidance`
+- tool: `unity_guidance_audit`
 - tool: `unity_project_status`
 - tool: `unity_inspect_artifacts`
 - tool: `unity_open_editor`
@@ -36,11 +39,13 @@ pi install -l <path-to-pi-unity>
 ## Notes
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
+- `unity_guidance_audit` performs a bounded, read-only scan of AGENTS.md, CLAUDE.md, Copilot, and Cursor guidance for outdated Unity CLI/Pipeline, batchmode, test, lifecycle, and exact-project-copy instructions. The `auditing-unity-agent-guidance` skill owns contextual migration and user-authorized edits.
 - `unity_open_editor` launches the full Unity Editor GUI.
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
-- `unity_project_status` reports native Unity lockfile state, Unity CLI status output, and running Unity processes for a project without launching Unity.
+- `unity_project_status` reports native Unity lockfile state, Unity CLI status output, running Unity processes, the locally declared `com.unity.pipeline` version, exact-project-copy Pipeline instances, and live advertised commands without launching Unity.
 - `unity_inspect_artifacts` summarizes existing Unity Test Framework XML results and Unity logs without launching Unity, reducing ad hoc shell parsing after failures.
-- `unity_run_test_batch` is the preferred ordinary Unity Test Framework entry point. It runs exactly one EditMode or PlayMode batch, combines filter/category arrays into one launch, creates collision-safe absolute XML/log paths under the project `Logs` directory, omits `-quit`, and uses the same guarded launcher as `unity_launch_batchmode`.
+- `unity-connected-workflows` is the preferred guidance for focused compile/test work when the exact project copy is already open with reachable Pipeline commands; connected tests do not inherently produce NUnit XML and current execution uses constrained standalone CLI commands until typed tools land.
+- `unity_run_test_batch` is the preferred isolated/report-producing Unity Test Framework entry point. It runs exactly one EditMode or PlayMode batch, combines filter/category arrays into one launch, creates collision-safe absolute XML/log paths under the project `Logs` directory, omits `-quit`, and uses the same guarded launcher as `unity_launch_batchmode`.
 - `unity_launch_batchmode` prefers the installed `unity run` CLI when available, falling back to direct editor executable batchmode launch; use it when custom raw Editor arguments are required.
 - `unity_launch_batchmode` adds `-nographics` by default to avoid unnecessary graphics initialization and reduce focus stealing; set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
 - Unity GUI, generic batchmode, and test-batch tools expose `launcher` (`auto`, `unity-cli`, or `editor-executable`) so workflows can force direct Editor execution when Unity CLI argument handling differs from `Unity.exe`/`Unity`.
@@ -53,7 +58,8 @@ pi install -l <path-to-pi-unity>
 - When using `closeBlockingUnityProcess: true`, prefer `launcher: "auto"` or `launcher: "unity-cli"`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required.
 - If a Unity launch is blocked by a lockfile, run `unity_project_status` before asking a user to remove anything.
 - `/unity-open` is the user-facing GUI launcher helper.
-- The package resolves Unity project copies from a direct project root, a coordination root containing multiple copies, or another nearby folder.
+- The package resolves Unity project copies from a direct project root, a coordination root containing multiple copies, or another nearby folder. Pipeline routing validates canonical project-path identity after CLI discovery so similarly named copies are not treated as interchangeable; connected commands always receive the exact resolved project path.
+- Installing and starting `com.unity.pipeline@0.3.1-exp.1` is a broader project mutation than adding its manifest entry: its server startup assigns `Application.runInBackground = true`, which Unity persists as `PlayerSettings.runInBackground` in `ProjectSettings/ProjectSettings.asset`. Review that tracked change alongside `manifest.json` and `packages-lock.json`.
 - Unity install probing is OS-aware and avoids machine-specific assumptions by using the project's `ProjectSettings/ProjectVersion.txt`, the optional `unity` CLI, standard per-OS install locations, and optional `UNITY_EDITOR_PATH` overrides.
 - Unity allows only one process per project folder; GUI and batchmode both count.
 - The `unity-batchmode-tests` skill is intended for Unity Test Framework CLI runs.
@@ -78,6 +84,17 @@ pi install -l <path-to-pi-unity>
 - `closeRunningUnityProcessOnlyForTests` defaults to `true`, limiting process closure to Unity Test Framework launches (`-runTests`).
 - `closeRunningUnityProcessTimeoutMs` defaults to `30000` and is clamped between 1000 and 120000 milliseconds.
 
+## Skill evaluation
+
+The `auditing-unity-agent-guidance` skill has an opt-in behavioral eval under `evals/auditing-unity-agent-guidance/`. It runs isolated fixtures through Pi, checks triggering, filesystem outcomes, instruction fidelity, and tool-call efficiency, and can compare skill-enabled runs with a no-skill baseline. Because it invokes an agent and may incur provider costs, it is not part of `npm test`.
+
+```bash
+npm run eval:guidance-skill -- --cases audit_legacy_instructions,migrate_mixed_harness_guidance,unrelated_typescript_review
+npm run eval:guidance-skill -- --condition both --trials 3
+```
+
+See `evals/auditing-unity-agent-guidance/README.md` for the rubric.
+
 ## Package layout
 
 ```text
@@ -92,6 +109,12 @@ pi-unity/
     unity-project-lock.ts
     unity-projects.ts
   skills/
+    auditing-unity-agent-guidance/
+      SKILL.md
+      references/
+      assets/
+    unity-connected-workflows/
+      SKILL.md
     unity-batchmode-tests/
       SKILL.md
     capturing-screenshots-unity/

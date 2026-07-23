@@ -1,13 +1,14 @@
 # Automated Capture
 
-## Unity CLI (Batch Mode)
+## Unity CLI (Graphics-enabled isolated run)
 
 ```bash
-unity -batchmode \
-  -projectPath . \
+unity run "<ProjectPath>" -- \
   -executeMethod ScreenshotUtility.CaptureGameView \
   -quit
 ```
+
+Do not forward `-nographics`; screenshot capture requires an active graphics device. When using `unity_launch_batchmode`, set `useGraphics: true`.
 
 ## Utility Script
 

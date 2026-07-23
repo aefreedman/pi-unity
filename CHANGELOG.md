@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## Unreleased
+
+### Added
+
+- Added Unity CLI and Pipeline capability reporting to `unity_project_status`, including exact-project-copy instance matching, locally declared package versions, and live advertised command discovery.
+- Added the read-only `unity_guidance_audit` tool plus an `auditing-unity-agent-guidance` skill, migration policy, detection catalog, and mixed-harness template for modernizing AGENTS.md, CLAUDE.md, Copilot, and Cursor Unity workflows.
+- Added `unity-connected-workflows` guidance for exact-copy Pipeline recompilation and focused asynchronous tests, including nested JSON, domain reload, zero-test, and artifact limitations.
+- Added an isolated behavioral eval for `auditing-unity-agent-guidance` with 12 real-problem-derived positive/negative prompts, deterministic outcome checks, skill-versus-baseline runs, repeat trials, and efficiency evidence. Eval fixtures and reports stay in OS-temporary directories by default, with defense-in-depth ignores for explicitly persisted reports.
+- Documented the observed Pipeline startup side effect that persists `Application.runInBackground = true` into `ProjectSettings/ProjectSettings.asset`.
+
+### Changed
+
+- Reframed `unity-batchmode-tests` as the isolated/report-producing route instead of the default for an already-open reachable Pipeline Editor, and prefer the standalone `unity test` command over forwarding `-runTests` through `unity run`.
+- Expanded guidance auditing to detect unconditional lockfile deletion, arbitrary PID termination, manifest-only Pipeline reachability assumptions, and unbounded command/test discovery.
+
+### Fixed
+
+- Parse the current Unity CLI's nested `pipelineServer.isReachable` and `pipelineServer.apiUrl` fields so unreachable instances do not trigger command discovery.
+- Updated guarded graceful Editor exit to use the current `unity command eval` surface and attempt it only when the exact running project advertises `eval` and the discovered Editor/Pipeline process identity remains unchanged immediately before dispatch. Shutdown now waits for the configured graceful timeout and accepts a nonzero CLI response only when process verification confirms the Editor exited, since the Pipeline server can disconnect before returning a valid response.
+- Propagated cancellation through capability probes and multi-process termination so cancellation prevents later lifecycle actions.
+
 ## [0.7.1] - 2026-07-10
 
 ### Changed

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "audit_legacy_instructions",
+    "fixture": "legacy-mixed",
+    "prompt": "Audit this workspace's Unity agent instructions for outdated or unsafe automation guidance. Report evidence and recommended migration priorities, but do not edit anything.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "no_files_changed", "reports_legacy_findings", "bounded_tool_calls"]
+  },
+  {
+    "id": "migrate_mixed_harness_guidance",
+    "fixture": "legacy-mixed",
+    "prompt": "Migrate this workspace's Unity agent guidance for a team using Pi, Claude, Copilot, and humans. Preserve project-specific constraints while adopting safe Unity CLI and optional Pipeline workflows. Make the edits and summarize them.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "guidance_changed", "exact_copy_routing", "connected_and_isolated_routes", "no_run_tests_quit", "no_implicit_pipeline_install", "project_files_unchanged", "playmode_skip_preserved", "current_version_source", "bounded_tool_calls"]
+  },
+  {
+    "id": "migrate_portable_guidance",
+    "fixture": "legacy-portable",
+    "prompt": "Update CLAUDE.md so its Unity compile and test commands work safely in plain terminal agents without assuming Pi tools. Keep valid CI requirements.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "guidance_changed", "portable_cli_present", "exact_copy_routing", "no_run_tests_quit", "ci_fallback_preserved", "no_implicit_pipeline_install", "project_files_unchanged", "bounded_tool_calls"]
+  },
+  {
+    "id": "audit_multiple_project_copies",
+    "fixture": "multiple-copies",
+    "prompt": "Review the root Unity automation instructions for ws1 and ws2. We have had commands hit the wrong copy. Audit only; do not edit or launch Unity.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "no_files_changed", "mentions_exact_copy", "no_unity_launch", "bounded_tool_calls"]
+  },
+  {
+    "id": "preserve_graphics_requirement",
+    "fixture": "legacy-mixed",
+    "prompt": "Modernize only the Unity validation section in AGENTS.md. Preserve our PlayMode skip and graphics-required screenshot rules. Do not modify package or project settings files.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "guidance_changed", "no_run_tests_quit", "playmode_skip_preserved", "graphics_requirement_preserved", "project_files_unchanged", "bounded_tool_calls"]
+  },
+  {
+    "id": "audit_copilot_rule",
+    "fixture": "legacy-portable",
+    "prompt": "Check our Copilot Unity instructions for stale batchmode assumptions and explain what should change. Do not edit files.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "no_files_changed", "reports_legacy_findings", "bounded_tool_calls"]
+  },
+  {
+    "id": "diagnose_test_failure_not_guidance",
+    "fixture": "safe-current",
+    "prompt": "Diagnose why Game/Assets/Tests/EditMode/ProgressionGateEvaluatorTests.cs fails with Expected 2 but was 3 by reviewing it and the production code. Do not edit files or review agent instructions.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called", "no_files_changed", "diagnoses_off_by_one", "bounded_tool_calls"]
+  },
+  {
+    "id": "run_existing_tests_not_guidance",
+    "fixture": "safe-current",
+    "prompt": "Run the focused Unity EditMode test ProgressionGateEvaluatorTests and report the result. Do not change guidance files.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called", "no_files_changed"]
+  },
+  {
+    "id": "unrelated_typescript_review",
+    "fixture": "safe-current",
+    "prompt": "Review Calculator.ts for correctness and suggest a simpler implementation. Do not edit it.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called", "no_files_changed", "bounded_tool_calls"]
+  },
+  {
+    "id": "unrelated_documentation_edit",
+    "fixture": "safe-current",
+    "prompt": "Fix the typo in README.md and make no other changes.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called", "guidance_unchanged", "bounded_tool_calls"]
+  },
+  {
+    "id": "pipeline_install_request_not_audit",
+    "fixture": "safe-current",
+    "prompt": "Install com.unity.pipeline in this Unity project now.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called"]
+  },
+  {
+    "id": "create_unity_script_not_guidance",
+    "fixture": "safe-current",
+    "prompt": "Create a small Unity MonoBehaviour named Spinner that rotates its GameObject every frame.",
+    "should_trigger": false,
+    "expected_checks": ["skill_not_loaded", "audit_not_called", "guidance_unchanged"]
+  }
+]

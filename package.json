@@ -15,7 +15,8 @@
     ]
   },
   "scripts": {
-    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-package-validation.test.ts"
+    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-guidance-audit.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-package-validation.test.ts",
+    "eval:guidance-skill": "npx --yes tsx evals/auditing-unity-agent-guidance/run-eval.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

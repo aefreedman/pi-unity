@@ -1,6 +1,6 @@
 ---
 name: unity-batchmode-tests
-description: Run Unity Test Framework EditMode/PlayMode tests in batch mode via CLI. Use when running Unity tests from command line, CI pipelines, or automated testing without the Unity Editor GUI.
+description: Run isolated/report-producing Unity Test Framework EditMode/PlayMode tests through Unity CLI or direct Editor batchmode. Use for CI, NUnit XML evidence, closed projects, or when connected Pipeline testing is unavailable; not the default for an already-open reachable Pipeline Editor.
 ---
 
 # Unity Batchmode Tests
@@ -9,6 +9,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 
 ## Critical Warnings
 
+- **Inspect the exact project copy first** - call `unity_project_status`; if that copy is already open with reachable Pipeline test commands, prefer the connected workflow instead of closing it for batchmode.
 - **Never pass `-quit` with `-runTests`** - Unity exits immediately before tests complete, producing no results file.
 - **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find.
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
@@ -37,12 +38,12 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly:
 - `unity_project_status` to inspect lockfile/process state without launching Unity
 - `unity_inspect_artifacts` to summarize existing Unity logs/test XML without launching Unity
-- `unity_run_test_batch` for ordinary Unity Test Framework runs with one platform and bundled filters/categories
+- `unity_run_test_batch` for isolated/report-producing Unity Test Framework runs with one platform and bundled filters/categories
 - `unity_launch_batchmode` for custom headless Unity execution that needs raw Editor arguments
 - `unity_open_editor` only when the user explicitly wants the GUI Editor
 - `/unity-open` as the user-facing GUI launcher helper
 
-`unity_run_test_batch` should be the default for ordinary Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`.
+`unity_run_test_batch` should be the default for isolated or report-producing Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`. For an already-open reachable exact-copy Pipeline Editor, use the `unity-connected-workflows` skill instead.
 
 `unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder
@@ -117,7 +118,7 @@ Preferred path:
 
 Direct CLI fallback templates:
 ```
-unity run "<ProjectPath>" -- -nographics -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
+unity test "<ProjectPath>" --mode <EditMode|PlayMode> --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
 "<UnityEditorPath>" -batchmode -nographics -projectPath "<ProjectPath>" -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
 ```
 

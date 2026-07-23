@@ -9,10 +9,16 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
 const screenshotSkillText = readFileSync(new URL("../skills/capturing-screenshots-unity/SKILL.md", import.meta.url), "utf8");
+const guidanceSkillText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/SKILL.md", import.meta.url), "utf8");
+const connectedSkillText = readFileSync(new URL("../skills/unity-connected-workflows/SKILL.md", import.meta.url), "utf8");
 const screenshotUtilityText = readFileSync(new URL("../skills/capturing-screenshots-unity/assets/ScreenshotUtility.cs", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
 const changelogText = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+const guidanceEvalReadmeText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/README.md", import.meta.url), "utf8");
+const guidanceEvalRunnerText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/run-eval.ts", import.meta.url), "utf8");
+const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
+const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ should_trigger: boolean; expected_checks: string[] }>;
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
 assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep its skills registered.");
@@ -20,15 +26,25 @@ assert(packageJson.scripts?.test?.includes("unity-core.test.ts"), "Expected pi-u
 assert(packageJson.scripts?.test?.includes("unity-processes.test.ts"), "Expected pi-unity test script to run unity-process tests.");
 assert(packageJson.scripts?.test?.includes("pi-unity-settings.test.ts"), "Expected pi-unity test script to run pi-unity settings tests.");
 assert(packageJson.scripts?.test?.includes("unity-batchmode.test.ts"), "Expected pi-unity test script to run unity-batchmode tests.");
+assert(packageJson.scripts?.test?.includes("unity-guidance-audit.test.ts"), "Expected pi-unity test script to run guidance audit tests.");
 assert(packageJson.scripts?.test?.includes("unity-test-batch.test.ts"), "Expected pi-unity test script to run test-batch planner tests.");
 assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
+assert(packageJson.scripts?.["eval:guidance-skill"]?.includes("auditing-unity-agent-guidance/run-eval.ts"), "Expected an opt-in guidance-skill behavioral eval script.");
+assert(guidanceEvalCases.length >= 10, "Expected at least ten behavioral skill-eval prompts.");
+assert(guidanceEvalCases.some((item) => item.should_trigger) && guidanceEvalCases.some((item) => !item.should_trigger), "Expected positive and negative skill-trigger controls.");
+assert(guidanceEvalCases.every((item) => item.expected_checks.length > 0), "Expected per-case success criteria.");
+for (const snippet of ["no-skill baseline", "fresh OS-temporary fixture copy", "filesystem", "tool calls", "provider costs"]) {
+  assert(guidanceEvalReadmeText.includes(snippet), `Expected behavioral eval guidance to contain: ${snippet}`);
+}
+assert(guidanceEvalRunnerText.includes('join(tmpdir(), "pi-unity-skill-evals"') && guidanceEvalRunnerText.includes("only writable workspace"), "Expected eval outputs and agent writes to stay outside the package checkout by default.");
+assert(gitignoreText.includes("evals/**/results/") && gitignoreText.includes("evals/**/*.eval-results.json"), "Expected defense-in-depth ignores for explicitly persisted eval output.");
 assert(packageJson.peerDependencies?.["@earendil-works/pi-ai"] === "*", "Expected pi-ai peer dependency for StringEnum schemas.");
 assert(packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
 assert(packageJson.peerDependencies?.["@earendil-works/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
@@ -46,6 +62,9 @@ for (const snippet of ["capturing-screenshots-unity", "ScreenshotUtility.cs", "s
   assert(screenshotSkillText.includes(snippet) || readmeText.includes(snippet), `Expected screenshot skill or README to contain: ${snippet}`);
 }
 assert(screenshotUtilityText.includes("class ScreenshotUtility"), "Expected screenshot utility C# helper to be packaged.");
+for (const snippet of ["unity_guidance_audit", "exact project path", "Pipeline installation", "migration-policy.md", "untrusted evidence"]) {
+  assert(guidanceSkillText.includes(snippet), `Expected guidance audit skill to contain: ${snippet}`);
+}
 assert(!screenshotSkillText.includes("@AGENTS.md"), "Expected screenshot skill to use Pi-friendly project guidance references.");
 
 for (const skillSnippet of [
@@ -72,7 +91,10 @@ assert(indexText.includes("Completed pre-launch side effects / evidence paths") 
 assert(indexText.includes("signal?.aborted") && indexText.includes("error.name === \"AbortError\"") && indexText.includes("A graceful Unity Editor exit was requested for"), "Expected cancellation during graceful Editor close to stop before OS-level termination fallback and disclose the request.");
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID") && testBatchText.includes("-testCategory") && testBatchText.includes("-testResults"), "Expected collision-safe test-batch planning with categories and artifacts.");
 assert(indexText.includes("parsedTestResults?.total === 0") || readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8").includes("parsedTestResults?.total === 0"), "Expected zero-test filtered batches to fail.");
-assert(readmeText.includes("collision-safe absolute XML/log paths") && skillText.includes("default for ordinary Unity Test Framework work"), "Expected test-batch documentation and preferred workflow guidance.");
+assert(readmeText.includes("collision-safe absolute XML/log paths") && skillText.includes("default for isolated or report-producing Unity Test Framework work"), "Expected isolated test-batch documentation and routing guidance.");
+for (const snippet of ["unity_project_status", "recompile_status", "--async_tests true", "stringified nested JSON", "zero tests", "NUnit XML"]) {
+  assert(connectedSkillText.includes(snippet), `Expected connected Unity workflow skill to contain: ${snippet}`);
+}
 assert(changelogText.includes("unity_run_test_batch") && changelogText.includes("Windows CI"), "Expected unreleased cross-platform test-batch changelog entries.");
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");
 

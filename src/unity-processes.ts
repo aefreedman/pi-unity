@@ -187,6 +187,7 @@ export async function terminateRunningUnityProcesses(
     terminator?: UnityProcessTerminator;
     identityVerifier?: UnityProcessIdentityVerifier;
     onTerminated?: (runningProcess: RunningUnityProcess, info: UnityProcessTerminationInfo) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<TerminateUnityProcessesResult> {
   const terminator = options.terminator ?? defaultUnityProcessTerminator;
@@ -195,6 +196,7 @@ export async function terminateRunningUnityProcesses(
   const skipped: RunningUnityProcess[] = [];
 
   for (const runningProcess of dedupeRunningUnityProcesses(processes)) {
+    options.signal?.throwIfAborted();
     if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
       skipped.push(runningProcess);
       continue;
@@ -205,6 +207,7 @@ export async function terminateRunningUnityProcesses(
       continue;
     }
 
+    options.signal?.throwIfAborted();
     const terminationInfo = await terminator(runningProcess);
     terminated.push(runningProcess);
     if (terminationInfo?.forced === true) {
