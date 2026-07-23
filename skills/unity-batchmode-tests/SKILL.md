@@ -14,7 +14,8 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find.
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
 - **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
-- **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards** - use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
+- **Do not close a reachable Pipeline Editor merely to run tests** - an already-open exact copy can run supported tests through `run_tests` plus `test_status`; use the `unity-connected-workflows` skill.
+- **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards after deliberately choosing isolated execution** - this is limited to cases such as required NUnit XML, unsupported connected filters/commands, or explicit isolation. Use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
 - **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
 - **Bundle tests into one Unity batchmode turn whenever practical** - starting/stopping Unity, importing assets, and domain reloads dominate runtime. A broader single run is usually faster than many sequential one-test Unity launches, and same-project runs cannot use useful parallelism.
 - **Default to headless/no-graphics validation** - `unity_launch_batchmode` adds `-nographics` by default to reduce focus stealing and unnecessary graphics initialization.
@@ -92,18 +93,24 @@ C:\UnityInstalls\<version>\Editor\Unity.exe
 
 If not found, ask the user for their Unity install path.
 
-### 4. Run the Tests
+### 4. Choose the execution route, then run tests
 
-Preferred path:
+Route before planning a batch:
+1. Call `unity_project_status` for the exact project copy.
+2. If that copy is already open, Pipeline is reachable, and `run_tests` plus `test_status` are advertised, use `unity-connected-workflows`; do not close the Editor or invoke `unity_run_test_batch` merely because the test tool is more convenient.
+3. Choose isolated `unity_run_test_batch` only when the Editor is closed, connected testing is unavailable, CI/isolation is intentional, required filters are unsupported, or NUnit XML/log artifacts are required. State the reason.
+4. If project state is uncertain, stop rather than closing the Editor or starting batchmode.
+
+After choosing the isolated route:
 - plan the full validation batch before launching Unity
 - bundle all tests that can share the same project, `-testPlatform`, and graphics mode into one `unity_launch_batchmode` call
 - when several specific tests are relevant, prefer a broader class/namespace/suite/category filter, or no `-testFilter` for the affected platform, over separate Unity launches
 - use a single-test launch only for a quick smoke check or to isolate/rerun a known failure; do not use one-test launches as the default validation strategy
 - do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
-- call `unity_run_test_batch` for ordinary tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
+- call `unity_run_test_batch` for isolated/report-producing tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
 - pass one `testPlatform` (`EditMode` or `PlayMode`) and bundle applicable `testFilters`/`testCategories`; empty arrays mean all tests on that platform
 - use the generated exact result/log paths from the tool report for any follow-up artifact inspection
-- pass `closeBlockingUnityProcess: true` only when a same-project Unity process is blocking the run and Pi settings enable `piUnity.allowCloseRunningUnityProcess`
+- pass `closeBlockingUnityProcess: true` only after connected testing was ruled out or isolated evidence was explicitly required, a same-project Unity process is blocking the chosen run, and Pi settings enable `piUnity.allowCloseRunningUnityProcess`
 - prefer `launcher: "auto"` or `launcher: "unity-cli"` when using `closeBlockingUnityProcess: true`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required
 - pass the explicit test arguments needed for the bundled run
 - rely on the tool to remove direct-Editor lifecycle flags (`-batchmode`, `-projectPath`, `-quit`) before forwarding args through `unity run`

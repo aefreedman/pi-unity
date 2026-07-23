@@ -95,10 +95,11 @@ assert(indexText.includes("signal?.aborted") && indexText.includes("error.name =
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID") && testBatchText.includes("-testCategory") && testBatchText.includes("-testResults"), "Expected collision-safe test-batch planning with categories and artifacts.");
 assert(indexText.includes("parsedTestResults?.total === 0") || readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8").includes("parsedTestResults?.total === 0"), "Expected zero-test filtered batches to fail.");
 assert(readmeText.includes("collision-safe absolute XML/log paths") && skillText.includes("default for isolated or report-producing Unity Test Framework work"), "Expected isolated test-batch documentation and routing guidance.");
-for (const snippet of ["unity_project_status", "recompile_status", "--async_tests true", "stringified nested JSON", "zero tests", "NUnit XML"]) {
+for (const snippet of ["unity_project_status", "recompile_status", "--async_tests true", "stringified nested JSON", "initial asynchronous `run_tests` response", "terminal status reports zero tests", "NUnit XML"]) {
   assert(connectedSkillText.includes(snippet), `Expected connected Unity workflow skill to contain: ${snippet}`);
 }
-assert(changelogText.includes("unity_run_test_batch") && changelogText.includes("Windows CI"), "Expected unreleased cross-platform test-batch changelog entries.");
+assert(changelogText.includes("unity_run_test_batch") && changelogText.includes("Windows CI"), "Expected test-batch changelog entries.");
+assert(skillText.includes("Do not close a reachable Pipeline Editor merely to run tests") && skillText.includes("Route before planning a batch") && readmeText.includes("should run connected tests without closing the Editor"), "Expected open-Editor Pipeline tests to precede isolated batchmode routing.");
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");

@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
-## Unreleased
+## [0.8.1] - 2026-07-23
 
 ### Changed
 
+- Clarified test routing across tool prompts, README guidance, and the batchmode skill: an already-open exact project copy with reachable `run_tests`/`test_status` Pipeline commands should run connected tests without closing the Editor; batchmode is reserved for deliberately isolated/report-producing cases.
+- Documented that an asynchronous connected `run_tests` initiation may report zero tests while still running and that zero-test validation belongs to terminal `test_status` results.
 - Strengthened Unity guidance migration scope handling so nested-workspace audits include inherited instructions by default or explicitly disclose excluded ancestor candidates, while keeping ancestor edits authorization-gated.
 - Added a behavioral regression case for auditing inherited coordination-root guidance without editing it.
 

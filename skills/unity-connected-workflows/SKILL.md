@@ -44,9 +44,10 @@ unity --format json --no-banner --non-interactive command --project-path <exact-
 For PlayMode use `--mode playmode --async_tests true`; synchronous PlayMode requests are not reliable across domain reload.
 
 - Use one filter and filter type per connected run. If the required selection needs combined name/category arrays, use isolated `unity_run_test_batch` instead.
-- Poll `test_status` to a terminal result.
+- The initial asynchronous `run_tests` response can legitimately report `Total: 0` with `result: running`; do not treat that initiating response as terminal zero-test evidence.
+- Poll `test_status` to a terminal result while leaving the Editor open.
 - Parse stringified nested JSON results.
-- Fail on zero tests, failures, malformed/incomplete status, or nested `success:false` even when the CLI process exits zero.
+- Fail when the terminal status reports zero tests, failures, malformed/incomplete data, or nested `success:false` even when the CLI process exits zero.
 - Connected tests do not inherently produce NUnit XML. Use `unity_run_test_batch` or `unity test` when report artifacts are required.
 - Bound `list_tests` output; broad projects can return thousands of test records.
 
