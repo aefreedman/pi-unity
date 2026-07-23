@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## Unreleased
+
+### Changed
+
+- Strengthened Unity guidance migration scope handling so nested-workspace audits include inherited instructions by default or explicitly disclose excluded ancestor candidates, while keeping ancestor edits authorization-gated.
+- Added a behavioral regression case for auditing inherited coordination-root guidance without editing it.
+
+### Fixed
+
+- Instruct migration agents to preserve clear known-safe prohibitions and report likely heuristic defects instead of weakening wording merely to obtain a zero-finding audit.
+- Recognize prohibitions placed between `-runTests` and `-quit`, such as “`-runTests` commands must not include `-quit`,” instead of reporting them as unsafe commands.
+
 ## [0.8.0] - 2026-07-23
 
 ### Added

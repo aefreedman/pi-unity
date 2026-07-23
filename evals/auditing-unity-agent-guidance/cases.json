@@ -28,6 +28,14 @@
     "expected_checks": ["skill_loaded", "audit_called", "no_files_changed", "mentions_exact_copy", "no_unity_launch", "bounded_tool_calls"]
   },
   {
+    "id": "migrate_nested_workspace_with_inherited_guidance",
+    "fixture": "inherited-scope",
+    "working_directory": "ws1",
+    "prompt": "Migrate ws1/AGENTS.md to current mixed Pi/portable Unity guidance. The coordination-root AGENTS.md applies to this workspace: audit it too, report conflicting inherited guidance, but do not edit it. Preserve this exact safety sentence in ws1: Raw Editor `-runTests` commands must not include `-quit`.",
+    "should_trigger": true,
+    "expected_checks": ["skill_loaded", "audit_called", "audit_includes_ancestors", "local_guidance_changed", "ancestor_guidance_unchanged", "reports_unresolved_inherited_guidance", "explicit_quit_prohibition_preserved", "no_reported_detector_defect", "project_files_unchanged", "bounded_tool_calls"]
+  },
+  {
     "id": "preserve_graphics_requirement",
     "fixture": "legacy-mixed",
     "prompt": "Modernize only the Unity validation section in AGENTS.md. Preserve our PlayMode skip and graphics-required screenshot rules. Do not modify package or project settings files.",

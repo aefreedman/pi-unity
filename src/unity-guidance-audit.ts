@@ -27,6 +27,7 @@ export type UnityGuidanceAuditResult = {
     includeAncestors: boolean;
   };
   files: Array<{ path: string; harness: UnityGuidanceHarness; sha256: string; bytes: number }>;
+  ancestorCandidates: Array<{ path: string; harness: UnityGuidanceHarness }>;
   findings: UnityGuidanceFinding[];
   skipped: Array<{ path: string; reason: string }>;
   summary: { filesScanned: number; errors: number; warnings: number; infos: number };
@@ -161,7 +162,10 @@ export function auditUnityGuidanceText(path: string, text: string): UnityGuidanc
     const common = { path, line: index + 1, evidence };
     const fallback = nearbyMentionsFallback(lines, index);
 
-    if (/-(?:runTests|runtests)\b/.test(line) && /-quit\b/i.test(line) && !isProhibitedMatch(line, /-(?:runTests|runtests)\b/i)) {
+    if (/-(?:runTests|runtests)\b/.test(line)
+      && /-quit\b/i.test(line)
+      && !isProhibitedMatch(line, /-(?:runTests|runtests)\b/i)
+      && !isProhibitedMatch(line, /-quit\b/i)) {
       addFinding(findings, {
         ...common,
         ruleId: "tests.quit-with-run-tests",
@@ -327,6 +331,24 @@ export async function auditUnityGuidance(options: UnityGuidanceAuditOptions): Pr
     candidates = await discoverFiles(root, harnesses, Boolean(options.includeAncestors), maxFiles, options.signal);
   }
 
+  const ancestorCandidates: UnityGuidanceAuditResult["ancestorCandidates"] = [];
+  if (!options.includeAncestors && !options.files?.length && !rootStat.isFile()) {
+    const inheritedCandidates = await discoverFiles(root, harnesses, true, maxFiles, options.signal);
+    for (const candidate of inheritedCandidates) {
+      options.signal?.throwIfAborted();
+      if (withinRoot(root, candidate)) continue;
+      try {
+        const candidateStats = await lstat(candidate);
+        if (!candidateStats.isFile() || candidateStats.isSymbolicLink()) continue;
+        const canonical = await realpath(candidate);
+        const harness = harnessForPath(canonical);
+        if (harness && harnesses.has(harness)) ancestorCandidates.push({ path: canonical, harness });
+      } catch {
+        // Missing known instruction paths are expected during discovery.
+      }
+    }
+  }
+
   const files: UnityGuidanceAuditResult["files"] = [];
   const findings: UnityGuidanceFinding[] = [];
   const skipped: UnityGuidanceAuditResult["skipped"] = [];
@@ -389,6 +411,7 @@ export async function auditUnityGuidance(options: UnityGuidanceAuditOptions): Pr
       includeAncestors: Boolean(options.includeAncestors),
     },
     files,
+    ancestorCandidates,
     findings,
     skipped,
     summary: {

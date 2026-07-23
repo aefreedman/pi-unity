@@ -12,6 +12,7 @@ type EvalCase = {
   prompt: string;
   should_trigger: boolean;
   expected_checks: string[];
+  working_directory?: string;
 };
 
 type Condition = "skill" | "baseline";
@@ -128,8 +129,9 @@ async function runPi(testCase: EvalCase, condition: Condition, trial: number, ke
   args.push(testCase.prompt);
 
   const started = Date.now();
+  const workingDirectory = testCase.working_directory ? resolve(workspace, testCase.working_directory) : workspace;
   const child = spawn(process.execPath, [piCliPath, ...args], {
-    cwd: workspace,
+    cwd: workingDirectory,
     windowsHide: true,
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -184,7 +186,9 @@ function evaluate(checkId: string, evidence: RunEvidence, condition: Condition):
     const args = JSON.stringify(call.args).replaceAll("\\", "/");
     return args.includes("auditing-unity-agent-guidance") && args.includes("SKILL.md");
   });
-  const auditCalled = toolNames.includes("unity_guidance_audit");
+  const auditCalls = evidence.toolCalls.filter((call) => call.name === "unity_guidance_audit");
+  const auditCalled = auditCalls.length > 0;
+  const auditIncludesAncestors = auditCalls.some((call) => Boolean((call.args as { includeAncestors?: boolean } | undefined)?.includeAncestors));
   const combined = `${evidence.answer}\n${evidence.guidance}`.toLowerCase();
   const hasUnsafeRunTestsQuit = evidence.guidance.split(/\r?\n/).some((line) => {
     const runTestsIndex = line.search(/-runTests\b/i);
@@ -196,18 +200,24 @@ function evaluate(checkId: string, evidence: RunEvidence, condition: Condition):
     case "skill_loaded": return condition === "baseline" ? !loaded : loaded;
     case "skill_not_loaded": return !loaded;
     case "audit_called": return auditCalled;
+    case "audit_includes_ancestors": return auditIncludesAncestors;
     case "audit_not_called": return !auditCalled;
     case "no_files_changed": return changed.length === 0;
     case "guidance_changed": return guidanceChanged;
+    case "local_guidance_changed": return changed.includes("ws1/AGENTS.md");
+    case "ancestor_guidance_unchanged": return !changed.includes("AGENTS.md");
     case "guidance_unchanged": return !guidanceChanged;
     case "project_files_unchanged": return !projectChanged;
     case "reports_legacy_findings": return /batchmode|headless|hard-coded|project-path|runtests/.test(evidence.answer.toLowerCase());
+    case "reports_unresolved_inherited_guidance": return /(?:ancestor|inherited|coordination.root).{0,80}(?:unresolved|not edited|outside|excluded|remain)/s.test(evidence.answer.toLowerCase());
+    case "no_reported_detector_defect": return !/false positive|detector defect|scanner defect/.test(evidence.answer.toLowerCase());
     case "diagnoses_off_by_one": return /\+\s*1|off-by-one|extra one|remove.{0,20}1/.test(evidence.answer.toLowerCase());
     case "mentions_exact_copy": return /exact.{0,30}(copy|path)|wrong.{0,20}copy/.test(combined);
     case "exact_copy_routing": return /exact.{0,35}(project|copy|path)/.test(combined) && /project.?path/.test(combined);
     case "connected_and_isolated_routes": return /pipeline|connected/.test(combined) && /isolated|fallback|unity test|unity run/.test(combined);
     case "portable_cli_present": return /unity (?:test|run|command)/.test(combined);
     case "no_run_tests_quit": return !hasUnsafeRunTestsQuit;
+    case "explicit_quit_prohibition_preserved": return /raw editor `?-runtests`? commands must not include `?-quit`?/i.test(evidence.guidance);
     case "no_implicit_pipeline_install": return !projectChanged && /explicit|approval|do not install|never install/.test(combined);
     case "playmode_skip_preserved": return /do not run playmode|skip.{0,20}playmode|playmode.{0,20}skip/.test(evidence.guidance.toLowerCase());
     case "graphics_requirement_preserved": return /graphics/.test(evidence.guidance.toLowerCase()) && /nographics/.test(evidence.guidance.toLowerCase());

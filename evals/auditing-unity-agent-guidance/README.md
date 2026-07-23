@@ -15,12 +15,14 @@ Checks grade observable output and filesystem state rather than requiring one ex
 
 ## Prompt set
 
-`cases.json` contains 12 prompts drawn from known failure modes:
+`cases.json` contains 13 prompts drawn from known failure modes:
 
 - stale direct Editor/batchmode guidance
 - `-runTests -quit`
 - hard-coded Unity versions
 - multiple project copies
+- nested workspaces with inherited coordination-root guidance that must be audited but not edited
+- explicit safe prohibitions that must not be weakened merely to silence the heuristic
 - portable and mixed-harness instructions
 - explicit CI, PlayMode-skip, and graphics constraints
 - audit-only mutation safety

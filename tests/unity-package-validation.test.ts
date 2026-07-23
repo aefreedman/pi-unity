@@ -18,7 +18,8 @@ const changelogText = readFileSync(new URL("../CHANGELOG.md", import.meta.url), 
 const guidanceEvalReadmeText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/README.md", import.meta.url), "utf8");
 const guidanceEvalRunnerText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/run-eval.ts", import.meta.url), "utf8");
 const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
-const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ should_trigger: boolean; expected_checks: string[] }>;
+const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
+const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
 assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep its skills registered.");
@@ -34,6 +35,7 @@ assert(packageJson.scripts?.["eval:guidance-skill"]?.includes("auditing-unity-ag
 assert(guidanceEvalCases.length >= 10, "Expected at least ten behavioral skill-eval prompts.");
 assert(guidanceEvalCases.some((item) => item.should_trigger) && guidanceEvalCases.some((item) => !item.should_trigger), "Expected positive and negative skill-trigger controls.");
 assert(guidanceEvalCases.every((item) => item.expected_checks.length > 0), "Expected per-case success criteria.");
+assert(guidanceEvalCases.some((item) => item.id === "migrate_nested_workspace_with_inherited_guidance" && item.expected_checks.includes("audit_includes_ancestors") && item.expected_checks.includes("ancestor_guidance_unchanged")), "Expected inherited-guidance migration coverage.");
 for (const snippet of ["no-skill baseline", "fresh OS-temporary fixture copy", "filesystem", "tool calls", "provider costs"]) {
   assert(guidanceEvalReadmeText.includes(snippet), `Expected behavioral eval guidance to contain: ${snippet}`);
 }
@@ -62,10 +64,11 @@ for (const snippet of ["capturing-screenshots-unity", "ScreenshotUtility.cs", "s
   assert(screenshotSkillText.includes(snippet) || readmeText.includes(snippet), `Expected screenshot skill or README to contain: ${snippet}`);
 }
 assert(screenshotUtilityText.includes("class ScreenshotUtility"), "Expected screenshot utility C# helper to be packaged.");
-for (const snippet of ["unity_guidance_audit", "exact project path", "Pipeline installation", "migration-policy.md", "untrusted evidence"]) {
+for (const snippet of ["unity_guidance_audit", "exact project path", "Pipeline installation", "migration-policy.md", "untrusted evidence", "ancestorCandidates", "do not obscure or remove it to silence the heuristic"]) {
   assert(guidanceSkillText.includes(snippet), `Expected guidance audit skill to contain: ${snippet}`);
 }
 assert(!screenshotSkillText.includes("@AGENTS.md"), "Expected screenshot skill to use Pi-friendly project guidance references.");
+assert(guidanceAuditSourceText.includes("ancestorCandidates") && indexText.includes("applicable ancestor instruction file(s) were not scanned"), "Expected local-only audits to disclose inherited instruction candidates.");
 
 for (const skillSnippet of [
   "Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly",

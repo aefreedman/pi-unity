@@ -21,6 +21,7 @@ assert(findings.some((finding) => finding.ruleId === "tests.quit-with-run-tests"
 assert(findings.some((finding) => finding.ruleId === "pipeline.missing-exact-project"));
 assert(findings.some((finding) => finding.ruleId === "pipeline.install-undisclosed"));
 assert(!auditUnityGuidanceText("AGENTS.md", "Do not combine -runTests with -quit.").some((finding) => finding.ruleId === "tests.quit-with-run-tests"));
+assert(!auditUnityGuidanceText("AGENTS.md", "Raw Editor `-runTests` commands must not include `-quit`.").some((finding) => finding.ruleId === "tests.quit-with-run-tests"));
 assert.equal(auditUnityGuidanceText("AGENTS.md", "Never use unity -batchmode.\nDo not use unity command without --project-path.\nAvoid hard-coded Unity Version 6000.3.0f1.").length, 0);
 assert(auditUnityGuidanceText("AGENTS.md", "Run EditMode with -runTests -quit. Do not run PlayMode tests.").some((finding) => finding.ruleId === "tests.quit-with-run-tests"), "A later unrelated prohibition must not suppress an unsafe command earlier on the line.");
 const lifecycleAndDiscovery = auditUnityGuidanceText("AGENTS.md", `
@@ -73,6 +74,16 @@ try {
   assert.equal(result.files.every((file) => file.sha256.length === 64), true);
   assert(result.findings.some((finding) => finding.ruleId === "commands.ambiguous-bare-unity"));
   assert.equal(result.scope.profile, "mixed");
+
+  const nestedWorkspace = join(root, "ws1");
+  await mkdir(nestedWorkspace);
+  await writeFile(join(nestedWorkspace, "AGENTS.md"), "Use the exact project path.\n");
+  const localOnly = await auditUnityGuidance({ path: nestedWorkspace });
+  assert(localOnly.ancestorCandidates.some((candidate) => candidate.path === join(root, "AGENTS.md")), "Expected excluded inherited instructions to be disclosed.");
+  assert.equal(localOnly.files.length, 1);
+  const withAncestors = await auditUnityGuidance({ path: nestedWorkspace, includeAncestors: true });
+  assert(withAncestors.files.some((file) => file.path === join(root, "AGENTS.md")), "Expected includeAncestors to scan inherited instructions.");
+  assert.equal(withAncestors.ancestorCandidates.length, 0);
 } finally {
   await rm(root, { recursive: true, force: true });
 }
