@@ -1,7 +1,7 @@
 {
   "name": "@aefree/pi-unity",
   "private": true,
-  "version": "0.8.1",
+  "version": "0.8.2",
   "type": "module",
   "keywords": [
     "pi-package"
@@ -33,5 +33,19 @@
   "bugs": {
     "url": "https://github.com/aefreedman/pi-unity/issues"
   },
-  "homepage": "https://github.com/aefreedman/pi-unity#readme"
+  "homepage": "https://github.com/aefreedman/pi-unity#readme",
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
 }

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+
+## [0.8.2] - 2026-07-24
+
+### Changed
+
+- Marked Pi-bundled core dependencies as optional peers so Pi git installs do not create redundant per-package `node_modules` directories.
+
 ## [0.8.1] - 2026-07-23
 
 ### Changed
