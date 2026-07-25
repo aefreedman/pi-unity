@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditUnityGuidance, auditUnityGuidanceText } from "../src/unity-guidance-audit";
@@ -78,11 +78,12 @@ try {
   const nestedWorkspace = join(root, "ws1");
   await mkdir(nestedWorkspace);
   await writeFile(join(nestedWorkspace, "AGENTS.md"), "Use the exact project path.\n");
+  const canonicalRootGuidance = await realpath(join(root, "AGENTS.md"));
   const localOnly = await auditUnityGuidance({ path: nestedWorkspace });
-  assert(localOnly.ancestorCandidates.some((candidate) => candidate.path === join(root, "AGENTS.md")), "Expected excluded inherited instructions to be disclosed.");
+  assert(localOnly.ancestorCandidates.some((candidate) => candidate.path === canonicalRootGuidance), "Expected excluded inherited instructions to be disclosed.");
   assert.equal(localOnly.files.length, 1);
   const withAncestors = await auditUnityGuidance({ path: nestedWorkspace, includeAncestors: true });
-  assert(withAncestors.files.some((file) => file.path === join(root, "AGENTS.md")), "Expected includeAncestors to scan inherited instructions.");
+  assert(withAncestors.files.some((file) => file.path === canonicalRootGuidance), "Expected includeAncestors to scan inherited instructions.");
   assert.equal(withAncestors.ancestorCandidates.length, 0);
 } finally {
   await rm(root, { recursive: true, force: true });

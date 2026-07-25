@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## Unreleased
+
+### Fixed
+
+- Made inherited-guidance audit tests compare canonical paths so macOS `/var` aliases do not cause false CI failures.
 
 ## [0.8.2] - 2026-07-24
 
