@@ -4,8 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   buildUnityBatchmodeAgentText,
+  deriveUnityArtifactInspectionStatus,
   deriveUnityBatchmodeStatus,
   formatParsedTestResultsForAgent,
+  hasKnownPositiveExecutedTestCount,
   loadUnityBatchmodeArtifacts,
   parseUnityBatchmodeInvocation,
   parseUnityTestResultsXml,
@@ -72,11 +74,32 @@ assert.equal(parsedFailed?.failed, 1);
 assert.equal(parsedFailed?.failedTests[0]?.name, "My.Namespace.Tests.FailingTest");
 assert.equal(parsedFailed?.failedTests[0]?.message, "Expected true but was false");
 
+const unknownTotalXml = `<?xml version="1.0" encoding="utf-8"?>
+<test-run passed="1" failed="0">
+  <test-case name="PassingTest" fullname="My.Namespace.Tests.PassingTest" result="Passed" />
+</test-run>`;
+const parsedUnknownTotal = parseUnityTestResultsXml(unknownTotalXml);
+assert(parsedUnknownTotal, "Expected otherwise valid Unity test XML with an omitted total to parse.");
+assert.equal(parsedUnknownTotal?.total, undefined);
+assert.equal(hasKnownPositiveExecutedTestCount(parsed), true);
+assert.equal(hasKnownPositiveExecutedTestCount(parsedUnknownTotal), false);
+
 const formatted = formatParsedTestResultsForAgent(parsed!);
 assert(formatted.some((line) => line.includes("passed=2")), "Expected formatted results summary.");
-assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, null), "failed", "Requested but missing test results must not pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, parsed), "passed", "A successful test run with a known positive count and no failures should pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, parsedFailed), "failed", "Reported test failures must not pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, null), "failed", "Requested but missing or malformed test results must not pass.");
 assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, { total: 0, passed: 0, failed: 0, failedTests: [] }), "failed", "A Unity test batch that runs zero tests must not pass.");
+assert.equal(deriveUnityBatchmodeStatus(0, false, invocation, parsedUnknownTotal), "failed", "A Unity test batch with an unknown executed-test total must not pass.");
 assert.equal(deriveUnityBatchmodeStatus(0, false, headlessInvocation, null), "passed", "A successful non-test batchmode run may pass without test XML.");
+
+assert.equal(deriveUnityArtifactInspectionStatus(true, invocation, parsed), "passed", "Passing selected test artifacts should pass inspection.");
+assert.equal(deriveUnityArtifactInspectionStatus(true, invocation, parsedFailed), "failed", "Failing selected test artifacts should fail inspection.");
+assert.equal(deriveUnityArtifactInspectionStatus(false, invocation, null), "failed", "Missing selected artifacts should fail inspection.");
+assert.equal(deriveUnityArtifactInspectionStatus(true, invocation, null), "failed", "Malformed selected test XML should fail inspection even when a log was loaded.");
+assert.equal(deriveUnityArtifactInspectionStatus(true, invocation, { total: 0, passed: 0, failed: 0, failedTests: [] }), "failed", "Zero-test artifacts should fail inspection.");
+assert.equal(deriveUnityArtifactInspectionStatus(true, invocation, parsedUnknownTotal), "failed", "Unknown-total artifacts should fail inspection.");
+assert.equal(deriveUnityArtifactInspectionStatus(true, headlessInvocation, null), "passed", "A loaded non-test log may pass artifact inspection without test XML.");
 
 const excerpt = summarizeTextForAgent(["a", "b", "c", "d"].join("\n"), 2, 100);
 assert.equal(excerpt, "[showing last 2 of 4 lines]\nc\nd");
@@ -144,6 +167,23 @@ try {
   });
   assert(malformedResultsText.includes("Unity (graphics) failed for ws1/game"), "Malformed requested test results must not be labeled passed.");
   assert(malformedResultsText.includes("could not be parsed"), "Malformed requested test results should produce an actionable warning.");
+  assert(malformedResultsText.includes("known positive executed-test count"), "Malformed requested test results should explain the required passing count.");
+
+  const unknownTotalResultsText = buildUnityBatchmodeAgentText({
+    displayProjectPath: "ws1/game",
+    unityVersion: "2022.3.18f1",
+    editorPath: "/Unity",
+    exitCode: 0,
+    killed: false,
+    invocation,
+    artifacts: { testResultsPath: "Logs/results.xml", testResultsXml: unknownTotalXml, warnings: [] },
+    parsedTestResults: parsedUnknownTotal,
+    stdout: "",
+    stderr: "",
+    singleProcessWarning: "Unity allows only one process per project folder.",
+  });
+  assert(unknownTotalResultsText.includes("Unity (graphics) failed for ws1/game"), "Unknown-total test results must not be labeled passed.");
+  assert(unknownTotalResultsText.includes("known positive executed-test count"), "Unknown-total results should produce an actionable warning.");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

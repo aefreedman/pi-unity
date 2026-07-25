@@ -9,6 +9,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Fixed
 
+- Required connected, batchmode, and artifact-inspected Unity test evidence to report a known positive executed-test count while preserving bounded connected polling and nonterminal running responses.
 - Made inherited-guidance audit tests compare canonical paths so macOS `/var` aliases do not cause false CI failures.
 
 ## [0.8.2] - 2026-07-24

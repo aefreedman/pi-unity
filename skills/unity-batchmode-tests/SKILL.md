@@ -30,6 +30,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - Plan and bundle the applicable evidence before launching Unity. Do not turn validation into an open-ended sequence of one-test processes.
 - After a timeout, hang, missing-results infrastructure failure, or killed Unity process, call `unity_inspect_artifacts` once with the exact current-run `-testResults`/`-logFile` paths and `latestFromLogs: false`, then stop relaunching. Do not use an older "latest" artifact as evidence for the failed run. Retry only when there is a new, stated hypothesis that changes the command/environment, or the user explicitly requests another attempt.
 - A failing product assertion may justify a targeted rerun after an implementation change. An unchanged infrastructure failure does not.
+- Treat a completed test run as passing evidence only when its parsed results report a known positive executed-test count and no failures. Zero, omitted, or otherwise unknown totals are non-passing even when Unity exits zero.
 - Report required evidence as passed, failed, intentionally skipped, or blocked. Never imply an unrun PlayMode check passed.
 
 ## Workflow

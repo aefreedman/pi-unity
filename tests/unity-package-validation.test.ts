@@ -14,6 +14,7 @@ const connectedSkillText = readFileSync(new URL("../skills/unity-connected-workf
 const screenshotUtilityText = readFileSync(new URL("../skills/capturing-screenshots-unity/assets/ScreenshotUtility.cs", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
+const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
 const changelogText = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
 const guidanceEvalReadmeText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/README.md", import.meta.url), "utf8");
 const guidanceEvalRunnerText = readFileSync(new URL("../evals/auditing-unity-agent-guidance/run-eval.ts", import.meta.url), "utf8");
@@ -86,18 +87,35 @@ for (const skillSnippet of [
 assert(readmeText.includes("explicit user/project PlayMode skips") && readmeText.includes("exact current-run artifact paths"), "Expected README validation stop-rule summary.");
 assert(indexText.includes("For Unity Test Framework runs, always provide absolute -testResults and -logFile paths"), "Expected batchmode tool guidance for compact test summaries.");
 assert(indexText.includes("skip PlayMode tests") && indexText.includes("exact current-run -testResults/-logFile paths") && indexText.includes("do not relaunch without a new stated hypothesis"), "Expected batchmode tool guidance to honor skips, inspect exact artifacts, and stop unchanged infrastructure retries.");
-assert(indexText.includes("selectedTestEvidenceUnavailable") && indexText.includes("!hasLoadedArtifacts") && indexText.includes("deriveUnityBatchmodeStatus"), "Expected missing batchmode and artifact evidence to avoid passed status.");
+assert(indexText.includes("deriveUnityArtifactInspectionStatus") && indexText.includes("deriveUnityBatchmodeStatus"), "Expected batchmode and artifact inspection to share test-evidence status semantics.");
+assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"), "Expected shared passing-test evidence to require a known positive executed-test count.");
 assert(indexText.includes("Summarize existing Unity log files and Unity Test Framework XML results without launching Unity"), "Expected artifact inspection guidance.");
 assert(indexText.includes("if (result.killed || report.details.status !== \"passed\")") && indexText.includes("if (report.details.status === \"failed\") throw new Error(report.text)"), "Expected failed batches and artifact inspections to throw tool errors.");
 assert(indexText.includes("compactUnityArtifacts") && indexText.includes("stdout: summarizeTextForAgent(result.stdout") && indexText.includes("stderr: summarizeTextForAgent(result.stderr"), "Expected bounded batchmode result details with full evidence retained by artifact path.");
 assert(indexText.includes("Completed pre-launch side effects / evidence paths") && indexText.includes("Closed Unity process IDs") && indexText.includes("Completed Unity process closures before this error"), "Expected post-close errors to disclose shared-project side effects and evidence paths.");
 assert(indexText.includes("signal?.aborted") && indexText.includes("error.name === \"AbortError\"") && indexText.includes("A graceful Unity Editor exit was requested for"), "Expected cancellation during graceful Editor close to stop before OS-level termination fallback and disclose the request.");
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID") && testBatchText.includes("-testCategory") && testBatchText.includes("-testResults"), "Expected collision-safe test-batch planning with categories and artifacts.");
-assert(indexText.includes("parsedTestResults?.total === 0") || readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8").includes("parsedTestResults?.total === 0"), "Expected zero-test filtered batches to fail.");
+assert(batchmodeSourceText.includes("parsedTestResults.total > 0") && batchmodeSourceText.includes("!isPassingUnityTestEvidence(parsedTestResults)"), "Expected zero-test and unknown-total batches to fail.");
+assert(readmeText.includes("unknown-total") && readmeText.includes("known positive executed-test count"), "Expected package guidance to reject unknown executed-test totals.");
 assert(readmeText.includes("collision-safe absolute XML/log paths") && skillText.includes("default for isolated or report-producing Unity Test Framework work"), "Expected isolated test-batch documentation and routing guidance.");
-for (const snippet of ["unity_project_status", "recompile_status", "--async_tests true", "stringified nested JSON", "initial asynchronous `run_tests` response", "terminal status reports zero tests", "NUnit XML"]) {
+for (const snippet of [
+  "unity_project_status",
+  "recompile_status",
+  "--async_tests true",
+  "stringified nested JSON",
+  "valid nonterminal initiating response",
+  "known positive executed-test count",
+  "reports successful completion",
+  "bounded backoff",
+  "nested `success:false`",
+  "changed exact-copy identity",
+  "polling timeout",
+  "Do not silently fall back to batchmode",
+  "NUnit XML",
+]) {
   assert(connectedSkillText.includes(snippet), `Expected connected Unity workflow skill to contain: ${snippet}`);
 }
+assert(connectedSkillText.includes("`run_tests` and `test_status`") && connectedSkillText.includes("Total: 0") && connectedSkillText.includes("result: running"), "Expected connected routing to require both commands while preserving a nonterminal running Total: 0 response.");
 assert(changelogText.includes("unity_run_test_batch") && changelogText.includes("Windows CI"), "Expected test-batch changelog entries.");
 assert(skillText.includes("Do not close a reachable Pipeline Editor merely to run tests") && skillText.includes("Route before planning a batch") && readmeText.includes("should run connected tests without closing the Editor"), "Expected open-Editor Pipeline tests to precede isolated batchmode routing.");
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");

@@ -259,6 +259,32 @@ export type UnityBatchmodeAgentTextInput = {
   singleProcessWarning: string;
 };
 
+export function hasKnownPositiveExecutedTestCount(
+  parsedTestResults?: UnityParsedTestResults | null,
+): boolean {
+  return parsedTestResults?.total !== undefined
+    && Number.isFinite(parsedTestResults.total)
+    && parsedTestResults.total > 0;
+}
+
+export function isPassingUnityTestEvidence(
+  parsedTestResults?: UnityParsedTestResults | null,
+): boolean {
+  return hasKnownPositiveExecutedTestCount(parsedTestResults)
+    && (parsedTestResults?.failed ?? 0) === 0
+    && (parsedTestResults?.failedTests.length ?? 0) === 0;
+}
+
+export function deriveUnityArtifactInspectionStatus(
+  hasLoadedArtifacts: boolean,
+  invocation: UnityBatchmodeInvocation,
+  parsedTestResults?: UnityParsedTestResults | null,
+): "passed" | "failed" {
+  if (!hasLoadedArtifacts) return "failed";
+  if (invocation.isTestRun && !isPassingUnityTestEvidence(parsedTestResults)) return "failed";
+  return "passed";
+}
+
 export function deriveUnityBatchmodeStatus(
   exitCode: number,
   killed: boolean,
@@ -266,9 +292,8 @@ export function deriveUnityBatchmodeStatus(
   parsedTestResults?: UnityParsedTestResults | null,
 ): "passed" | "failed" | "killed" {
   if (killed) return "killed";
-  if (invocation.isTestRun && invocation.testResultsPath && !parsedTestResults) return "failed";
-  if (invocation.isTestRun && parsedTestResults?.total === 0) return "failed";
-  if (parsedTestResults && (parsedTestResults.failed ?? parsedTestResults.failedTests.length ?? 0) > 0) {
+  if (invocation.isTestRun && !isPassingUnityTestEvidence(parsedTestResults)) return "failed";
+  if (parsedTestResults && ((parsedTestResults.failed ?? 0) > 0 || parsedTestResults.failedTests.length > 0)) {
     return "failed";
   }
   return exitCode === 0 ? "passed" : "failed";
@@ -302,9 +327,11 @@ export function buildUnityBatchmodeAgentText(input: UnityBatchmodeAgentTextInput
 
   if (input.parsedTestResults) {
     lines.push(...formatParsedTestResultsForAgent(input.parsedTestResults));
-    if (input.parsedTestResults.total === 0) {
-      lines.push("Unity reported zero executed tests; this batch is not passing evidence.");
-    }
+  }
+  if (input.invocation.isTestRun && !hasKnownPositiveExecutedTestCount(input.parsedTestResults)) {
+    lines.push(input.parsedTestResults?.total === 0
+      ? "Unity reported zero executed tests; this batch is not passing evidence."
+      : "Unity did not report a known positive executed-test count; this batch is not passing evidence.");
   }
 
   if (input.artifacts.testResultsPath) lines.push(`Test results: ${input.artifacts.testResultsPath}`);

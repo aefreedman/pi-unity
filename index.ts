@@ -7,7 +7,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { getKeybindings, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   buildUnityBatchmodeAgentText,
+  deriveUnityArtifactInspectionStatus,
   deriveUnityBatchmodeStatus,
+  hasKnownPositiveExecutedTestCount,
   loadUnityBatchmodeArtifacts,
   parseUnityBatchmodeInvocation,
   parseUnityTestResultsXml,
@@ -623,12 +625,7 @@ async function buildArtifactInspectionReport(
     artifacts.warnings.push(`Unity test results XML could not be parsed: ${artifacts.testResultsPath ?? testResultsPath}`);
   }
   const hasLoadedArtifacts = Boolean(artifacts.testResultsPath || artifacts.logFilePath);
-  const selectedTestEvidenceUnavailable = Boolean(testResultsPath && !parsedTestResults);
-  const status = !hasLoadedArtifacts
-    || selectedTestEvidenceUnavailable
-    || Boolean(parsedTestResults && ((parsedTestResults.failed ?? 0) > 0 || parsedTestResults.failedTests.length > 0))
-    ? "failed"
-    : "passed";
+  const status = deriveUnityArtifactInspectionStatus(hasLoadedArtifacts, invocation, parsedTestResults);
   const lines = [
     `Unity artifacts inspected for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
     testResultsPath ? `Requested test results: ${testResultsPath}` : "Requested test results: (none found)",
@@ -637,6 +634,11 @@ async function buildArtifactInspectionReport(
 
   if (parsedTestResults) {
     lines.push(...formatParsedTestResultsForAgent(parsedTestResults));
+  }
+  if (invocation.isTestRun && parsedTestResults && !hasKnownPositiveExecutedTestCount(parsedTestResults)) {
+    lines.push(parsedTestResults.total === 0
+      ? "Unity reported zero executed tests; these results are not passing evidence."
+      : "Unity did not report a known positive executed-test count; these results are not passing evidence.");
   }
 
   for (const warning of artifacts.warnings) lines.push(warning);
@@ -1106,6 +1108,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "Use unity_inspect_artifacts after Unity failures when existing -testResults or -logFile artifacts need concise parsing without another Unity launch.",
       "Prefer unity_inspect_artifacts over ad hoc bash parsing of Unity XML/log files when paths are known or Logs/ contains recent artifacts.",
       "unity_inspect_artifacts does not launch Unity and is safe to use even when the Unity project is busy.",
+      "Treat selected test XML as passing evidence only when it is well formed, reports a known positive executed-test count, and reports no failures.",
     ],
     parameters: INSPECT_ARTIFACTS_PARAMS,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
