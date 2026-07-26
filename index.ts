@@ -1,4 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { RegistrationToken } from "@aefree/pi-capability-registry";
+import { createArtifactProfileRegistryV1 } from "@aefree/pi-project-artifacts/contracts/v1";
+import { createRepositoryPolicyRegistryV1 } from "@aefree/pi-repo-search/contracts/v1";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { mkdir, readdir, stat, unlink } from "node:fs/promises";
@@ -28,6 +31,13 @@ import { assertUnityProjectNotBusy, getUnityNativeLockfilePath, inspectUnityProj
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
+import { createUnityArtifactProfileV1 } from "./src/unity-artifact-profile";
+import { createUnityRepositoryPolicyV1 } from "./src/unity-repo-search-policy";
+import { createUnityMigrationServiceV1 } from "./src/unity-docs-migration";
+import { registerUnityLegacyReferencesV1 } from "./src/unity-legacy-reference";
+import { createUnityWorkflowProviderV1 } from "./src/unity-workflow-provider";
+import { createWorkflowProviderRegistryV1 } from "@aefree/pi-workflow/contracts/v1";
+import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, type UnityMigrationRequestV1 } from "./contracts/v1";
 
 const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same as batchmode/headless Unity.";
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
@@ -110,6 +120,29 @@ const INSPECT_ARTIFACTS_PARAMS = Type.Object({
   latestFromLogs: Type.Optional(Type.Boolean({ default: true, description: "When paths are omitted, inspect the newest .xml and .log files under the project's Logs folder." })),
   maxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, default: 60, description: "Maximum log/output lines to include." })),
   maxChars: Type.Optional(Type.Integer({ minimum: 500, maximum: 20000, default: 6000, description: "Maximum log/output characters to include." })),
+});
+
+const UNITY_CLASSIFICATION_SCHEMA = Type.Object({
+  doc_type: StringEnum(["solution", "pattern", "workflow", "documentation_gap"] as const),
+  category: Type.String(),
+  failure_mode: Type.String(),
+});
+const UNITY_MIGRATION_PARAMS = Type.Object({
+  operation: StringEnum(["plan", "apply", "recover"] as const),
+  workspaceRoot: Type.String({ description: "Exact workspace root. Migration never infers a coordination workspace." }),
+  solutionsRoot: Type.Optional(Type.String({ description: "Physical docs/solutions root. Required for plan/apply." })),
+  artifactRoot: Type.Optional(Type.String({ description: "Authorized Markdown scope for inbound-link reconciliation. Defaults to the solutions parent." })),
+  mapping: Type.Optional(Type.Object({
+    problemTypeMap: Type.Optional(Type.Record(Type.String(), UNITY_CLASSIFICATION_SCHEMA)),
+    pathOverrides: Type.Optional(Type.Record(Type.String(), UNITY_CLASSIFICATION_SCHEMA)),
+  })),
+  move: Type.Optional(Type.Boolean({ default: true })),
+  approvalHash: Type.Optional(Type.String({ pattern: "^sha256:[a-f0-9]{64}$", description: "Exact manifest hash from the reviewed current plan. Required for apply." })),
+  runRoot: Type.Optional(Type.String({ description: "Exclusive journal/run root outside authoritative artifacts." })),
+  recoveryMode: Type.Optional(StringEnum(["backup", "vcs"] as const)),
+  vcsCheckpoint: Type.Optional(Type.String({ description: "Pinned VCS checkpoint recorded in addition to byte backups." })),
+  runDirectory: Type.Optional(Type.String({ description: "Existing migration run directory. Required for recover." })),
+  recoveryAction: Type.Optional(StringEnum(["resume", "rollback"] as const)),
 });
 
 function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate): string {
@@ -995,6 +1028,53 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
 }
 
 export default function freeUnityPi(pi: ExtensionAPI) {
+  const artifactProfileRegistry = createArtifactProfileRegistryV1();
+  const repositoryPolicyRegistry = createRepositoryPolicyRegistryV1();
+  const migrationRegistry = createUnityMigrationServiceRegistryV1();
+  const workflowProviderRegistry = createWorkflowProviderRegistryV1();
+  type ScopeRegistrations = Readonly<{
+    artifactProfileToken: RegistrationToken;
+    repositoryPolicyToken: RegistrationToken;
+    migrationToken: RegistrationToken;
+    workflowProviderToken: RegistrationToken;
+    legacyReferences: Readonly<{ token: RegistrationToken; unregister(): boolean }>;
+  }>;
+  // Lifecycle handles are session-scoped. Provider callbacks themselves capture no session state.
+  const registrations = new WeakMap<object, ScopeRegistrations>();
+  const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
+    if (current === undefined) return false;
+    const changes = [
+      artifactProfileRegistry.unregister(current.artifactProfileToken),
+      repositoryPolicyRegistry.unregister(current.repositoryPolicyToken),
+      migrationRegistry.unregister(current.migrationToken),
+      workflowProviderRegistry.unregister(current.workflowProviderToken),
+      current.legacyReferences.unregister(),
+    ];
+    return changes.some(Boolean);
+  };
+
+  pi.on("session_start", (_event, ctx) => {
+    const scope = ctx.sessionManager;
+    unregisterScope(registrations.get(scope));
+    const next = Object.freeze({
+      artifactProfileToken: artifactProfileRegistry.register(scope, createUnityArtifactProfileV1()),
+      repositoryPolicyToken: repositoryPolicyRegistry.register(scope, createUnityRepositoryPolicyV1()),
+      migrationToken: migrationRegistry.register(scope, createUnityMigrationServiceV1()),
+      workflowProviderToken: workflowProviderRegistry.register(scope, createUnityWorkflowProviderV1()),
+      legacyReferences: registerUnityLegacyReferencesV1(scope),
+    });
+    registrations.set(scope, next);
+    pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    const scope = ctx.sessionManager;
+    const current = registrations.get(scope);
+    if (current === undefined) return;
+    const changed = unregisterScope(current);
+    registrations.delete(scope);
+    if (changed) pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "unregistered" });
+  });
+
   pi.registerCommand("unity-open", {
     description: "Open the Unity Editor GUI for the current Unity project copy or choose one from nearby candidates.",
     handler: async (args, ctx) => {
@@ -1020,6 +1100,49 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
         ctx.ui.notify(message, "error");
       }
+    },
+  });
+
+  pi.registerTool({
+    name: "unity_migrate_solution_docs",
+    label: "Unity Solution Docs Migration",
+    description: "Plan, apply, resume, or roll back the journaled Unity solution-doc schema v1-to-v2 migration. Plan is dry-run; apply requires an exact reviewed approval hash and a backup/VCS recovery gate.",
+    promptSnippet: "Safely plan or execute an explicit Unity solution-doc v1/v2 migration with collision, link, backup, and recovery checks.",
+    promptGuidelines: [
+      "Use unity_migrate_solution_docs operation=plan before any apply and present its exact approvalHash plus every conflict.",
+      "Call unity_migrate_solution_docs operation=apply only after explicit user approval of the exact current plan hash; never use migration as package validation against real project docs.",
+      "Unity migration partial-v2/legacy hybrids and normalized destination collisions block; there is no manual-review bypass.",
+      "Retain the migration run directory and use recover resume/rollback after interruption; do not hand-edit a run journal.",
+    ],
+    parameters: UNITY_MIGRATION_PARAMS,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const workspaceRoot = resolve(ctx.cwd, params.workspaceRoot);
+      let request: UnityMigrationRequestV1;
+      if (params.operation === "recover") {
+        if (!params.runDirectory || !params.recoveryAction) throw new Error("recover requires runDirectory and recoveryAction");
+        request = { operation: "recover", workspaceRoot, runDirectory: resolve(ctx.cwd, params.runDirectory), action: params.recoveryAction };
+      } else {
+        if (!params.solutionsRoot) throw new Error(`${params.operation} requires solutionsRoot`);
+        const base = {
+          workspaceRoot,
+          solutionsRoot: resolve(workspaceRoot, params.solutionsRoot),
+          ...(params.artifactRoot ? { artifactRoot: resolve(workspaceRoot, params.artifactRoot) } : {}),
+          ...(params.mapping ? { mapping: params.mapping } : {}),
+          ...(params.move === undefined ? {} : { move: params.move }),
+        };
+        if (params.operation === "plan") request = { operation: "plan", ...base };
+        else {
+          if (!params.approvalHash) throw new Error("apply requires approvalHash from the exact reviewed plan");
+          const recovery = params.recoveryMode === "vcs"
+            ? (() => { if (!params.vcsCheckpoint) throw new Error("recoveryMode=vcs requires vcsCheckpoint"); return { mode: "vcs" as const, checkpoint: params.vcsCheckpoint }; })()
+            : { mode: "backup" as const };
+          request = { operation: "apply", ...base, approvalHash: params.approvalHash, recovery, ...(params.runRoot ? { runRoot: resolve(workspaceRoot, params.runRoot) } : {}) };
+        }
+      }
+      const resolvedService = resolveUnityMigrationServiceV1(ctx.sessionManager, migrationRegistry);
+      if (resolvedService.outcome !== "available") throw new Error(`UnityMigrationServiceV1 unavailable: ${resolvedService.code}. Install/enable a compatible @aefree/pi-unity registrar and start a fresh session.`);
+      const result = await resolvedService.records[0]!.execute({ cwd: ctx.cwd, signal: signal ?? new AbortController().signal }, request);
+      return { content: [{ type: "text", text: result.text }], details: { ...result.details, provenance: result.provenance } };
     },
   });
 

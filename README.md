@@ -8,6 +8,8 @@ Pi skill and tool package for reusable Unity workflows.
 - skill: `unity-batchmode-tests`
 - skill: `capturing-screenshots-unity`
 - skill: `auditing-unity-agent-guidance`
+- skill: `unity-docs` (solution-capture compatibility name preserved)
+- tool: `unity_migrate_solution_docs`
 - tool: `unity_guidance_audit`
 - tool: `unity_project_status`
 - tool: `unity_inspect_artifacts`
@@ -39,6 +41,12 @@ pi install -l <path-to-pi-unity>
 ## Notes
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
+- On every `session_start`, pi-unity registers a Unity generated-directory repository-search policy, a Unity solution-artifact v1/v2 profile, `UnityMigrationServiceV1`, an `engine.unity` `WorkflowProviderV1`, and exactly its 14 pi-game-dev `LegacyReferenceServiceV1` compatibility resources. The engine provider claims only the nearest `ProjectSettings/ProjectVersion.txt` marker, keeps status readiness separate from applicability, and supplies bounded plan/work/review/validation guidance. Bounded compatibility reads use byte-exact pinned 0.6.4 legacy payload copies, separate from canonical Unity guidance, and expose public package/resource provenance rather than install roots. Registrations are isolated per session scope, safe under reverse load order, and a delayed old-session shutdown cannot remove another scope's current records.
+- The repository policy excludes `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs` only for detected Unity project roots. The canonical repository-search package remains Unity-neutral.
+- The artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. Generic artifact search remains available when this profile is missing, while profile-specific filters return `missing_profile`.
+- `unity_migrate_solution_docs` is dry-run for `operation=plan`. Apply requires the exact reviewed `approvalHash`, explicit authorization, and a backup/VCS recovery gate. It performs normalized destination collision checks; exact-range, lossless classification patches; rebases inbound and all moved-document outbound local Markdown links (inline, reference-definition, and bare paths); rejects final broken links; preserves POSIX modes; stages hashed outputs; creates byte backups; and journals every operation. Apply/resume/rollback share one root queue and nonce-owned lock with explicit journal transitions. Destination, run, lock, backup, and stage paths are physically revalidated immediately before mutation. `--include-manual-review` is intentionally unsupported.
+- Package validation uses synthetic migration fixtures only. Publication/package install never authorizes migration against real project documents.
+- `unity-docs` keeps all templates, schema, and guidance under its own skill directory and uses the canonical project artifact/migration tools rather than installation-specific package paths.
 - `unity_guidance_audit` performs a bounded, read-only scan of AGENTS.md, CLAUDE.md, Copilot, and Cursor guidance for outdated Unity CLI/Pipeline, batchmode, test, lifecycle, and exact-project-copy instructions. The `auditing-unity-agent-guidance` skill owns contextual migration and user-authorized edits.
 - `unity_open_editor` launches the full Unity Editor GUI.
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
@@ -109,7 +117,16 @@ pi-unity/
     unity-processes.ts
     unity-project-lock.ts
     unity-projects.ts
+  contracts/
+    v1.ts
+  scripts/
+    migrate-unity-docs-schema.ts
   skills/
+    unity-docs/
+      SKILL.md
+      schema.yaml
+      references/
+      assets/
     auditing-unity-agent-guidance/
       SKILL.md
       references/
@@ -129,7 +146,10 @@ pi-unity/
 
 ```bash
 npm test
+npm pack --dry-run
 ```
+
+The package declares semver dependencies on `@aefree/pi-capability-registry`, `@aefree/pi-project-artifacts`, `@aefree/pi-repo-search`, and `@aefree/pi-workflow`. Neutral consumers co-install their tarballs; the Unity archive contains no copied dependency tree, sibling `file:` path, or workspace link.
 
 ## License
 

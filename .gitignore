@@ -1,3 +1,5 @@
+node_modules/
+*.tgz
 evals/**/latest-results.json
 evals/**/results/
 evals/**/*.eval-results.json

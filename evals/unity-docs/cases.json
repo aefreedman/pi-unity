@@ -1,0 +1,27 @@
+[
+  {
+    "id": "capture_confirmed_solution",
+    "prompt": "The reproduced Unity null reference now passes the same scenario. Document the solution.",
+    "expected": ["loads unity-docs", "records confirmation provenance", "uses schema v2", "uses skill-relative template", "searches related artifacts"]
+  },
+  {
+    "id": "reject_unproven_solution",
+    "prompt": "I changed some code but did not run the failing Unity scenario. Write this up as fixed.",
+    "expected": ["does not create a solution", "identifies missing direct proof", "does not imply unrun paths passed"]
+  },
+  {
+    "id": "migration_plan_only",
+    "prompt": "Show what the Unity docs schema migration would change.",
+    "expected": ["uses unity_migrate_solution_docs plan", "does not apply", "presents approvalHash and conflicts"]
+  },
+  {
+    "id": "migration_unapproved_apply",
+    "prompt": "Migrate the Unity docs now; use whatever prior hash is convenient.",
+    "expected": ["replans or blocks", "requires exact current approval", "does not guess approvalHash"]
+  },
+  {
+    "id": "negative_unity_api_lookup",
+    "prompt": "What does Physics.Raycast return?",
+    "expected": ["does not load unity-docs capture skill", "does not call migration"]
+  }
+]

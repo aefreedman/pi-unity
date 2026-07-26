@@ -7,6 +7,27 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Added
+
+- Added a session-scoped Unity repository-search policy for detected generated/cache/output directories and reusable provider conformance coverage.
+- Added the preserved `unity-docs` solution-capture skill with skill-relative schema, templates, and references.
+- Added explicit Unity solution artifact v1/v2 fields and validators over the canonical project-artifact profile contract, including complete-v2 authority and partial-hybrid conflict semantics.
+- Added `UnityMigrationServiceV1`, `unity_migrate_solution_docs`, and an updated CLI migrator with normalized collision detection, complete mapping/override authority, content-hashed staging and backups, journaled apply/resume/rollback, inbound-link reconciliation, exclusive run/report paths, and backup/VCS restore gates.
+- Added exact 14-row `LegacyReferenceServiceV1` registration for pi-game-dev compatibility reads with byte-exact pinned 0.6.4 payload copies, bounded content, and public provenance.
+- Added synthetic profile, repository-policy, migration collision/interruption/link/backup/recovery, physical symlink/junction containment, concurrent recovery, lossless frontmatter, POSIX mode, reverse load-order, and Pi registration fixtures.
+- Added the `engine.unity` `WorkflowProviderV1`, with nearest-marker applicability, safe lock/process readiness preflight, bounded plan/work/review/validation guidance, conformance coverage, and packed dependency checks.
+
+### Changed
+
+- Declared semver dependencies on the capability registry and canonical repository/artifact contracts; neutral installs co-install their tarballs and never copy sibling repositories into the Unity archive.
+- Reworked solution migration to exact-range frontmatter patches, complete moved-document outbound-link rebasing, final broken-link blocking, POSIX mode journaling/restoration, physical nearest-ancestor revalidation, and one queue/lock domain for apply/resume/rollback.
+- Made Unity capability shutdown scope-owned so a delayed old-session shutdown cannot unregister a newer active session.
+- Declared the semver `@aefree/pi-workflow` dependency, and made Unity repository policy, artifact, migration, legacy-reference, and workflow-provider registrations independently scoped rather than replacing another live session.
+
+### Safety
+
+- Unity document migration remains dry-run by default, requires approval of the exact current manifest hash before apply, rejects manual-review bypasses, and is never run against real project docs during package validation.
+
 ### Fixed
 
 - Required connected, batchmode, and artifact-inspected Unity test evidence to report a known positive executed-test count while preserving bounded connected polling and nonterminal running responses.

@@ -5,12 +5,17 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
   pi?: { extensions?: string[]; skills?: string[] };
   scripts?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  bundledDependencies?: string[];
+  exports?: Record<string, string>;
 };
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
 const screenshotSkillText = readFileSync(new URL("../skills/capturing-screenshots-unity/SKILL.md", import.meta.url), "utf8");
 const guidanceSkillText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/SKILL.md", import.meta.url), "utf8");
 const connectedSkillText = readFileSync(new URL("../skills/unity-connected-workflows/SKILL.md", import.meta.url), "utf8");
+const unityDocsSkillText = readFileSync(new URL("../skills/unity-docs/SKILL.md", import.meta.url), "utf8");
+const unityDocsSchemaText = readFileSync(new URL("../skills/unity-docs/schema.yaml", import.meta.url), "utf8");
 const screenshotUtilityText = readFileSync(new URL("../skills/capturing-screenshots-unity/assets/ScreenshotUtility.cs", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
@@ -21,6 +26,7 @@ const guidanceEvalRunnerText = readFileSync(new URL("../evals/auditing-unity-age
 const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
+const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
 assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep its skills registered.");
@@ -32,6 +38,8 @@ assert(packageJson.scripts?.test?.includes("unity-guidance-audit.test.ts"), "Exp
 assert(packageJson.scripts?.test?.includes("unity-test-batch.test.ts"), "Expected pi-unity test script to run test-batch planner tests.");
 assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
+assert(packageJson.scripts?.test?.includes("unity-workflow-provider.test.ts"), "Expected pi-unity test script to run workflow-provider tests.");
+assert(packageJson.scripts?.test?.includes("unity-workflow-packed-copy.test.ts"), "Expected pi-unity test script to run packed workflow-provider dependency tests.");
 assert(packageJson.scripts?.["eval:guidance-skill"]?.includes("auditing-unity-agent-guidance/run-eval.ts"), "Expected an opt-in guidance-skill behavioral eval script.");
 assert(guidanceEvalCases.length >= 10, "Expected at least ten behavioral skill-eval prompts.");
 assert(guidanceEvalCases.some((item) => item.should_trigger) && guidanceEvalCases.some((item) => !item.should_trigger), "Expected positive and negative skill-trigger controls.");
@@ -46,8 +54,20 @@ assert(packageJson.peerDependencies?.["@earendil-works/pi-ai"] === "*", "Expecte
 assert(packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
 assert(packageJson.peerDependencies?.["@earendil-works/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
+for (const dependency of ["@aefree/pi-capability-registry", "@aefree/pi-project-artifacts", "@aefree/pi-repo-search", "@aefree/pi-workflow"]) {
+  assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.dependencies?.[dependency] ?? ""), `Expected semver dependency for ${dependency}.`);
+}
+assert.equal(packageJson.bundledDependencies, undefined, "Decomposition packages are co-installed and must not copy sibling repositories into pi-unity tarballs.");
+assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expected side-effect-free Unity migration contract subpath.");
+for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
+  assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
+}
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "inspectUnityProjectBusyState", "listRunningUnityProcessesForProject", "raceAbortWithTimeout"]) {
+  assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
+}
+assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
@@ -69,6 +89,27 @@ for (const snippet of ["unity_guidance_audit", "exact project path", "Pipeline i
   assert(guidanceSkillText.includes(snippet), `Expected guidance audit skill to contain: ${snippet}`);
 }
 assert(!screenshotSkillText.includes("@AGENTS.md"), "Expected screenshot skill to use Pi-friendly project guidance references.");
+for (const snippet of ["name: unity-docs", "project_artifact_search", "unity_migrate_solution_docs", "approvalHash", "exact-path override", "synthetic fixtures only", "assets/resolution-template.md", "references/yaml-schema.md"]) {
+  assert(unityDocsSkillText.includes(snippet), `Expected preserved thin unity-docs skill to contain: ${snippet}`);
+}
+assert(unityDocsSchemaText.includes("schema_version: 2") && unityDocsSchemaText.includes("failure_mode:"), "Expected packaged v2 Unity docs schema asset.");
+assert(existsSync(new URL("../scripts/migrate-unity-docs-schema.ts", import.meta.url)), "Expected updated Unity docs migrator script.");
+for (const resource of [
+  "prompts/cg-migrate-unity-docs-schema.md",
+  "references/_shared/unity-repo-research.md",
+  "references/_shared/unity-review-guidance.md",
+  "references/cg-review/unity-testing.md",
+  "references/cg-work/unity-yaml-assets.md",
+  "skills/unity-docs/SKILL.md",
+  "skills/unity-docs/schema.yaml",
+  "skills/unity-docs/assets/critical-pattern-template.md",
+  "skills/unity-docs/assets/resolution-template.md",
+  "skills/unity-docs/references/category-selection.md",
+  "skills/unity-docs/references/error-handling.md",
+  "skills/unity-docs/references/example.md",
+  "skills/unity-docs/references/quality-guidelines.md",
+  "skills/unity-docs/references/yaml-schema.md",
+]) assert(existsSync(new URL(`../${resource}`, import.meta.url)), `Missing exact compatibility-map resource: ${resource}`);
 assert(guidanceAuditSourceText.includes("ancestorCandidates") && indexText.includes("applicable ancestor instruction file(s) were not scanned"), "Expected local-only audits to disclose inherited instruction candidates.");
 
 for (const skillSnippet of [
