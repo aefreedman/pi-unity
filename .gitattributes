@@ -1,2 +1,2 @@
 # Compatibility snapshots are byte-for-byte legacy payloads.
-/compatibility/** -whitespace
+/compatibility/** text eol=lf -whitespace
