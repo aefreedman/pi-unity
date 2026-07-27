@@ -25,6 +25,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Removed
 
+- Removed the `capturing-screenshots-unity` skill, its screenshot utility, and its unreferenced capture guidance.
 - Removed the frozen pi-game-dev legacy-reference payload copies, `LegacyReferenceServiceV1` provider registration, and compatibility snapshot test. Canonical Unity resources and their direct package validation remain.
 
 ### Safety

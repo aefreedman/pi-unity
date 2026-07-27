@@ -6,7 +6,6 @@ Pi skill and tool package for reusable Unity workflows.
 
 - skill: `unity-connected-workflows`
 - skill: `unity-batchmode-tests`
-- skill: `capturing-screenshots-unity`
 - skill: `auditing-unity-agent-guidance`
 - skill: `unity-docs` (solution-capture compatibility name preserved)
 - tool: `unity_migrate_solution_docs`
@@ -72,7 +71,6 @@ pi install -l <path-to-pi-unity>
 - Unity install probing is OS-aware and avoids machine-specific assumptions by using the project's `ProjectSettings/ProjectVersion.txt`, the optional `unity` CLI, standard per-OS install locations, and optional `UNITY_EDITOR_PATH` overrides.
 - Unity allows only one process per project folder; GUI and batchmode both count.
 - The `unity-batchmode-tests` skill is intended for Unity Test Framework CLI runs.
-- The `capturing-screenshots-unity` skill is intended for Unity gameplay and UI screenshot workflows when the project supports capture.
 - Keep skill-specific references and helper assets under the skill directory beside `SKILL.md`.
 
 ## Settings
@@ -135,10 +133,6 @@ pi-unity/
       SKILL.md
     unity-batchmode-tests/
       SKILL.md
-    capturing-screenshots-unity/
-      SKILL.md
-      assets/
-      references/
   tests/
 ```
 

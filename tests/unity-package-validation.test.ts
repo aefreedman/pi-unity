@@ -11,12 +11,10 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 };
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
-const screenshotSkillText = readFileSync(new URL("../skills/capturing-screenshots-unity/SKILL.md", import.meta.url), "utf8");
 const guidanceSkillText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/SKILL.md", import.meta.url), "utf8");
 const connectedSkillText = readFileSync(new URL("../skills/unity-connected-workflows/SKILL.md", import.meta.url), "utf8");
 const unityDocsSkillText = readFileSync(new URL("../skills/unity-docs/SKILL.md", import.meta.url), "utf8");
 const unityDocsSchemaText = readFileSync(new URL("../skills/unity-docs/schema.yaml", import.meta.url), "utf8");
-const screenshotUtilityText = readFileSync(new URL("../skills/capturing-screenshots-unity/assets/ScreenshotUtility.cs", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
 const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
@@ -81,14 +79,9 @@ for (const snippet of ["Temp/UnityLockfile", "Pi-side project mutex", "unity_pro
   assert(readmeText.includes(snippet), `Expected README to contain: ${snippet}`);
 }
 
-for (const snippet of ["capturing-screenshots-unity", "ScreenshotUtility.cs", "screenshots"]) {
-  assert(screenshotSkillText.includes(snippet) || readmeText.includes(snippet), `Expected screenshot skill or README to contain: ${snippet}`);
-}
-assert(screenshotUtilityText.includes("class ScreenshotUtility"), "Expected screenshot utility C# helper to be packaged.");
 for (const snippet of ["unity_guidance_audit", "exact project path", "Pipeline installation", "migration-policy.md", "untrusted evidence", "ancestorCandidates", "do not obscure or remove it to silence the heuristic"]) {
   assert(guidanceSkillText.includes(snippet), `Expected guidance audit skill to contain: ${snippet}`);
 }
-assert(!screenshotSkillText.includes("@AGENTS.md"), "Expected screenshot skill to use Pi-friendly project guidance references.");
 for (const snippet of ["name: unity-docs", "project_artifact_search", "unity_migrate_solution_docs", "approvalHash", "exact-path override", "synthetic fixtures only", "assets/resolution-template.md", "references/yaml-schema.md"]) {
   assert(unityDocsSkillText.includes(snippet), `Expected preserved thin unity-docs skill to contain: ${snippet}`);
 }
