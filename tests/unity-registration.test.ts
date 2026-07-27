@@ -19,11 +19,14 @@ function fakePi() {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   const tools: any[] = [];
   const commands: any[] = [];
+  let activeTools: string[] = [];
   return {
     handlers, tools, commands,
     on(name: string, handler: (event: any, ctx: any) => unknown) { const list = handlers.get(name) ?? []; list.push(handler); handlers.set(name, list); },
-    registerTool(tool: any) { tools.push(tool); },
+    registerTool(tool: any) { tools.push(tool); activeTools.push(tool.name); },
     registerCommand(name: string, command: any) { commands.push({ name, ...command }); },
+    getActiveTools() { return [...activeTools]; },
+    setActiveTools(names: string[]) { activeTools = [...names]; },
     events: { emit() {}, on() {} },
   };
 }
