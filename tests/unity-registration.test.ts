@@ -6,14 +6,6 @@ import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1
 import { resolveWorkflowProvidersV1, resolveWorkflowServiceV1 } from "@aefree/pi-workflow/contracts/v1";
 import registerUnity from "../index";
 import { resolveUnityMigrationServiceV1 } from "../contracts/v1";
-import { createCapabilityRegistry } from "@aefree/pi-capability-registry";
-
-const legacyRegistry = () => createCapabilityRegistry<any>({
-  registryKey: "@aefree/pi-game-dev/legacy-reference-services/v1",
-  contractVersion: 1,
-  compatibleVersions: [1],
-  validate(value: unknown) { if (!value || typeof value !== "object") throw new TypeError("invalid legacy fixture service"); },
-});
 
 function fakePi() {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
@@ -49,12 +41,6 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   const workflowProviders = resolveWorkflowProvidersV1(scope);
   assert.equal(workflowProviders.outcome, "available", order);
   assert.deepEqual(workflowProviders.records.map((provider) => provider.id), ["engine.unity"], order);
-  const legacyServices = legacyRegistry().snapshotCompatible(scope);
-  assert.deepEqual(legacyServices.map((service: any) => [service.owner.packageName, service.legacyPaths.length]).sort(), [["@aefree/pi-project-artifacts", 11], ["@aefree/pi-unity", 14]], order);
-  const unityLegacy = legacyServices.find((service: any) => service.owner.packageName === "@aefree/pi-unity") as any;
-  const legacyRead = await unityLegacy.read({ cwd: process.cwd(), signal: new AbortController().signal }, { legacyPath: "skills/unity-docs/SKILL.md", offset: 1, limit: 2, signal: new AbortController().signal });
-  assert.equal(legacyRead.provenance.packageName, "@aefree/pi-unity");
-  assert.equal(JSON.stringify(legacyRead).includes(unityLegacy.owner.packageRoot), false, "public read provenance must not disclose install roots");
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 1);
   assert.equal(artifacts.tools.filter((tool) => tool.name === "project_artifact_search").length, 1);
   await emit(unity, "session_shutdown", ctx);
@@ -109,9 +95,8 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
-  assert.equal(legacyRegistry().snapshotCompatible(scopeB).filter((service: any) => service.owner.packageName === "@aefree/pi-unity").length, 1);
   await emit(unity, "session_shutdown", ctxB);
   assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "missing");
   assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "missing");
 }
-console.log("pi-unity reverse load-order, legacy-reference, and delayed-shutdown registration tests passed");
+console.log("pi-unity reverse load-order and delayed-shutdown registration tests passed");

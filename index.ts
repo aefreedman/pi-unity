@@ -34,7 +34,6 @@ import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-g
 import { createUnityArtifactProfileV1 } from "./src/unity-artifact-profile";
 import { createUnityRepositoryPolicyV1 } from "./src/unity-repo-search-policy";
 import { createUnityMigrationServiceV1 } from "./src/unity-docs-migration";
-import { registerUnityLegacyReferencesV1 } from "./src/unity-legacy-reference";
 import { createUnityWorkflowProviderV1 } from "./src/unity-workflow-provider";
 import { createWorkflowProviderRegistryV1 } from "@aefree/pi-workflow/contracts/v1";
 import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, type UnityMigrationRequestV1 } from "./contracts/v1";
@@ -1037,7 +1036,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     repositoryPolicyToken: RegistrationToken;
     migrationToken: RegistrationToken;
     workflowProviderToken: RegistrationToken;
-    legacyReferences: Readonly<{ token: RegistrationToken; unregister(): boolean }>;
   }>;
   // Lifecycle handles are session-scoped. Provider callbacks themselves capture no session state.
   const registrations = new WeakMap<object, ScopeRegistrations>();
@@ -1048,7 +1046,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       repositoryPolicyRegistry.unregister(current.repositoryPolicyToken),
       migrationRegistry.unregister(current.migrationToken),
       workflowProviderRegistry.unregister(current.workflowProviderToken),
-      current.legacyReferences.unregister(),
     ];
     return changes.some(Boolean);
   };
@@ -1061,7 +1058,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       repositoryPolicyToken: repositoryPolicyRegistry.register(scope, createUnityRepositoryPolicyV1()),
       migrationToken: migrationRegistry.register(scope, createUnityMigrationServiceV1()),
       workflowProviderToken: workflowProviderRegistry.register(scope, createUnityWorkflowProviderV1()),
-      legacyReferences: registerUnityLegacyReferencesV1(scope),
     });
     registrations.set(scope, next);
     pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
