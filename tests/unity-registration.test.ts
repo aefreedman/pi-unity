@@ -81,6 +81,19 @@ for (const order of ["workflow-first", "unity-first"] as const) {
 }
 
 {
+  const scope = {};
+  const unity = fakePi();
+  const ctx = { cwd: process.cwd(), sessionManager: scope, mode: "print", hasUI: false, ui: {} };
+  registerUnity(unity as any);
+  await emit(unity, "session_start", ctx);
+  await emit(unity, "session_start", ctx);
+  const workflowProviders = resolveWorkflowProvidersV1(scope);
+  assert.equal(workflowProviders.outcome, "available", "workflow-present reload must preserve the provider");
+  assert.deepEqual(workflowProviders.records.map((provider) => provider.id), ["engine.unity"], "workflow-present reload must replace rather than duplicate the provider");
+  await emit(unity, "session_shutdown", ctx);
+  assert.equal(resolveWorkflowProvidersV1(scope).outcome, "missing", "workflow-present reload cleanup must remove the matching provider");
+}
+{
   const scopeA = {};
   const scopeB = {};
   const unity = fakePi();

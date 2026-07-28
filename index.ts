@@ -34,9 +34,53 @@ import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-g
 import { createUnityArtifactProfileV1 } from "./src/unity-artifact-profile";
 import { createUnityRepositoryPolicyV1 } from "./src/unity-repo-search-policy";
 import { createUnityMigrationServiceV1 } from "./src/unity-docs-migration";
-import { createUnityWorkflowProviderV1 } from "./src/unity-workflow-provider";
-import { createWorkflowProviderRegistryV1 } from "@aefree/pi-workflow/contracts/v1";
 import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, type UnityMigrationRequestV1 } from "./contracts/v1";
+
+const WORKFLOW_CONTRACT_MODULE = "@aefree/pi-workflow/contracts/v1";
+
+type WorkflowProviderRegistryV1 = Readonly<{
+  register: (scope: object, provider: unknown) => RegistrationToken;
+  unregister: (token: RegistrationToken) => boolean;
+}>;
+
+type WorkflowIntegrationV1 = Readonly<{
+  registry: WorkflowProviderRegistryV1;
+  createProvider: () => unknown;
+}>;
+
+/**
+ * Only a missing requested workflow-contract module is optional. Failures
+ * within an installed workflow package (including incompatible exports) must
+ * remain visible rather than disabling Unity workflow composition silently.
+ */
+export const isMissingWorkflowContract = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code !== "ERR_MODULE_NOT_FOUND" && candidate.code !== "MODULE_NOT_FOUND") return false;
+  if (typeof candidate.message !== "string") return false;
+  return candidate.message.includes(`'${WORKFLOW_CONTRACT_MODULE}'`) ||
+    candidate.message.includes(`\"${WORKFLOW_CONTRACT_MODULE}\"`) ||
+    candidate.message.includes("Cannot find package '@aefree/pi-workflow'");
+};
+
+const loadWorkflowIntegrationV1 = async (): Promise<WorkflowIntegrationV1 | undefined> => {
+  try {
+    const [contracts, providerModule] = await Promise.all([
+      import(WORKFLOW_CONTRACT_MODULE),
+      import("./src/unity-workflow-provider"),
+    ]);
+    if (typeof contracts.createWorkflowProviderRegistryV1 !== "function" || typeof providerModule.createUnityWorkflowProviderV1 !== "function") {
+      throw new TypeError("@aefree/pi-workflow/contracts/v1 does not provide the required workflow-provider contract.");
+    }
+    return {
+      registry: contracts.createWorkflowProviderRegistryV1() as WorkflowProviderRegistryV1,
+      createProvider: providerModule.createUnityWorkflowProviderV1,
+    };
+  } catch (error) {
+    if (isMissingWorkflowContract(error)) return undefined;
+    throw error;
+  }
+};
 
 const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same as batchmode/headless Unity.";
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
@@ -1066,12 +1110,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   const artifactProfileRegistry = createArtifactProfileRegistryV1();
   const repositoryPolicyRegistry = createRepositoryPolicyRegistryV1();
   const migrationRegistry = createUnityMigrationServiceRegistryV1();
-  const workflowProviderRegistry = createWorkflowProviderRegistryV1();
   type ScopeRegistrations = Readonly<{
     artifactProfileToken: RegistrationToken;
     repositoryPolicyToken: RegistrationToken;
     migrationToken: RegistrationToken;
-    workflowProviderToken: RegistrationToken;
+    workflow?: Readonly<{ registry: WorkflowProviderRegistryV1; token: RegistrationToken }>;
   }>;
   // Lifecycle handles are session-scoped. Provider callbacks themselves capture no session state.
   const registrations = new WeakMap<object, ScopeRegistrations>();
@@ -1081,20 +1124,34 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       artifactProfileRegistry.unregister(current.artifactProfileToken),
       repositoryPolicyRegistry.unregister(current.repositoryPolicyToken),
       migrationRegistry.unregister(current.migrationToken),
-      workflowProviderRegistry.unregister(current.workflowProviderToken),
+      current.workflow?.registry.unregister(current.workflow.token) ?? false,
     ];
     return changes.some(Boolean);
   };
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
-    const next = Object.freeze({
+    // Keep core Unity contracts synchronous for reverse-load-order compatibility;
+    // only the optional provider composition waits on a dynamic import.
+    const coreRegistrations = Object.freeze({
       artifactProfileToken: artifactProfileRegistry.register(scope, createUnityArtifactProfileV1()),
       repositoryPolicyToken: repositoryPolicyRegistry.register(scope, createUnityRepositoryPolicyV1()),
       migrationToken: migrationRegistry.register(scope, createUnityMigrationServiceV1()),
-      workflowProviderToken: workflowProviderRegistry.register(scope, createUnityWorkflowProviderV1()),
     });
+    registrations.set(scope, coreRegistrations);
+    const workflowIntegration = await loadWorkflowIntegrationV1();
+    // A later start or shutdown for this scope won while the optional import ran.
+    if (registrations.get(scope) !== coreRegistrations) return;
+    const next = workflowIntegration === undefined
+      ? coreRegistrations
+      : Object.freeze({
+        ...coreRegistrations,
+        workflow: Object.freeze({
+          registry: workflowIntegration.registry,
+          token: workflowIntegration.registry.register(scope, workflowIntegration.createProvider()),
+        }),
+      });
     registrations.set(scope, next);
     pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
   });

@@ -6,6 +6,8 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
   scripts?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   bundledDependencies?: string[];
   exports?: Record<string, string>;
 };
@@ -43,6 +45,7 @@ assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-un
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
 assert(packageJson.scripts?.test?.includes("unity-workflow-provider.test.ts"), "Expected pi-unity test script to run workflow-provider tests.");
 assert(packageJson.scripts?.test?.includes("unity-workflow-packed-copy.test.ts"), "Expected pi-unity test script to run packed workflow-provider dependency tests.");
+assert(packageJson.scripts?.test?.includes("unity-workflow-optional-integration.test.ts"), "Expected pi-unity test script to run isolated optional workflow integration tests.");
 assert(packageJson.scripts?.["eval:guidance-skill"]?.includes("auditing-unity-agent-guidance/run-eval.ts"), "Expected an opt-in guidance-skill behavioral eval script.");
 assert(guidanceEvalCases.length >= 10, "Expected at least ten behavioral skill-eval prompts.");
 assert(guidanceEvalCases.some((item) => item.should_trigger) && guidanceEvalCases.some((item) => !item.should_trigger), "Expected positive and negative skill-trigger controls.");
@@ -57,14 +60,20 @@ assert(packageJson.peerDependencies?.["@earendil-works/pi-ai"] === "*", "Expecte
 assert(packageJson.peerDependencies?.["@earendil-works/pi-coding-agent"] === "*", "Expected pi-coding-agent peer dependency.");
 assert(packageJson.peerDependencies?.["@earendil-works/pi-tui"] === "*", "Expected pi-tui peer dependency.");
 assert(packageJson.peerDependencies?.["typebox"] === "*", "Expected typebox peer dependency.");
-for (const dependency of ["@aefree/pi-capability-registry", "@aefree/pi-project-artifacts", "@aefree/pi-repo-search", "@aefree/pi-workflow"]) {
+for (const dependency of ["@aefree/pi-capability-registry", "@aefree/pi-project-artifacts", "@aefree/pi-repo-search"]) {
   assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.dependencies?.[dependency] ?? ""), `Expected semver dependency for ${dependency}.`);
 }
+assert.equal(packageJson.dependencies?.["@aefree/pi-workflow"], undefined, "Workflow composition must not be a required production dependency.");
+assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.peerDependencies?.["@aefree/pi-workflow"] ?? ""), "Expected a semver optional workflow peer dependency.");
+assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.devDependencies?.["@aefree/pi-workflow"] ?? ""), "Expected a semver workflow development dependency.");
+assert.equal(packageJson.peerDependenciesMeta?.["@aefree/pi-workflow"]?.optional, true, "Workflow peer integration must be optional.");
 assert.equal(packageJson.bundledDependencies, undefined, "Decomposition packages are co-installed and must not copy sibling repositories into pi-unity tarballs.");
 assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expected side-effect-free Unity migration contract subpath.");
-for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
-  assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
+for (const snippet of ["WORKFLOW_CONTRACT_MODULE", "loadWorkflowIntegrationV1", "createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "isMissingWorkflowContract", "WeakMap<object, ScopeRegistrations>"]) {
+  assert(indexText.includes(snippet), `Expected Unity optional workflow-provider registration lifecycle: ${snippet}`);
 }
+assert(!indexText.includes('import { createWorkflowProviderRegistryV1 } from "@aefree/pi-workflow/contracts/v1"'), "The main extension must not statically import the optional workflow registry.");
+assert(!indexText.includes('import { createUnityWorkflowProviderV1 } from "./src/unity-workflow-provider"'), "The main extension must not eagerly load the workflow provider.");
 for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
   assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
 }

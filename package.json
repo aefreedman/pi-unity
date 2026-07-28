@@ -19,20 +19,20 @@
     ]
   },
   "scripts": {
-    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-guidance-audit.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-artifact-profile.test.ts && npx --yes tsx tests/unity-repo-search-policy.test.ts && npx --yes tsx tests/unity-docs-migration.test.ts && npx --yes tsx tests/unity-registration.test.ts && npx --yes tsx tests/unity-workflow-provider.test.ts && npx --yes tsx tests/unity-workflow-packed-copy.test.ts && npx --yes tsx tests/unity-package-validation.test.ts",
+    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-guidance-audit.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-artifact-profile.test.ts && npx --yes tsx tests/unity-repo-search-policy.test.ts && npx --yes tsx tests/unity-docs-migration.test.ts && npx --yes tsx tests/unity-registration.test.ts && npx --yes tsx tests/unity-workflow-provider.test.ts && npx --yes tsx tests/unity-workflow-packed-copy.test.ts && npx --yes tsx tests/unity-workflow-optional-integration.test.ts && npx --yes tsx tests/unity-package-validation.test.ts",
     "migrate:unity-docs": "npx --yes tsx scripts/migrate-unity-docs-schema.ts",
     "eval:guidance-skill": "npx --yes tsx evals/auditing-unity-agent-guidance/run-eval.ts"
   },
   "dependencies": {
     "@aefree/pi-capability-registry": "^0.1.0",
     "@aefree/pi-project-artifacts": "^0.1.0",
-    "@aefree/pi-repo-search": "^0.1.0",
-    "@aefree/pi-workflow": "^0.1.0"
+    "@aefree/pi-repo-search": "^0.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
+    "@aefree/pi-workflow": "^0.1.0",
     "typebox": "*"
   },
   "description": "Pi tools, skills, repository policy, artifact profile, and recoverable migration services for Unity workflows.",
@@ -49,6 +49,7 @@
     "@earendil-works/pi-ai": "0.82.1",
     "@earendil-works/pi-coding-agent": "0.82.1",
     "@earendil-works/pi-tui": "0.82.1",
+    "@aefree/pi-workflow": "^0.1.0",
     "typebox": "1.3.8"
   },
   "peerDependenciesMeta": {
@@ -59,6 +60,9 @@
       "optional": true
     },
     "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "@aefree/pi-workflow": {
       "optional": true
     },
     "typebox": {
