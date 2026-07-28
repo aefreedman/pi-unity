@@ -25,7 +25,7 @@ export const UNITY_WORKFLOW_PROVIDER_OWNER_V1 = Object.freeze({
 
 const MARKDOWN_GUIDANCE_FILES = Object.freeze({
   "guidance/unity/plan": Object.freeze([
-    "references/_shared/unity-repo-research.md",
+    "references/unity-repo-research.md",
     "references/workflow/plan.md",
   ]),
   "guidance/unity/work": Object.freeze(["references/workflow/work.md"]),

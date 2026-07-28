@@ -14,7 +14,7 @@ const packed = JSON.parse(output) as Array<{ files?: Array<{ path: string }>; bu
 assert.equal(packed.length, 1, "Expected one packed pi-unity archive description.");
 const archive = packed[0]!;
 const files = new Set((archive.files ?? []).map((entry) => entry.path));
-for (const required of ["src/unity-workflow-provider.ts", "contracts/v1.ts", "index.ts", "package.json", "references/_shared/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
+for (const required of ["src/unity-workflow-provider.ts", "contracts/v1.ts", "index.ts", "package.json", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
   assert(files.has(required), `Packed pi-unity copy is missing ${required}.`);
 }
 assert.equal((archive.bundled ?? []).length, 0, "Packed pi-unity must co-install contract owners instead of bundling sibling repositories.");

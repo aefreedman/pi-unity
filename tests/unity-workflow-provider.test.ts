@@ -14,7 +14,7 @@ const projectRoot = path.join(tempRoot, "workspace", "game");
 const nestedTarget = path.join(projectRoot, "Assets", "Scripts", "Player.cs");
 const workflowProviderSource = fs.readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
 const expectedPlanGuidance = [
-  fs.readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../references/unity-repo-research.md", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8"),
 ].join("\n\n");
 const expectedWorkGuidance = fs.readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");

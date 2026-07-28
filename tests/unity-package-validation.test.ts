@@ -25,7 +25,7 @@ const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "u
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
 const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
-const planResearchText = readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8");
+const planResearchText = readFileSync(new URL("../references/unity-repo-research.md", import.meta.url), "utf8");
 const planOverlayText = readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8");
 const workOverlayText = readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");
 const unityCliSourceText = readFileSync(new URL("../src/unity-cli.ts", import.meta.url), "utf8");
@@ -64,7 +64,7 @@ assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expecte
 for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
   assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
 }
-for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/_shared/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
   assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
 }
 assert(!workflowProviderSourceText.includes("Unity planning research (apply only after engine.unity matches)"), "Detailed plan guidance must be loaded from packaged Markdown, not retained inline.");
@@ -104,12 +104,12 @@ assert(unityDocsSchemaText.includes("schema_version: 2") && unityDocsSchemaText.
 assert(existsSync(new URL("../scripts/migrate-unity-docs-schema.ts", import.meta.url)), "Expected updated Unity docs migrator script.");
 for (const resource of [
   "prompts/cg-migrate-unity-docs-schema.md",
-  "references/_shared/unity-repo-research.md",
-  "references/_shared/unity-review-guidance.md",
+  "references/unity-repo-research.md",
+  "references/unity-review-guidance.md",
   "references/workflow/plan.md",
   "references/workflow/work.md",
-  "references/cg-review/unity-testing.md",
-  "references/cg-work/unity-yaml-assets.md",
+  "references/unity-testing.md",
+  "references/unity-yaml-assets.md",
   "skills/unity-docs/SKILL.md",
   "skills/unity-docs/schema.yaml",
   "skills/unity-docs/assets/critical-pattern-template.md",
