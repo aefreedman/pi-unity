@@ -14,7 +14,8 @@ and this project follows semantic versioning for public package releases.
 - Added explicit Unity solution artifact v1/v2 fields and validators over the canonical project-artifact profile contract, including complete-v2 authority and partial-hybrid conflict semantics.
 - Added `UnityMigrationServiceV1`, `unity_migrate_solution_docs`, and an updated CLI migrator with normalized collision detection, complete mapping/override authority, content-hashed staging and backups, journaled apply/resume/rollback, inbound-link reconciliation, exclusive run/report paths, and backup/VCS restore gates.
 - Added synthetic profile, repository-policy, migration collision/interruption/link/backup/recovery, physical symlink/junction containment, concurrent recovery, lossless frontmatter, POSIX mode, reverse load-order, and Pi registration fixtures.
-- Added the `engine.unity` `WorkflowProviderV1`, with nearest-marker applicability, safe lock/process readiness preflight, bounded plan/work/review/validation guidance, conformance coverage, and packed dependency checks.
+- Added the `engine.unity` `WorkflowProviderV1`, with validated exact/enclosing marker applicability, deterministic nested-project ambiguity handling, planning-safe identity preflight, bounded plan/work/review/validation guidance, conformance coverage, and packed dependency checks.
+- Added deterministic Unity planning coverage for nested-project ambiguity, bounded command discovery, safe read-only eval classification, credential redaction, timeout uncertainty, and route-specific launch safety.
 
 ### Changed
 
@@ -34,6 +35,8 @@ and this project follows semantic versioning for public package releases.
 
 ### Fixed
 
+- Treat an open exact-copy Pipeline Editor as a positive planning inspection surface: provider planning preflight no longer blocks on lockfile or process state, nested discovery never guesses among copies, and guidance routes planning through bounded advertised read-only commands or repository fallback.
+- Raised bounded Pipeline discovery waits beyond the old five-second edge while exposing timeout/startup uncertainty separately from confirmed absence; process fallback rendering now redacts access-token and credential-like argument values.
 - Required connected, batchmode, and artifact-inspected Unity test evidence to report a known positive executed-test count while preserving bounded connected polling and nonterminal running responses.
 - Made inherited-guidance audit tests compare canonical paths so macOS `/var` aliases do not cause false CI failures.
 

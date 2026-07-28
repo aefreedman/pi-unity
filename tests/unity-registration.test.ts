@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import registerProjectArtifacts from "@aefree/pi-project-artifacts/pi";
 import registerWorkflow from "../../pi-workflow/extensions/index.ts";
 import { resolveArtifactProfilesV1, resolveArtifactSearchServiceV1, resolveTodoLifecycleServiceV1 } from "@aefree/pi-project-artifacts/contracts/v1";
@@ -7,7 +10,7 @@ import { resolveWorkflowProvidersV1, resolveWorkflowServiceV1 } from "@aefree/pi
 import registerUnity from "../index";
 import { resolveUnityMigrationServiceV1 } from "../contracts/v1";
 
-function fakePi() {
+function fakePi(exec: (command: string, args: string[]) => Promise<any> = async () => ({ code: 0, stdout: "", stderr: "" })) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   const tools: any[] = [];
   const commands: any[] = [];
@@ -19,6 +22,7 @@ function fakePi() {
     registerCommand(name: string, command: any) { commands.push({ name, ...command }); },
     getActiveTools() { return [...activeTools]; },
     setActiveTools(names: string[]) { activeTools = [...names]; },
+    exec: (command: string, args: string[]) => exec(command, args),
     events: { emit() {}, on() {} },
   };
 }
@@ -42,6 +46,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(workflowProviders.outcome, "available", order);
   assert.deepEqual(workflowProviders.records.map((provider) => provider.id), ["engine.unity"], order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 1);
+  const planningTool = unity.tools.find((tool) => tool.name === "unity_plan_inspect");
+  assert(planningTool, "pi-unity must register the guarded planning inspection tool");
+  assert.deepEqual(planningTool.parameters.properties.command.enum, [
+    "get_authoring_root", "get_build_settings", "get_player_settings", "get_scene_hierarchy",
+    "editor_status", "list_open_scenes", "list_build_targets", "eval",
+  ], "The tool schema must advertise only package-owned inspections plus exceptional eval.");
+  assert.match(planningTool.promptGuidelines.join(" "), /never launches or closes Unity/i);
   assert.equal(artifacts.tools.filter((tool) => tool.name === "project_artifact_search").length, 1);
   await emit(unity, "session_shutdown", ctx);
   await emit(artifacts, "session_shutdown", ctx);
@@ -98,5 +109,34 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   await emit(unity, "session_shutdown", ctxB);
   assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "missing");
   assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "missing");
+}
+{
+  const root = await mkdtemp(join(tmpdir(), "pi-unity-plan-tool-"));
+  const project = join(root, "Game");
+  const calls: string[][] = [];
+  try {
+    await mkdir(join(project, "ProjectSettings"), { recursive: true });
+    await mkdir(join(project, "Packages"), { recursive: true });
+    await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
+    await writeFile(join(project, "Packages", "manifest.json"), "{\"dependencies\":{}}\n");
+    const pi = fakePi(async (_command, args) => {
+      calls.push(args);
+      if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
+      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["get_authoring_root"] } }), stderr: "" };
+      return { code: 0, stdout: "token=definitely-not-a-real-secret", stderr: "" };
+    });
+    registerUnity(pi as any);
+    const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
+    await emit(pi, "session_start", ctx);
+    const tool = pi.tools.find((item) => item.name === "unity_plan_inspect");
+    const result = await tool.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
+    assert.equal(result.details.planningInspection.outcome, "dispatched");
+    assert.match(result.content[0].text, /token= \[redacted\]/);
+    assert(calls.some((args) => args.includes("get_authoring_root")), "The guarded handler must dispatch only after discovery.");
+    assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Planning inspection must not launch or close Unity.");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 console.log("pi-unity reverse load-order and delayed-shutdown registration tests passed");

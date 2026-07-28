@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type SupportedPlatform } from "./unity-core";
-import { listRunningUnityProcessesForProject, type RunningUnityProcess } from "./unity-processes";
+import { listRunningUnityProcessesForProject, redactUnityProcessCommandLine, type RunningUnityProcess } from "./unity-processes";
 
 type ProcessListResult = { processes: RunningUnityProcess[]; warning?: string };
 type UnityProcessLister = (projectRoot: string) => Promise<ProcessListResult>;
@@ -36,6 +36,21 @@ export type UnityProjectBusyOptions = {
   platform?: SupportedPlatform;
   processLister?: UnityProcessLister;
 };
+
+export type UnityLaunchSafetyRoute = "unity-cli" | "editor-executable";
+export type UnityLaunchSafetyDecision = { allowed: true; staleLockDelegated?: boolean } | { allowed: false; reason: "process_unknown" | "matching_process" | "native_lockfile" };
+
+/** Pure route matrix used by launch paths: uncertainty and matching editors always block. */
+export function evaluateUnityLaunchSafety(
+  route: UnityLaunchSafetyRoute,
+  state: Pick<UnityProjectBusyState, "nativeLockfileExists">,
+  processes: ProcessListResult,
+): UnityLaunchSafetyDecision {
+  if (processes.warning) return { allowed: false, reason: "process_unknown" };
+  if (processes.processes.length > 0) return { allowed: false, reason: "matching_process" };
+  if (state.nativeLockfileExists && route === "editor-executable") return { allowed: false, reason: "native_lockfile" };
+  return { allowed: true, ...(state.nativeLockfileExists ? { staleLockDelegated: true } : {}) };
+}
 
 export type UnityProjectLaunchMutexOptions = UnityProjectBusyOptions & {
   mode?: "batchmode" | "gui";
@@ -109,7 +124,7 @@ function defaultIsPidAlive(pid: number): boolean {
 
 function buildProcessSummary(processes: RunningUnityProcess[]): string {
   return processes
-    .map((process) => `${process.pid ?? "?"}: ${process.commandLine}`)
+    .map((process) => `${process.pid ?? "?"}: ${redactUnityProcessCommandLine(process.commandLine)}`)
     .join("\n");
 }
 

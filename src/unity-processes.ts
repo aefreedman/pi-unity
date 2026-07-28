@@ -13,6 +13,18 @@ export type UnityProcessTerminationInfo = {
   forced?: boolean;
 };
 
+const SENSITIVE_FLAG = "(?:-{1,2})?(?:access[-_]?token|auth(?:entication)?[-_]?token|api[-_]?key|client[-_]?secret|credential(?:s)?|password|passwd|secret|token)";
+const SENSITIVE_VALUE = "(?:\"[^\"]*\"|'[^']*'|[^\\s]+)";
+const SENSITIVE_ASSIGNMENT = new RegExp(`(${SENSITIVE_FLAG})(=|:)${SENSITIVE_VALUE}`, "gi");
+const SENSITIVE_SEPARATE_ARGUMENT = new RegExp(`(${SENSITIVE_FLAG})\\s+${SENSITIVE_VALUE}`, "gi");
+
+/** Redact values, not flag names, so diagnostics remain actionable without leaking credentials. */
+export function redactUnityProcessCommandLine(commandLine: string): string {
+  return commandLine
+    .replace(SENSITIVE_ASSIGNMENT, "$1$2[REDACTED]")
+    .replace(SENSITIVE_SEPARATE_ARGUMENT, "$1 [REDACTED]");
+}
+
 export type UnityProcessTerminator = (process: RunningUnityProcess) => Promise<void | UnityProcessTerminationInfo>;
 export type UnityProcessIdentityVerifier = (process: RunningUnityProcess) => Promise<boolean>;
 
@@ -45,7 +57,7 @@ export function parseWindowsUnityProcessList(output: string, projectRoot: string
       if (!commandLine || !commandTargetsProject(commandLine, projectRoot, "win32")) {
         return null;
       }
-      return { pid, commandLine } satisfies RunningUnityProcess;
+      return { pid, commandLine: redactUnityProcessCommandLine(commandLine) } satisfies RunningUnityProcess;
     })
     .filter((entry): entry is RunningUnityProcess => entry !== null);
 }
@@ -66,7 +78,7 @@ export function parsePosixUnityProcessList(output: string, projectRoot: string, 
       }
       return {
         pid: Number.isFinite(pid) ? pid : null,
-        commandLine,
+        commandLine: redactUnityProcessCommandLine(commandLine),
       } satisfies RunningUnityProcess;
     })
     .filter((entry): entry is RunningUnityProcess => entry !== null);
@@ -119,7 +131,7 @@ export async function defaultUnityProcessTerminator(
   platform: SupportedPlatform = process.platform,
 ): Promise<UnityProcessTerminationInfo> {
   if (typeof runningProcess.pid !== "number" || !Number.isInteger(runningProcess.pid) || runningProcess.pid <= 0) {
-    throw new Error(`Cannot close Unity process because no valid PID was reported: ${runningProcess.commandLine}`);
+    throw new Error(`Cannot close Unity process because no valid PID was reported: ${redactUnityProcessCommandLine(runningProcess.commandLine)}`);
   }
 
   if (platform === "win32") {

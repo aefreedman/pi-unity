@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { applyDefaultUnityBatchmodeArgs, buildUnityBatchmodeArgs, projectPathsMatch } from "./unity-core";
 import type { RunningUnityProcess } from "./unity-processes";
@@ -29,6 +29,8 @@ export type UnityCliPipelineInstance = {
   reachable?: boolean;
 };
 
+export type UnityCliDiscoveryState = "not_attempted" | "available" | "absent" | "timeout" | "unavailable";
+
 export type UnityCliProjectCapabilities = {
   cliAvailable: boolean;
   cliVersion?: string;
@@ -42,14 +44,20 @@ export type UnityCliProjectCapabilities = {
   commandDiscoveryAttempted: boolean;
   commandDiscoverySucceeded: boolean;
   latestPipelineVersion?: string;
+  /** A timeout/startup error is uncertainty, never proof that Pipeline is absent. */
+  pipelineDiscovery: UnityCliDiscoveryState;
+  commandDiscovery: UnityCliDiscoveryState;
   warnings: string[];
 };
 
-type ExecFileResult = {
+export type UnityCliExecResult = {
   stdout: string;
   stderr: string;
   error?: Error & { code?: string | number; signal?: string | null };
 };
+
+/** Injectable seam for deterministic capability and planning-dispatch tests. */
+export type UnityCliExecutor = (command: string, args: string[], options: { timeout?: number; signal?: AbortSignal }) => Promise<UnityCliExecResult>;
 
 export function resolveUnityCliCommand(options?: { cliCommand?: string; env?: NodeJS.ProcessEnv }): string {
   return options?.cliCommand?.trim() || options?.env?.UNITY_CLI_PATH?.trim() || process.env.UNITY_CLI_PATH?.trim() || DEFAULT_UNITY_CLI_COMMAND;
@@ -143,17 +151,21 @@ export function createUnityCliEditorExitCommand(
   };
 }
 
-function execFileCollect(command: string, args: string[], options: { timeout?: number; signal?: AbortSignal } = {}): Promise<ExecFileResult> {
+export const UNITY_CLI_VERSION_TIMEOUT_MS = 5_000;
+/** Pipeline startup/discovery may legitimately finish near five seconds; remain bounded but do not classify it as absent. */
+export const UNITY_CLI_DISCOVERY_TIMEOUT_MS = 12_000;
+
+const execFileCollect: UnityCliExecutor = (command, args, options = {}) => {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: options.timeout ?? 5000, signal: options.signal, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(command, args, { timeout: options.timeout ?? UNITY_CLI_VERSION_TIMEOUT_MS, signal: options.signal, windowsHide: true }, (error, stdout, stderr) => {
       resolve({
         stdout: typeof stdout === "string" ? stdout : stdout.toString(),
         stderr: typeof stderr === "string" ? stderr : stderr.toString(),
-        error: error as ExecFileResult["error"],
+        error: error as UnityCliExecResult["error"],
       });
     });
   });
-}
+};
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
@@ -337,6 +349,22 @@ export function parseUnityCliCommandListOutput(output: string): string[] {
   return catalog.valid ? catalog.commands : [];
 }
 
+const PLANNING_EVAL_DENY = /\b(?:EditorApplication|AssetDatabase|PlayerSettings|Selection\s*\.|Undo\s*\.|SaveAssets|Refresh\s*\(|ImportAsset|CreateAsset|DeleteAsset|MoveAsset|OpenScene|SaveScene|Close|Exit|ExecuteMenuItem|PackageManager|BuildPipeline|RunTests?)\b/i;
+const PLANNING_EVAL_READ_ONLY_RETURN = /^\s*return\s+(?:UnityEngine\.Application\.(?:unityVersion|productName|dataPath|persistentDataPath)|UnityEditor\.EditorUserBuildSettings\.[A-Za-z0-9_]+|UnityEditor\.PlayerSettings\.[A-Za-z0-9_]+|UnityEditor\.Compilation\.CompilationPipeline\.[A-Za-z0-9_]+|[0-9+\-*/ ()."']+)\s*;\s*$/;
+
+/**
+ * Planning only permits a deliberately tiny, expression-only eval subset. Unknown snippets
+ * must use a purpose-built advertised read command or filesystem research instead.
+ */
+export function isSafeUnityPlanningEvalSnippet(snippet: string): boolean {
+  const normalized = snippet.trim();
+  return normalized.length > 0
+    && normalized.length <= 500
+    && !/[\r\n{}]/.test(normalized)
+    && !PLANNING_EVAL_DENY.test(normalized)
+    && PLANNING_EVAL_READ_ONLY_RETURN.test(normalized);
+}
+
 export function haveSameKnownProcessIds(
   initial: Array<{ pid?: number | null }>,
   refreshed: Array<{ pid?: number | null }>,
@@ -376,7 +404,12 @@ export async function readDeclaredUnityPipelineVersion(projectRoot: string): Pro
   return optionalString(manifestDependencies?.["com.unity.pipeline"]);
 }
 
-function cliFailureMessage(result: ExecFileResult): string | undefined {
+export function isUnityCliTimeout(result: Pick<UnityCliExecResult, "error">): boolean {
+  const error = result.error as (NodeJS.ErrnoException & { killed?: boolean }) | undefined;
+  return error?.code === "ETIMEDOUT" || error?.killed === true || error?.signal === "SIGTERM";
+}
+
+function cliFailureMessage(result: UnityCliExecResult): string | undefined {
   const payload = parseJsonObject(result.stdout);
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
   const messages = errors.flatMap((entry): string[] => {
@@ -390,8 +423,9 @@ function cliFailureMessage(result: ExecFileResult): string | undefined {
 export async function inspectUnityCliProjectCapabilities(
   projectRoot: string,
   unityVersion: string,
-  options: { cliCommand?: string; timeout?: number; signal?: AbortSignal } = {},
+  options: { cliCommand?: string; timeout?: number; signal?: AbortSignal; execute?: UnityCliExecutor } = {},
 ): Promise<UnityCliProjectCapabilities> {
+  const execute = options.execute ?? execFileCollect;
   const pipelinePackageVersion = await readDeclaredUnityPipelineVersion(projectRoot);
   const projectMajor = parseUnityMajorVersion(unityVersion);
   const result: UnityCliProjectCapabilities = {
@@ -405,45 +439,173 @@ export async function inspectUnityCliProjectCapabilities(
     advertisedCommandsTruncated: false,
     commandDiscoveryAttempted: false,
     commandDiscoverySucceeded: false,
+    pipelineDiscovery: "not_attempted",
+    commandDiscovery: "not_attempted",
     warnings: [],
   };
   const command = resolveUnityCliCommand(options);
-  const timeout = options.timeout ?? 5000;
-  const versionResult = await execFileCollect(command, ["--version"], { timeout, signal: options.signal });
+  const versionTimeout = options.timeout ?? UNITY_CLI_VERSION_TIMEOUT_MS;
+  const discoveryTimeout = options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS;
+  const versionResult = await execute(command, ["--version"], { timeout: versionTimeout, signal: options.signal });
   if (versionResult.error && (versionResult.error as NodeJS.ErrnoException).code === "ENOENT") return result;
   if (versionResult.error) {
-    result.warnings.push(`Unity CLI version probe failed: ${cliFailureMessage(versionResult) ?? "unknown error"}`);
+    result.warnings.push(`Unity CLI version probe ${isUnityCliTimeout(versionResult) ? "timed out" : "failed"}: ${cliFailureMessage(versionResult) ?? "unknown error"}`);
     return result;
   }
   result.cliAvailable = true;
   result.cliVersion = summarizeUnityCliText(versionResult.stdout, 200, 1) || undefined;
 
-  const pipelineResult = await execFileCollect(command, ["--format", "json", "--no-banner", "--non-interactive", "pipeline", "list"], { timeout, signal: options.signal });
+  const pipelineResult = await execute(command, ["--format", "json", "--no-banner", "--non-interactive", "pipeline", "list"], { timeout: discoveryTimeout, signal: options.signal });
   const pipelinePayload = parseJsonObject(pipelineResult.stdout);
   const pipelineData = getRecord(pipelinePayload?.data);
   if (pipelineResult.error || pipelinePayload?.success !== true || !Array.isArray(pipelineData?.instances)) {
-    result.warnings.push(`Unity Pipeline instance discovery failed: ${cliFailureMessage(pipelineResult) ?? "malformed or unsupported JSON response"}`);
+    result.pipelineDiscovery = isUnityCliTimeout(pipelineResult) ? "timeout" : "unavailable";
+    result.warnings.push(`Unity Pipeline instance discovery ${result.pipelineDiscovery === "timeout" ? "timed out; Pipeline startup state is uncertain" : "failed"}: ${cliFailureMessage(pipelineResult) ?? "malformed or unsupported JSON response"}`);
     return result;
   }
+  result.pipelineDiscovery = "available";
   const pipeline = parseUnityCliPipelineListOutput(pipelineResult.stdout, projectRoot);
   result.matchingInstances = pipeline.instances;
   result.latestPipelineVersion = pipeline.latestVersion;
-  if (pipeline.instances.length === 0) return result;
+  if (pipeline.instances.length === 0) {
+    result.pipelineDiscovery = "absent";
+    return result;
+  }
   if (pipeline.instances.every((instance) => instance.reachable === false)) {
     result.warnings.push("The exact project copy has Pipeline metadata, but every matching instance is explicitly unreachable.");
     return result;
   }
 
   result.commandDiscoveryAttempted = true;
-  const listResult = await execFileCollect(command, ["--format", "json", "--no-banner", "--non-interactive", "list", "--project-path", projectRoot], { timeout, signal: options.signal });
+  const listResult = await execute(command, ["--format", "json", "--no-banner", "--non-interactive", "list", "--project-path", projectRoot], { timeout: discoveryTimeout, signal: options.signal });
   const catalog = parseUnityCliCommandCatalog(listResult.stdout);
   if (listResult.error || !catalog.valid) {
-    result.warnings.push(`Unity Pipeline command discovery failed for the exact project copy: ${cliFailureMessage(listResult) ?? "malformed or unsupported JSON response"}`);
+    result.commandDiscovery = isUnityCliTimeout(listResult) ? "timeout" : "unavailable";
+    result.warnings.push(`Unity Pipeline command discovery for the exact project copy ${result.commandDiscovery === "timeout" ? "timed out; command availability is uncertain" : "failed"}: ${cliFailureMessage(listResult) ?? "malformed or unsupported JSON response"}`);
     return result;
   }
+  result.commandDiscovery = "available";
   result.advertisedCommands = catalog.commands;
   result.advertisedCommandCount = catalog.total;
   result.advertisedCommandsTruncated = catalog.truncated;
   result.commandDiscoverySucceeded = true;
   return result;
+}
+
+/**
+ * Purpose-built connected inspection commands intentionally supported by pi-unity.
+ * This list is package-owned: callers cannot promote an arbitrary Pipeline command
+ * to a planning read by supplying their own allow-list.
+ */
+export const UNITY_PLANNING_READ_COMMANDS = Object.freeze([
+  "get_authoring_root",
+  "get_build_settings",
+  "get_player_settings",
+  "get_scene_hierarchy",
+  "editor_status",
+  "list_open_scenes",
+  "list_build_targets",
+] as const);
+
+export type UnityPlanningInspectionRequest = {
+  projectRoot: string;
+  unityVersion: string;
+  /** Command must be advertised by the exact reachable Pipeline copy. */
+  command: string;
+  args?: string[];
+  /** Eval is exceptional and must separately satisfy the conservative classifier. */
+  evalSnippet?: string;
+};
+
+export type UnityPlanningInspectionResult =
+  | { outcome: "dispatched"; command: string; output: string; truncated: boolean }
+  | { outcome: "rejected"; code: string; message: string };
+
+function planningInspectionReadiness(capabilities: UnityCliProjectCapabilities): string | undefined {
+  if (!capabilities.cliAvailable) return "unity_cli_unavailable";
+  if (capabilities.pipelineDiscovery !== "available") return `pipeline_${capabilities.pipelineDiscovery}`;
+  if (!capabilities.commandDiscoverySucceeded || capabilities.commandDiscovery !== "available") return `commands_${capabilities.commandDiscovery}`;
+  if (!capabilities.matchingInstances.some((instance) => instance.reachable === true)) return "pipeline_not_reachable";
+  if (capabilities.matchingInstances.some((instance) => !Number.isInteger(instance.pid) || (instance.pid ?? 0) <= 0)) return "pipeline_identity_unknown";
+  return undefined;
+}
+
+/**
+ * The sole planning CLI dispatch seam. It re-discovers the exact canonical copy immediately
+ * before command execution and accepts only advertised purpose-built reads or conservative
+ * eval. Callers must provide an executor; planning never dispatches as part of detection.
+ */
+export async function dispatchUnityPlanningInspection(
+  request: UnityPlanningInspectionRequest,
+  options: {
+    cliCommand?: string;
+    timeout?: number;
+    signal?: AbortSignal;
+    execute: UnityCliExecutor;
+    inspect?: (projectRoot: string, unityVersion: string) => Promise<UnityCliProjectCapabilities>;
+  },
+): Promise<UnityPlanningInspectionResult> {
+  let projectRoot: string;
+  try {
+    projectRoot = await realpath(request.projectRoot);
+  } catch {
+    return { outcome: "rejected", code: "unity_project_identity_unavailable", message: "The Unity project root could not be canonicalized." };
+  }
+  const inspect = options.inspect ?? ((root, version) => inspectUnityCliProjectCapabilities(root, version, {
+    cliCommand: options.cliCommand,
+    timeout: options.timeout,
+    signal: options.signal,
+    execute: options.execute,
+  }));
+  const initial = await inspect(projectRoot, request.unityVersion);
+  const initialFailure = planningInspectionReadiness(initial);
+  if (initialFailure) return { outcome: "rejected", code: initialFailure, message: "Exact-copy Pipeline planning inspection is not established." };
+
+  const isEval = request.command === "eval";
+  const hasBoundedArgs = (request.args?.length ?? 0) <= 12
+    && (request.args ?? []).every((arg) => typeof arg === "string" && arg.length <= 500 && !/[\u0000-\u001f\u007f]/.test(arg));
+  if (!hasBoundedArgs) {
+    return { outcome: "rejected", code: "planning_command_args_invalid", message: "Planning command arguments exceed the read-only inspection bounds." };
+  }
+  if (isEval) {
+    if (request.args?.length || !isSafeUnityPlanningEvalSnippet(request.evalSnippet ?? "")) {
+      return { outcome: "rejected", code: "planning_eval_not_read_only", message: "Planning eval must be a conservative expression-only read." };
+    }
+  } else if (!UNITY_PLANNING_READ_COMMANDS.includes(request.command as typeof UNITY_PLANNING_READ_COMMANDS[number]) || (request.evalSnippet?.trim() ?? "") !== "") {
+    return { outcome: "rejected", code: "planning_command_not_read_only", message: "Only a package-owned purpose-built read command may run during planning." };
+  }
+  if (!initial.advertisedCommands.includes(request.command)) {
+    return { outcome: "rejected", code: "planning_command_unadvertised", message: "The exact Pipeline copy did not advertise the requested command." };
+  }
+
+  const refreshed = await inspect(projectRoot, request.unityVersion);
+  const refreshedFailure = planningInspectionReadiness(refreshed);
+  if (refreshedFailure || !haveSameKnownProcessIds(initial.matchingInstances, refreshed.matchingInstances)) {
+    return { outcome: "rejected", code: "unity_project_identity_changed", message: "Pipeline identity changed or disconnected immediately before planning dispatch." };
+  }
+  if (!refreshed.advertisedCommands.includes(request.command)) {
+    return { outcome: "rejected", code: "planning_command_unadvertised", message: "The refreshed exact Pipeline copy did not advertise the requested command." };
+  }
+
+  const command = resolveUnityCliCommand({ cliCommand: options.cliCommand });
+  const args = [
+    "--no-banner", "--non-interactive", "command", "--project-path", projectRoot,
+    "--timeout", String(Math.max(1, Math.ceil((options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS) / 1000))),
+    request.command,
+    ...(isEval ? [request.evalSnippet!.trim()] : request.args ?? []),
+  ];
+  const execution = await options.execute(command, args, { timeout: options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS, signal: options.signal });
+  if (execution.error) {
+    return { outcome: "rejected", code: isUnityCliTimeout(execution) ? "planning_command_timeout" : "planning_command_failed", message: "Planning command did not complete successfully; use repository research instead." };
+  }
+  const raw = [execution.stdout, execution.stderr].filter(Boolean).join("\n");
+  const output = redactUnityPlanningOutput(summarizeUnityCliText(raw, 4_000, 40));
+  return { outcome: "dispatched", command: request.command, output, truncated: output.length < raw.trim().length };
+}
+
+/** Keep connected inspection output useful without returning common credential forms verbatim. */
+export function redactUnityPlanningOutput(value: string): string {
+  return value
+    .replace(/\b((?:bearer|token|api[_ -]?key|password|secret)\s*[:=])\s*[^\s,;]+/gi, "$1 [redacted]")
+    .replace(/\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{12,}\b/gi, "[redacted]");
 }

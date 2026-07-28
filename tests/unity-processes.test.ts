@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { dedupeRunningUnityProcesses, parsePosixUnityProcessList, parseWindowsUnityProcessList, shouldRetryWindowsTaskkillWithForce, terminateRunningUnityProcesses, unityProcessIdentityMatchesCandidates } from "../src/unity-processes.ts";
+import { dedupeRunningUnityProcesses, defaultUnityProcessTerminator, parsePosixUnityProcessList, parseWindowsUnityProcessList, redactUnityProcessCommandLine, shouldRetryWindowsTaskkillWithForce, terminateRunningUnityProcesses, unityProcessIdentityMatchesCandidates } from "../src/unity-processes.ts";
 
 const windowsJson = JSON.stringify([
   {
@@ -22,6 +22,17 @@ const windowsJson = JSON.stringify([
 const windowsMatches = parseWindowsUnityProcessList(windowsJson, "C:/Repo/Game");
 assert.equal(windowsMatches.length, 1);
 assert.equal(windowsMatches[0].pid, 101);
+
+for (const rendered of [
+  redactUnityProcessCommandLine('Unity.exe -projectPath C:/Repo/Game -accessToken "fake access token" --client-secret=realistic-secret --password p@ssw0rd'),
+  parseWindowsUnityProcessList(JSON.stringify({ ProcessId: 606, CommandLine: 'Unity.exe -projectPath C:/Repo/Game -accessToken fake-access-token --credential real-credential' }), "C:/Repo/Game")[0]!.commandLine,
+]) {
+  assert(!rendered.includes("fake access token"));
+  assert(!rendered.includes("fake-access-token"));
+  assert(!rendered.includes("realistic-secret"));
+  assert(!rendered.includes("real-credential"));
+  assert.match(rendered, /\[REDACTED\]/);
+}
 
 const windowsSpaceMatches = parseWindowsUnityProcessList(JSON.stringify({
   ProcessId: 505,
@@ -50,7 +61,10 @@ const deduped = dedupeRunningUnityProcesses([
   { pid: null, commandLine: "Unity no pid" },
 ]);
 assert.equal(deduped.length, 2);
-
+await assert.rejects(
+  () => defaultUnityProcessTerminator({ pid: null, commandLine: "Unity -accessToken an-actual-looking-token" }),
+  (error: unknown) => error instanceof Error && error.message.includes("[REDACTED]") && !error.message.includes("an-actual-looking-token"),
+);
 const terminatedPids: number[] = [];
 const journaledPids: number[] = [];
 const termination = await terminateRunningUnityProcesses([

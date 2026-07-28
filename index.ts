@@ -23,11 +23,11 @@ import {
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
-import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, type UnityCliProjectCapabilities } from "./src/unity-cli";
+import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities } from "./src/unity-cli";
 import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
-import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
-import { assertUnityProjectNotBusy, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
+import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, redactUnityProcessCommandLine, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
+import { assertUnityProjectNotBusy, evaluateUnityLaunchSafety, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
@@ -42,7 +42,7 @@ const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
 
 type UnityToolDetails = {
-  mode: "gui" | "batchmode" | "status" | "artifacts";
+  mode: "gui" | "batchmode" | "status" | "artifacts" | "planning_inspection";
   projectRoot: string;
   unityVersion: string;
   editorPath: string;
@@ -66,6 +66,7 @@ type UnityToolDetails = {
   piUnitySettings?: PiUnitySettings;
   testBatch?: UnityTestBatchPlan;
   cliCapabilities?: UnityCliProjectCapabilities;
+  planningInspection?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
 };
 
 const LAUNCHER_SCHEMA = Type.Optional(StringEnum(["auto", "unity-cli", "editor-executable"] as const, { description: "Launch backend. Defaults to auto, which prefers the Unity CLI and falls back to direct editor executable launch when the CLI is unavailable." }));
@@ -102,6 +103,13 @@ const RUN_TEST_BATCH_PARAMS = Type.Object({
 
 const PROJECT_STATUS_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
+});
+
+const PLANNING_INSPECTION_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  command: StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const, { description: "A package-owned advertised planning read command, or exceptional eval." }),
+  args: Type.Optional(Type.Array(Type.String({ maxLength: 500 }), { maxItems: 12, description: "Bounded arguments for a package-owned purpose-built read command. Not allowed with eval." })),
+  evalSnippet: Type.Optional(Type.String({ maxLength: 500, description: "Exceptional conservative expression-only read for advertised eval; never use for ordinary planning." })),
 });
 
 const GUIDANCE_AUDIT_PARAMS = Type.Object({
@@ -296,12 +304,15 @@ async function listBlockingUnityProcesses(projectRoot: string): Promise<{ proces
 
 function formatProcessSummary(processes: RunningUnityProcess[]): string {
   return processes
-    .map((process) => `${process.pid ?? "?"}: ${process.commandLine}`)
+    .map((process) => `${process.pid ?? "?"}: ${redactUnityProcessCommandLine(process.commandLine)}`)
     .join("\n");
 }
 
-async function enforceSingleProcessRule(projectRoot: string): Promise<string | undefined> {
+async function enforceSingleProcessRule(projectRoot: string): Promise<void> {
   const running = await listBlockingUnityProcesses(projectRoot);
+  if (running.warning) {
+    throw new Error(`Refusing to launch Unity because same-project process verification is incomplete: ${running.warning}`);
+  }
   if (running.processes.length > 0) {
     throw new Error(
       [
@@ -311,8 +322,17 @@ async function enforceSingleProcessRule(projectRoot: string): Promise<string | u
       ].join("\n"),
     );
   }
+}
 
-  return running.warning;
+/** Production launch preflight uses the tested route matrix rather than duplicating it. */
+async function enforceLaunchRouteSafety(projectRoot: string, route: "unity-cli" | "editor-executable") {
+  const state = await inspectUnityProjectBusyState(projectRoot);
+  const running = await listBlockingUnityProcesses(projectRoot);
+  const decision = evaluateUnityLaunchSafety(route, state, running);
+  if (decision.allowed) return { state, staleLockDelegated: Boolean(decision.staleLockDelegated) };
+  if (decision.reason === "process_unknown") throw new Error(`Refusing to launch Unity because same-project process verification is incomplete: ${running.warning}`);
+  if (decision.reason === "matching_process") throw new Error(`Refusing to launch Unity for ${projectRoot} because another Unity process already targets this project.\n${SINGLE_PROCESS_WARNING}\n${formatProcessSummary(running.processes)}`);
+  throw new Error(`Refusing to launch Unity for ${projectRoot} because Unity's native project lockfile exists at ${state.nativeLockfilePath}.`);
 }
 
 function assertMayCloseBlockingUnityProcess(
@@ -550,15 +570,16 @@ async function buildProjectStatusReport(
     `- Unity CLI: ${cliCapabilities.cliAvailable ? cliCapabilities.cliVersion ?? "available" : "unavailable"}`,
     `- Pipeline-compatible Unity version: ${cliCapabilities.projectSupportsPipeline ? "yes" : "no"}`,
     `- Pipeline package declared: ${cliCapabilities.pipelinePackageDeclared ? cliCapabilities.pipelinePackageVersion ?? "yes" : "no"}`,
+    `- Pipeline instance discovery: ${cliCapabilities.pipelineDiscovery}`,
     `- Pipeline instances matching exact project copy: ${cliCapabilities.matchingInstances.length}`,
     `- Pipeline reachability: ${cliCapabilities.matchingInstances.filter((instance) => instance.reachable === true).length} reachable, ${cliCapabilities.matchingInstances.filter((instance) => instance.reachable === false).length} unreachable, ${cliCapabilities.matchingInstances.filter((instance) => instance.reachable === undefined).length} unknown`,
-    `- Pipeline command discovery: ${cliCapabilities.commandDiscoverySucceeded ? `${cliCapabilities.advertisedCommands.length}/${cliCapabilities.advertisedCommandCount} command(s) reported${cliCapabilities.advertisedCommandsTruncated ? " (bounded/truncated)" : ""}` : cliCapabilities.commandDiscoveryAttempted ? "failed" : "not attempted"}`,
+    `- Pipeline command discovery: ${cliCapabilities.commandDiscoverySucceeded ? `${cliCapabilities.advertisedCommands.length}/${cliCapabilities.advertisedCommandCount} command(s) reported${cliCapabilities.advertisedCommandsTruncated ? " (bounded/truncated)" : ""}` : cliCapabilities.commandDiscovery}`,
     `- piUnity.allowCloseRunningUnityProcess: ${piUnitySettings.allowCloseRunningUnityProcess ? "enabled" : "disabled"}`,
     `- piUnity.closeRunningUnityProcessOnlyForTests: ${piUnitySettings.closeRunningUnityProcessOnlyForTests ? "enabled" : "disabled"}`,
   ];
 
   if (runningProcesses.length > 0) {
-    lines.push(...runningProcesses.map((process) => `  - ${process.pid ?? "?"}: ${process.commandLine}`));
+    lines.push(...runningProcesses.map((process) => `  - ${process.pid ?? "?"}: ${redactUnityProcessCommandLine(process.commandLine)}`));
   }
   if (cliCapabilities.matchingInstances.length > 0) {
     lines.push(...cliCapabilities.matchingInstances.map((instance) => `  - Pipeline ${instance.pid ?? "?"}: ${instance.projectPath}${instance.port !== undefined ? ` port=${instance.port}` : ""}${instance.pipelineVersion ? ` package=${instance.pipelineVersion}` : ""}${instance.state ? ` state=${instance.state}` : ""} reachable=${instance.reachable === undefined ? "unknown" : String(instance.reachable)}`));
@@ -571,8 +592,10 @@ async function buildProjectStatusReport(
 
   if (staleLockSuspected) {
     lines.push("- Assessment: native lockfile may be stale; Unity CLI launches may be able to handle it, but direct Editor launches will be blocked by pi-unity safety checks.");
+  } else if (cliCapabilities.matchingInstances.some((instance) => instance.reachable === true)) {
+    lines.push("- Assessment: the exact project copy has a reachable Pipeline Editor. This is a positive connected inspection surface for read-only planning; do not start another Unity process.");
   } else if (isBusy) {
-    lines.push("- Assessment: project is busy; do not start another GUI or batchmode Unity process for this project unless this is a guarded batchmode retry using closeBlockingUnityProcess and piUnity.allowCloseRunningUnityProcess is enabled.");
+    lines.push("- Assessment: project is open or process state is present; do not start another GUI or batchmode Unity process for this project unless this is a guarded batchmode retry using closeBlockingUnityProcess and piUnity.allowCloseRunningUnityProcess is enabled.");
   } else {
     lines.push("- Assessment: project appears available for a Unity launch.");
   }
@@ -591,7 +614,7 @@ async function buildProjectStatusReport(
       unityVersion: candidate.unityVersion,
       editorPath: "",
       warning: combinedWarning,
-      status: isBusy ? "failed" : "passed",
+      status: "passed",
       piUnitySettings,
       cliCapabilities,
     },
@@ -834,6 +857,19 @@ async function canUseUnityCli(pi: ExtensionAPI, signal?: AbortSignal): Promise<b
   }
 }
 
+function createPlanningUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
+  return async (command: string, args: string[], options: { timeout?: number; signal?: AbortSignal }) => {
+    try {
+      const result = await pi.exec(command, args, { signal: options.signal, timeout: options.timeout });
+      return result.code === 0 && !result.killed
+        ? { stdout: result.stdout, stderr: result.stderr }
+        : { stdout: result.stdout, stderr: result.stderr, error: Object.assign(new Error("Unity CLI command failed"), { code: result.killed ? "ETIMEDOUT" : result.code }) };
+    } catch (error) {
+      return { stdout: "", stderr: "", error: error instanceof Error ? error : new Error(String(error)) };
+    }
+  };
+}
+
 async function shouldUseUnityCli(
   pi: ExtensionAPI,
   launcher: UnityLauncherPreference | undefined,
@@ -909,12 +945,10 @@ async function runGuardedUnityBatchmode(
         throwIfAborted(signal);
         lockfileCleanup = await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
         throwIfAborted(signal);
-        const lockState = useUnityCli
-          ? await inspectUnityProjectBusyState(candidate.projectRoot)
-          : await assertUnityProjectNotBusy(candidate.projectRoot);
+        const launchSafety = await enforceLaunchRouteSafety(candidate.projectRoot, useUnityCli ? "unity-cli" : "editor-executable");
+        const lockState = launchSafety.state;
         throwIfAborted(signal);
-        const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
-        const lockWarning = useUnityCli && lockState.nativeLockfileExists
+        const lockWarning = launchSafety.staleLockDelegated
           ? `Unity CLI launch selected; native Unity lockfile exists at ${lockState.nativeLockfilePath}. No running project process was found by pi-unity preflight, so the launch is being delegated to the Unity CLI instead of blocked as a stale lockfile.`
           : undefined;
         throwIfAborted(signal);
@@ -927,7 +961,7 @@ async function runGuardedUnityBatchmode(
           editorPath,
           { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
           reportArgs,
-          joinWarnings(closeReport.warning, lockfileCleanup.warning, processWarning, lockWarning, discoveryWarning),
+          joinWarnings(closeReport.warning, lockfileCleanup.warning, lockWarning, discoveryWarning),
         );
         report.details.command = command.command;
         report.details.cliArgs = useUnityCli ? command.args : undefined;
@@ -983,7 +1017,9 @@ function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text
       ? "Unity Project Status"
       : details.mode === "artifacts"
         ? "Unity Artifacts"
-        : getBatchmodeVariantLabel(details.args);
+        : details.mode === "planning_inspection"
+          ? "Unity Planning Inspection"
+          : getBatchmodeVariantLabel(details.args);
   const projectLabel = details.projectRoot ?? "(unknown project)";
   let text = `${icon} ${theme.fg("toolTitle", theme.bold(title))} ${theme.fg("muted", projectLabel)}`;
   if (details.mode === "batchmode") {
@@ -1076,7 +1112,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       try {
         const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, args.trim() || undefined);
-        const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
+        await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "gui", toolName: "unity-open" }, async () => {
+          await enforceSingleProcessRule(candidate.projectRoot);
         let launcher: "unity-cli" | "editor-executable" = "editor-executable";
         let editorPath = await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor");
         let launch: { pid: number | undefined; args: string[]; command: string };
@@ -1084,14 +1121,16 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           launcher = "unity-cli";
           launch = launchUnityCliOpenDetached(candidate.projectRoot, { editorVersion: candidate.unityVersion });
         } else {
+          await assertUnityProjectNotBusy(candidate.projectRoot);
           editorPath = await resolveUnityEditorPath(candidate.unityVersion);
           launch = launchUnityEditorDetached(editorPath, candidate.projectRoot);
         }
-        const summary = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, processWarning ?? discoveryWarning, launcher);
+        const summary = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
         ctx.ui.notify(summary, "info");
         if (launch.pid) {
           ctx.ui.notify(`Unity process started with pid ${launch.pid}.`, "info");
         }
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
         ctx.ui.notify(message, "error");
@@ -1219,6 +1258,57 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "unity_plan_inspect",
+    label: "Unity Plan Inspect",
+    description: "Dispatch one bounded package-owned read-only Pipeline inspection for an exact Unity project copy without launching or closing Unity.",
+    promptSnippet: "Inspect an already-open exact Unity project copy through a guarded advertised read command for planning.",
+    promptGuidelines: [
+      "For /plan connected Unity inspection, use unity_plan_inspect rather than raw bash/Unity CLI dispatch. It never launches or closes Unity.",
+      "Use a purpose-built package-owned read command only after repository research identifies a specific connected question. The tool rediscovers exact-copy Pipeline identity and advertised commands immediately before dispatch.",
+      "eval is exceptional: use it only when an advertised purpose-built read cannot answer the question, with a short conservative expression-only read. Never use eval for lifecycle, asset, settings, package, selection, scene, build, test, import, or save operations.",
+      "A rejected inspection is uncertainty, not evidence of absence; fall back to repository research rather than changing routes or invoking raw bash dispatch.",
+    ],
+    parameters: PLANNING_INSPECTION_PARAMS,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      throwIfAborted(signal);
+      const result = await dispatchUnityPlanningInspection({
+        projectRoot: candidate.projectRoot,
+        unityVersion: candidate.unityVersion,
+        command: params.command,
+        args: params.args,
+        evalSnippet: params.evalSnippet,
+      }, {
+        execute: createPlanningUnityCliExecutor(pi),
+        signal,
+        timeout: 12_000,
+      });
+      throwIfAborted(signal);
+      const text = result.outcome === "dispatched"
+        ? `Unity planning inspection dispatched: ${result.command}\n${result.output || "(no bounded output returned)"}`
+        : `Unity planning inspection rejected: ${result.code}\n${result.message}`;
+      return {
+        content: [{ type: "text", text }],
+        details: {
+          mode: "planning_inspection",
+          projectRoot: candidate.projectRoot,
+          unityVersion: candidate.unityVersion,
+          editorPath: "",
+          status: result.outcome === "dispatched" ? "passed" : "failed",
+          planningInspection: result,
+        },
+      };
+    },
+    renderCall(args, theme) {
+      return renderUnityToolCall("unity_plan_inspect", args, theme, "planning", "guarded read-only Pipeline inspection");
+    },
+    renderResult(result, { expanded }, theme) {
+      return renderUnityToolResult(result, expanded, theme);
+    },
+  });
+
+  pi.registerTool({
     name: "unity_inspect_artifacts",
     label: "Unity Inspect Artifacts",
     description: "Summarize existing Unity log files and Unity Test Framework XML results without launching Unity.",
@@ -1266,7 +1356,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      const processWarning = await enforceSingleProcessRule(candidate.projectRoot);
+      return await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "gui", toolName: "unity_open_editor" }, async () => {
+      await enforceSingleProcessRule(candidate.projectRoot);
       throwIfAborted(signal);
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
       throwIfAborted(signal);
@@ -1280,10 +1371,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           editorPath: params.unityEditorPath,
         });
       } else {
+        await assertUnityProjectNotBusy(candidate.projectRoot);
         editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
         launch = launchUnityEditorDetached(editorPath, candidate.projectRoot);
       }
-      const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, processWarning ?? discoveryWarning, launcher);
+      const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
 
       return {
         content: [{ type: "text", text }],
@@ -1295,10 +1387,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           pid: launch.pid,
           command: launch.command,
           args: launch.args,
-          warning: processWarning ?? discoveryWarning,
+          warning: discoveryWarning,
           launcher,
         } satisfies UnityToolDetails,
       };
+      });
     },
     renderCall(args, theme) {
       return renderUnityToolCall("unity_open_editor", args, theme, "gui", "opens editor window");

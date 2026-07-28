@@ -25,6 +25,7 @@ const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "u
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
 const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
+const unityCliSourceText = readFileSync(new URL("../src/unity-cli.ts", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
 assert(packageJson.pi?.skills?.includes("./skills"), "Expected pi-unity to keep its skills registered.");
@@ -60,12 +61,12 @@ assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expecte
 for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
   assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
 }
-for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "inspectUnityProjectBusyState", "listRunningUnityProcessesForProject", "raceAbortWithTimeout"]) {
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "Lockfile or process presence is not a planning preflight failure"]) {
   assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
 }
 assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "name: \"unity_plan_inspect\"", "createPlanningUnityCliExecutor", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
@@ -155,5 +156,14 @@ assert(skillText.includes("Do not close a reachable Pipeline Editor merely to ru
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");
+assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workflowProviderSourceText), "Provider guidance/source must not embed machine-specific absolute paths.");
+assert(workflowProviderSourceText.includes("unity_plan_inspect") && workflowProviderSourceText.includes("Generic eval is not a planning default"), "Expected bounded connected planning guidance and conservative eval policy.");
+assert(indexText.includes("unity_plan_inspect") && indexText.includes("never launches or closes Unity"), "Expected the registered planning tool to state its no-launch/no-close boundary.");
+assert(indexText.includes('StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const'), "The planning tool schema must expose only package-owned reads and exceptional eval.");
+for (const command of ["get_authoring_root", "get_build_settings", "get_player_settings", "get_scene_hierarchy", "editor_status", "list_open_scenes", "list_build_targets"]) {
+  assert(unityCliSourceText.includes(`"${command}"`), `Expected advertised read-only planning command: ${command}`);
+}
+assert(!/\b(?:read_project_info|read_build_settings|read_compilation_state)\b/.test(unityCliSourceText), "Obsolete invented planning command names must not be packaged.");
+assert(!indexText.includes("purposeBuiltReadCommands") && !workflowProviderSourceText.includes("purposeBuiltReadCommands"), "No caller-supplied planning read allow-list may remain.");
 
 console.log("pi-unity package validation tests passed");

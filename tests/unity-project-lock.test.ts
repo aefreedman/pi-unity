@@ -5,6 +5,7 @@ import * as path from "node:path";
 import {
   __unityProjectLockInternals,
   acquireUnityProjectLaunchMutex,
+  evaluateUnityLaunchSafety,
   assertUnityProjectNotBusy,
   inspectUnityProjectBusyState,
   withUnityProjectLaunchMutex,
@@ -41,6 +42,14 @@ try {
   await assertUnityProjectNotBusy(projectA, { processLister: async () => ({ processes: [] }) });
 
   fs.writeFileSync(nativeLockfile, "");
+  // Launch-safety route matrix: a CLI may delegate only a proven stale lockfile;
+  // process uncertainty and matching identity block every launch route.
+  assert.deepEqual(evaluateUnityLaunchSafety("unity-cli", { nativeLockfileExists: true }, { processes: [] }), { allowed: true, staleLockDelegated: true });
+  assert.deepEqual(evaluateUnityLaunchSafety("editor-executable", { nativeLockfileExists: true }, { processes: [] }), { allowed: false, reason: "native_lockfile" });
+  for (const route of ["unity-cli", "editor-executable"] as const) {
+    assert.deepEqual(evaluateUnityLaunchSafety(route, { nativeLockfileExists: false }, { processes: [], warning: "scan failed" }), { allowed: false, reason: "process_unknown" });
+    assert.deepEqual(evaluateUnityLaunchSafety(route, { nativeLockfileExists: false }, { processes: [{ pid: 123, commandLine: "Unity -projectPath Game" }] }), { allowed: false, reason: "matching_process" });
+  }
   await assertRejectsWithMessage(
     () => assertUnityProjectNotBusy(projectA, { processLister: async () => ({ processes: [] }) }),
     "may be a stale Unity lockfile",
