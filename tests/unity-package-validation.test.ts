@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { strict as assert } from "node:assert";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -25,6 +25,7 @@ const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "u
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
 const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
+const referenceInventoryText = readFileSync(new URL("../references/README.md", import.meta.url), "utf8");
 const planResearchText = readFileSync(new URL("../references/unity-repo-research.md", import.meta.url), "utf8");
 const planOverlayText = readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8");
 const workOverlayText = readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");
@@ -102,14 +103,27 @@ for (const snippet of ["name: unity-docs", "project_artifact_search", "unity_mig
 }
 assert(unityDocsSchemaText.includes("schema_version: 2") && unityDocsSchemaText.includes("failure_mode:"), "Expected packaged v2 Unity docs schema asset.");
 assert(existsSync(new URL("../scripts/migrate-unity-docs-schema.ts", import.meta.url)), "Expected updated Unity docs migrator script.");
+const packagedReferences = readdirSync(new URL("../references/", import.meta.url), { recursive: true })
+  .map((entry) => `references/${entry.replaceAll("\\", "/")}`)
+  .filter((entry) => entry.endsWith(".md") && entry !== "references/README.md")
+  .sort();
+const inventoryReferences = [...referenceInventoryText.matchAll(/\| `((?:references)\/[^`]+\.md)` \|/g)].map((match) => match[1]).sort();
+assert.deepEqual(inventoryReferences, packagedReferences, "Reference inventory must list each packaged reference exactly once.");
+for (const archived of [
+  "archive/references/unity-review-guidance.md",
+  "archive/references/unity-testing.md",
+  "archive/references/unity-yaml-assets.md",
+]) {
+  assert(existsSync(new URL(`../${archived}`, import.meta.url)), `Missing archived reference: ${archived}`);
+  assert(referenceInventoryText.includes(`\`${archived}\``), `Archived reference is missing from the inventory: ${archived}`);
+}
+
 for (const resource of [
   "prompts/cg-migrate-unity-docs-schema.md",
+  "references/README.md",
   "references/unity-repo-research.md",
-  "references/unity-review-guidance.md",
   "references/workflow/plan.md",
   "references/workflow/work.md",
-  "references/unity-testing.md",
-  "references/unity-yaml-assets.md",
   "skills/unity-docs/SKILL.md",
   "skills/unity-docs/schema.yaml",
   "skills/unity-docs/assets/critical-pattern-template.md",
