@@ -12,7 +12,7 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
 const guidanceSkillText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/SKILL.md", import.meta.url), "utf8");
-const connectedSkillText = readFileSync(new URL("../skills/unity-connected-workflows/SKILL.md", import.meta.url), "utf8");
+const pipelineSkillText = readFileSync(new URL("../skills/unity-pipeline-workflows/SKILL.md", import.meta.url), "utf8");
 const unityDocsSkillText = readFileSync(new URL("../skills/unity-docs/SKILL.md", import.meta.url), "utf8");
 const unityDocsSchemaText = readFileSync(new URL("../skills/unity-docs/schema.yaml", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -27,6 +27,7 @@ const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audi
 const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
 const planResearchText = readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8");
 const planOverlayText = readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8");
+const workOverlayText = readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");
 const unityCliSourceText = readFileSync(new URL("../src/unity-cli.ts", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
@@ -63,7 +64,7 @@ assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expecte
 for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
   assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
 }
-for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "PLAN_GUIDANCE_FILES", "references/_shared/unity-repo-research.md", "references/workflow/plan.md"]) {
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/_shared/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
   assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
 }
 assert(!workflowProviderSourceText.includes("Unity planning research (apply only after engine.unity matches)"), "Detailed plan guidance must be loaded from packaged Markdown, not retained inline.");
@@ -73,6 +74,10 @@ for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.
 for (const snippet of ["unity_plan_inspect", "package-owned purpose-built read", "Generic eval is not a planning default", "fall back to repository research", "Lockfile or process presence is not a planning preflight failure"]) {
   assert(planOverlayText.includes(snippet), `Expected connected planning overlay guidance: ${snippet}`);
 }
+for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "unity_inspect_artifacts", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
+  assert(workOverlayText.includes(snippet), `Expected Unity work overlay guidance: ${snippet}`);
+}
+assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workOverlayText), "Work overlay must not include a machine-specific absolute path.");
 assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
 
 for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "name: \"unity_plan_inspect\"", "createPlanningUnityCliExecutor", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
@@ -102,6 +107,7 @@ for (const resource of [
   "references/_shared/unity-repo-research.md",
   "references/_shared/unity-review-guidance.md",
   "references/workflow/plan.md",
+  "references/workflow/work.md",
   "references/cg-review/unity-testing.md",
   "references/cg-work/unity-yaml-assets.md",
   "skills/unity-docs/SKILL.md",
@@ -158,9 +164,9 @@ for (const snippet of [
   "Do not silently fall back to batchmode",
   "NUnit XML",
 ]) {
-  assert(connectedSkillText.includes(snippet), `Expected connected Unity workflow skill to contain: ${snippet}`);
+  assert(pipelineSkillText.includes(snippet), `Expected connected Unity workflow skill to contain: ${snippet}`);
 }
-assert(connectedSkillText.includes("`run_tests` and `test_status`") && connectedSkillText.includes("Total: 0") && connectedSkillText.includes("result: running"), "Expected connected routing to require both commands while preserving a nonterminal running Total: 0 response.");
+assert(pipelineSkillText.includes("`run_tests` and `test_status`") && pipelineSkillText.includes("Total: 0") && pipelineSkillText.includes("result: running"), "Expected connected routing to require both commands while preserving a nonterminal running Total: 0 response.");
 assert(changelogText.includes("unity_run_test_batch") && changelogText.includes("Windows CI"), "Expected test-batch changelog entries.");
 assert(skillText.includes("Do not close a reachable Pipeline Editor merely to run tests") && skillText.includes("Route before planning a batch") && readmeText.includes("should run connected tests without closing the Editor"), "Expected open-Editor Pipeline tests to precede isolated batchmode routing.");
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");

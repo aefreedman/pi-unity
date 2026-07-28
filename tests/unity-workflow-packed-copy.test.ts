@@ -14,7 +14,7 @@ const packed = JSON.parse(output) as Array<{ files?: Array<{ path: string }>; bu
 assert.equal(packed.length, 1, "Expected one packed pi-unity archive description.");
 const archive = packed[0]!;
 const files = new Set((archive.files ?? []).map((entry) => entry.path));
-for (const required of ["src/unity-workflow-provider.ts", "contracts/v1.ts", "index.ts", "package.json", "references/_shared/unity-repo-research.md", "references/workflow/plan.md"]) {
+for (const required of ["src/unity-workflow-provider.ts", "contracts/v1.ts", "index.ts", "package.json", "references/_shared/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
   assert(files.has(required), `Packed pi-unity copy is missing ${required}.`);
 }
 assert.equal((archive.bundled ?? []).length, 0, "Packed pi-unity must co-install contract owners instead of bundling sibling repositories.");
@@ -32,18 +32,31 @@ try {
   const copiedModule = await import(`${pathToFileURL(path.join(installedCopy, "src", "unity-workflow-provider.ts")).href}?installed-copy`);
   const provider = copiedModule.createUnityWorkflowProviderV1();
   const signal = new AbortController().signal;
-  const guidance = await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 100_000, signal });
-  assert.equal(guidance.outcome, "available", "A copied installed provider must load its packaged planning Markdown.");
-  if (guidance.outcome === "available") {
-    assert(guidance.content.includes("# Unity Repository Research"));
-    assert(guidance.content.includes("# Connected Planning and Documentation Routing"));
-    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(guidance.content), "Copied-provider guidance must not leak its installation path.");
+  const planGuidance = await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 100_000, signal });
+  assert.equal(planGuidance.outcome, "available", "A copied installed provider must load its packaged planning Markdown.");
+  if (planGuidance.outcome === "available") {
+    assert(planGuidance.content.includes("# Unity Repository Research"));
+    assert(planGuidance.content.includes("# Connected Planning and Documentation Routing"));
+    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(planGuidance.content), "Copied-provider guidance must not leak its installation path.");
+  }
+  const workGuidance = await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100_000, signal });
+  assert.equal(workGuidance.outcome, "available", "A copied installed provider must load its packaged work Markdown.");
+  if (workGuidance.outcome === "available") {
+    assert(workGuidance.content.includes("# Unity Work Routing"));
+    assert(workGuidance.content.includes("Do not silently switch to batchmode after an uncertain connected dispatch."));
+    assert.deepEqual(workGuidance.ref, { packageName: "@aefree/pi-unity", packageVersion: provider.owner.packageVersion, resourceId: "guidance/unity/work" });
+    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workGuidance.content), "Copied work guidance must not leak its installation path.");
   }
   assert.equal(provider.owner.packageRoot, installedCopy, "Copied provider provenance must use its installed package root.");
-  fs.rmSync(path.join(installedCopy, "references", "workflow", "plan.md"));
-  assert.deepEqual(await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 100, signal }), {
+  const workPath = path.join(installedCopy, "references", "workflow", "work.md");
+  fs.rmSync(workPath);
+  assert.deepEqual(await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100, signal }), {
     outcome: "missing", code: "guidance_resource_missing", retryable: false,
-  }, "A missing packaged optional resource must produce a sanitized stable result.");
+  }, "A missing packaged optional work resource must produce a sanitized stable result.");
+  fs.mkdirSync(workPath);
+  assert.deepEqual(await provider.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100, signal }), {
+    outcome: "unavailable", code: "guidance_resource_unavailable", retryable: false,
+  }, "An unreadable packaged work resource must produce a sanitized stable result.");
 } finally {
   fs.rmSync(installedCopy, { recursive: true, force: true });
 }

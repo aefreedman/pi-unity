@@ -19,6 +19,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Moved `guidance/unity/work` from an inline summary into bounded runtime-loaded package Markdown. The Unity work overlay preserves exact-copy identity, prefers reachable connected Pipeline routes, constrains isolated batchmode fallback, and retains sanitized missing/unavailable/abort results with stable package/resource provenance.
 - Moved detailed `guidance/unity/plan` content into runtime-loaded packaged Markdown: the canonical Unity repository-research reference now supplies exact-version documentation priority, while a small workflow overlay supplies connected CLI/Pipeline boundaries. Missing packaged guidance is sanitized, and the provider retains bounded output and stable package provenance.
 - Declared semver dependencies on the capability registry and canonical repository/artifact contracts; neutral installs co-install their tarballs and never copy sibling repositories into the Unity archive.
 - Reworked solution migration to exact-range frontmatter patches, complete moved-document outbound-link rebasing, final broken-link blocking, POSIX mode journaling/restoration, physical nearest-ancestor revalidation, and one queue/lock domain for apply/resume/rollback.

@@ -17,6 +17,7 @@ const expectedPlanGuidance = [
   fs.readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8"),
 ].join("\n\n");
+const expectedWorkGuidance = fs.readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");
 fs.mkdirSync(path.dirname(nestedTarget), { recursive: true });
 fs.mkdirSync(path.join(projectRoot, "ProjectSettings"), { recursive: true });
 fs.writeFileSync(path.join(projectRoot, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.18f1\n");
@@ -68,7 +69,8 @@ try {
     }
   }
   assert(!workflowProviderSource.includes("Unity planning research (apply only after engine.unity matches)"), "Plan guidance must not retain the old detailed inline string.");
-  assert(workflowProviderSource.includes("PLAN_GUIDANCE_FILES") && workflowProviderSource.includes("references/workflow/plan.md"), "Plan guidance must name packaged Markdown resources.");
+  assert(workflowProviderSource.includes("MARKDOWN_GUIDANCE_FILES") && workflowProviderSource.includes("references/workflow/plan.md") && workflowProviderSource.includes("references/workflow/work.md"), "Plan and work guidance must name packaged Markdown resources.");
+  assert(!workflowProviderSource.includes("Unity work: preserve one-process-per-project safety"), "Work guidance must not retain the old inline summary.");
   const fullPlan = await provider.loadGuidance!(context, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: expectedPlanGuidance.length + 1, signal });
   assert.equal(fullPlan.outcome, "available");
   if (fullPlan.outcome === "available") {
@@ -87,6 +89,23 @@ try {
     assert.equal(boundedPlan.content, expectedPlanGuidance.slice(0, 80));
     assert.equal(boundedPlan.truncated, true);
   }
+  const fullWork = await provider.loadGuidance!(context, { resourceId: "guidance/unity/work", purpose: "work", maxChars: expectedWorkGuidance.length + 1, signal });
+  assert.equal(fullWork.outcome, "available");
+  if (fullWork.outcome === "available") {
+    assert.equal(fullWork.content, expectedWorkGuidance, "Work guidance must load from packaged Markdown.");
+    assert.equal(fullWork.truncated, false);
+    assert.deepEqual(fullWork.ref, { packageName: "@aefree/pi-unity", packageVersion: provider.owner.packageVersion, resourceId: "guidance/unity/work" });
+    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(fullWork.content), "Work guidance must not contain a machine-specific absolute path.");
+    for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "unity_inspect_artifacts", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
+      assert(fullWork.content.includes(snippet), `Missing Unity work guidance: ${snippet}`);
+    }
+  }
+  const boundedWork = await provider.loadGuidance!(context, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 80, signal });
+  assert.equal(boundedWork.outcome, "available");
+  if (boundedWork.outcome === "available") {
+    assert.equal(boundedWork.content, expectedWorkGuidance.slice(0, 80));
+    assert.equal(boundedWork.truncated, true);
+  }
   assert.deepEqual(await provider.loadGuidance!(context, { resourceId: "guidance/unity/missing", purpose: "work", maxChars: 10, signal }), {
     outcome: "missing", code: "guidance_resource_missing", retryable: false,
   });
@@ -103,9 +122,11 @@ try {
   assert.deepEqual(await provider.detect({ cwd: tempRoot, signal: aborted.signal }, { targetPath: nestedTarget, operation: "read", signal: aborted.signal }), {
     outcome: "unavailable", code: "aborted", retryable: true,
   });
-  assert.deepEqual(await provider.loadGuidance!({ cwd: tempRoot, signal: aborted.signal }, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 10, signal: aborted.signal }), {
-    outcome: "unavailable", code: "aborted", retryable: true,
-  });
+  for (const resourceId of ["guidance/unity/plan", "guidance/unity/work"] as const) {
+    assert.deepEqual(await provider.loadGuidance!({ cwd: tempRoot, signal: aborted.signal }, { resourceId, purpose: "work", maxChars: 10, signal: aborted.signal }), {
+      outcome: "unavailable", code: "aborted", retryable: true,
+    });
+  }
 
   const report = await assertWorkflowProviderConformanceV1({
     createProvider: createUnityWorkflowProviderV1,
