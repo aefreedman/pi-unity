@@ -55,14 +55,23 @@ For PlayMode use `--mode playmode --async_tests true`; synchronous PlayMode requ
 
 ### Test Cancellation
 
-As of version 0.4.0-exp.1 there is a bug with `cancel_tests`
+Do not treat Pipeline `cancel_tests` or `test_status: cancelled` as proof that Unity Test Framework stopped the underlying job. In Pipeline 0.4.0-exp.1, `cancel_tests` can detach the result collector while the Unity test job continues running.
 
-1. Do not start a replacement run after cancel_tests. Treat it as “detach reporting,” not actual cancellation.
-2. Use focused fixture/assembly runs while the Editor stays open.
-3. For a stuck run, use Unity’s Test Runner window Stop control (it should use the Test Framework’s native job cancellation
-   rather than Pipeline’s collector-only cancellation).
+For this project, prefer the project-local command:
 
-If you detect that Unity still executes tests afterward, restart the Editor before another connected run. This is the only reliable cleanup without a package fix.
+```text
+unity command --project-path <exact-project> cancel_unity_test_runs --confirm true
+```
+
+Then poll:
+
+```text
+unity command --project-path <exact-project> cancel_unity_test_runs --dry_run true
+```
+
+Do not start another connected test run until activeRunCount is 0.
+
+If cancel_unity_test_runs is unavailable, use the Unity Test Runner window’s Stop button. If no reliable terminal state can be established, restart the Editor before running more tests. Never rely on cancel_tests alone to clean up a hung run.
 
 ## Fallback policy
 
