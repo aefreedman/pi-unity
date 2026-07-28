@@ -1,9 +1,9 @@
 ---
-name: unity-connected-workflows
+name: unity-pipeline-workflows
 description: Compile code or run focused Unity tests through a reachable com.unity.pipeline Editor without launching or closing another Unity process. Use for exact-copy connected recompile, EditMode tests, PlayMode tests, and bounded status polling.
 ---
 
-# Unity Connected Workflows
+# Unity Pipeline Workflows
 
 Use this workflow only for an already-running exact project copy with `com.unity.pipeline` installed and reachable.
 
@@ -52,6 +52,17 @@ For PlayMode use `--mode playmode --async_tests true`; synchronous PlayMode requ
 - If dispatch may have succeeded but its response or later polling is uncertain, stop and report the uncertainty. Do not silently fall back to batchmode because the connected test run may still be running.
 - Connected tests do not inherently produce NUnit XML. Use `unity_run_test_batch` or `unity test` when report artifacts are required.
 - Bound `list_tests` output; broad projects can return thousands of test records.
+
+### Test Cancellation
+
+As of version 0.4.0-exp.1 there is a bug with `cancel_tests`
+
+1. Do not start a replacement run after cancel_tests. Treat it as “detach reporting,” not actual cancellation.
+2. Use focused fixture/assembly runs while the Editor stays open.
+3. For a stuck run, use Unity’s Test Runner window Stop control (it should use the Test Framework’s native job cancellation
+   rather than Pipeline’s collector-only cancellation).
+
+If you detect that Unity still executes tests afterward, restart the Editor before another connected run. This is the only reliable cleanup without a package fix.
 
 ## Fallback policy
 
