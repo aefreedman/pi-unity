@@ -12,6 +12,11 @@ import {
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-unity-workflow-provider-"));
 const projectRoot = path.join(tempRoot, "workspace", "game");
 const nestedTarget = path.join(projectRoot, "Assets", "Scripts", "Player.cs");
+const workflowProviderSource = fs.readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
+const expectedPlanGuidance = [
+  fs.readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8"),
+].join("\n\n");
 fs.mkdirSync(path.dirname(nestedTarget), { recursive: true });
 fs.mkdirSync(path.join(projectRoot, "ProjectSettings"), { recursive: true });
 fs.writeFileSync(path.join(projectRoot, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.18f1\n");
@@ -60,8 +65,27 @@ try {
     if (guidance.outcome === "available") {
       assert.equal(guidance.ref.resourceId, resource.resourceId);
       assert(guidance.content.length <= 40);
-      if (resource.resourceId === "guidance/unity/plan") assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(guidance.content), "Guidance must not contain a machine-specific absolute path.");
     }
+  }
+  assert(!workflowProviderSource.includes("Unity planning research (apply only after engine.unity matches)"), "Plan guidance must not retain the old detailed inline string.");
+  assert(workflowProviderSource.includes("PLAN_GUIDANCE_FILES") && workflowProviderSource.includes("references/workflow/plan.md"), "Plan guidance must name packaged Markdown resources.");
+  const fullPlan = await provider.loadGuidance!(context, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: expectedPlanGuidance.length + 1, signal });
+  assert.equal(fullPlan.outcome, "available");
+  if (fullPlan.outcome === "available") {
+    assert.equal(fullPlan.content, expectedPlanGuidance, "Plan guidance must compose the packaged canonical research and connected-planning overlay.");
+    assert.equal(fullPlan.truncated, false);
+    assert.equal(fullPlan.ref.packageName, "@aefree/pi-unity");
+    assert.equal(fullPlan.ref.packageVersion, provider.owner.packageVersion);
+    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(fullPlan.content), "Plan guidance must not contain a machine-specific absolute path.");
+    for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "unity_plan_inspect", "package-owned purpose-built read", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
+      assert(fullPlan.content.includes(snippet), `Missing planning guidance: ${snippet}`);
+    }
+  }
+  const boundedPlan = await provider.loadGuidance!(context, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 80, signal });
+  assert.equal(boundedPlan.outcome, "available");
+  if (boundedPlan.outcome === "available") {
+    assert.equal(boundedPlan.content, expectedPlanGuidance.slice(0, 80));
+    assert.equal(boundedPlan.truncated, true);
   }
   assert.deepEqual(await provider.loadGuidance!(context, { resourceId: "guidance/unity/missing", purpose: "work", maxChars: 10, signal }), {
     outcome: "missing", code: "guidance_resource_missing", retryable: false,
@@ -77,6 +101,9 @@ try {
   const aborted = new AbortController();
   aborted.abort();
   assert.deepEqual(await provider.detect({ cwd: tempRoot, signal: aborted.signal }, { targetPath: nestedTarget, operation: "read", signal: aborted.signal }), {
+    outcome: "unavailable", code: "aborted", retryable: true,
+  });
+  assert.deepEqual(await provider.loadGuidance!({ cwd: tempRoot, signal: aborted.signal }, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: 10, signal: aborted.signal }), {
     outcome: "unavailable", code: "aborted", retryable: true,
   });
 

@@ -19,6 +19,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Moved detailed `guidance/unity/plan` content into runtime-loaded packaged Markdown: the canonical Unity repository-research reference now supplies exact-version documentation priority, while a small workflow overlay supplies connected CLI/Pipeline boundaries. Missing packaged guidance is sanitized, and the provider retains bounded output and stable package provenance.
 - Declared semver dependencies on the capability registry and canonical repository/artifact contracts; neutral installs co-install their tarballs and never copy sibling repositories into the Unity archive.
 - Reworked solution migration to exact-range frontmatter patches, complete moved-document outbound-link rebasing, final broken-link blocking, POSIX mode journaling/restoration, physical nearest-ancestor revalidation, and one queue/lock domain for apply/resume/rollback.
 - Made Unity capability shutdown scope-owned so a delayed old-session shutdown cannot unregister a newer active session.

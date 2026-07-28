@@ -36,17 +36,28 @@ In Plastic workspaces, prefer repo ignore files such as `ignore.conf` and `cloak
 
 ## High-Signal Unity Files
 
-Prefer these sources before broad content scans:
+Resolve and preserve the exact canonical project-copy path. Prefer these sources before broad content scans:
 
 - `AGENTS.md`, README, setup docs, and local project docs.
-- `Packages/manifest.json` for installed packages and package versions.
-- `ProjectSettings/ProjectVersion.txt` for Unity version.
+- `ProjectSettings/ProjectVersion.txt` for the exact Unity version.
+- `Packages/manifest.json` and `Packages/packages-lock.json`, when present, for exact declared and resolved package versions.
 - `.asmdef` files for assembly/module boundaries.
 - `Assets/**/Scripts/**/*.cs`, `Assets/**/*.cs`, or project-specific code roots.
 - Project-specific `Assets/` roots for gameplay/UI/tools/content.
 - Relevant `.unity`, `.prefab`, `.asset`, `.uxml`, `.uss`, shader, timeline, animation, or addressables files only when the feature touches those systems.
 
 Avoid reading `.meta` files unless the question depends on GUID references, importer settings, asset identity, or broken references.
+
+## Authoritative Documentation
+
+When external Unity or package API behavior matters, establish the exact Unity and package versions from `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, and `Packages/packages-lock.json` when those files are present. Then use sources in this priority order:
+
+1. Project guidance and checked-in docs.
+2. Engine, package, or platform docs included with or installed locally for the exact detected versions.
+3. Active Pi Unity/package documentation tools or databases when installed.
+4. Official vendor docs reachable through available tools.
+
+Never install or upgrade documentation, packages, or Pipeline merely to plan. If the required documentation is unavailable, identify it as a verification gap rather than inferring API behavior.
 
 ---
 

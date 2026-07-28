@@ -25,6 +25,8 @@ const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "u
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
 const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
+const planResearchText = readFileSync(new URL("../references/_shared/unity-repo-research.md", import.meta.url), "utf8");
+const planOverlayText = readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8");
 const unityCliSourceText = readFileSync(new URL("../src/unity-cli.ts", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"), "Expected pi-unity to register its extension entrypoint.");
@@ -61,8 +63,15 @@ assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expecte
 for (const snippet of ["createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "workflowProviderToken", "WeakMap<object, ScopeRegistrations>"]) {
   assert(indexText.includes(snippet), `Expected Unity workflow-provider registration lifecycle: ${snippet}`);
 }
-for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "Lockfile or process presence is not a planning preflight failure"]) {
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "PLAN_GUIDANCE_FILES", "references/_shared/unity-repo-research.md", "references/workflow/plan.md"]) {
   assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
+}
+assert(!workflowProviderSourceText.includes("Unity planning research (apply only after engine.unity matches)"), "Detailed plan guidance must be loaded from packaged Markdown, not retained inline.");
+for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
+  assert(planResearchText.includes(snippet), `Expected canonical plan research guidance: ${snippet}`);
+}
+for (const snippet of ["unity_plan_inspect", "package-owned purpose-built read", "Generic eval is not a planning default", "fall back to repository research", "Lockfile or process presence is not a planning preflight failure"]) {
+  assert(planOverlayText.includes(snippet), `Expected connected planning overlay guidance: ${snippet}`);
 }
 assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
 
@@ -92,6 +101,7 @@ for (const resource of [
   "prompts/cg-migrate-unity-docs-schema.md",
   "references/_shared/unity-repo-research.md",
   "references/_shared/unity-review-guidance.md",
+  "references/workflow/plan.md",
   "references/cg-review/unity-testing.md",
   "references/cg-work/unity-yaml-assets.md",
   "skills/unity-docs/SKILL.md",
@@ -157,7 +167,7 @@ assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) &&
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");
 assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workflowProviderSourceText), "Provider guidance/source must not embed machine-specific absolute paths.");
-assert(workflowProviderSourceText.includes("unity_plan_inspect") && workflowProviderSourceText.includes("Generic eval is not a planning default"), "Expected bounded connected planning guidance and conservative eval policy.");
+assert(planOverlayText.includes("unity_plan_inspect") && planOverlayText.includes("Generic eval is not a planning default"), "Expected bounded connected planning guidance and conservative eval policy.");
 assert(indexText.includes("unity_plan_inspect") && indexText.includes("never launches or closes Unity"), "Expected the registered planning tool to state its no-launch/no-close boundary.");
 assert(indexText.includes('StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const'), "The planning tool schema must expose only package-owned reads and exceptional eval.");
 for (const command of ["get_authoring_root", "get_build_settings", "get_player_settings", "get_scene_hierarchy", "editor_status", "list_open_scenes", "list_build_targets"]) {
