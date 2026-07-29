@@ -12,11 +12,13 @@ When that exact copy has a reachable Pipeline Editor advertising `recompile`, `r
 
 Connected test evidence must meet the validation-evidence standard below. Connected tests do not inherently produce NUnit XML, so state that limitation when XML or logs are required.
 
+Before connected lifecycle work, inspect `editor_status`. Define the timeout and bounded polling schedule before dispatch rather than extending a sequence of guessed waits. If a persistent edit requires import or compilation while the Editor is in Play Mode, obtain lifecycle authorization unless already explicit, stop Play Mode through its advertised command, verify the transition, and then compile.
+
 ## Isolated Batchmode Is an Explicit Fallback
 
 Use `unity_run_test_batch` only when the project is closed, connected testing is unavailable or unsupported *before dispatch*, isolation/CI is intentional, filters are unsupported, or NUnit XML/log artifacts are required. Request graphics only for visual, rendering, screenshot, or graphics-dependent validation.
 
-Do not silently switch to batchmode after an uncertain connected dispatch.
+Do not silently switch to batchmode after an uncertain connected dispatch. A result-collector exception with `test_status` still reporting `running` is uncertain state: attempt one documented cancellation path, require a known zero active-run count, and otherwise stop for an Editor restart rather than starting batchmode.
 
 ## Validation Evidence
 
