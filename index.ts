@@ -38,14 +38,14 @@ import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, 
 
 const WORKFLOW_CONTRACT_MODULE = "@aefree/pi-workflow/contracts/v1";
 
-type WorkflowProviderRegistryV1 = Readonly<{
-  register: (scope: object, provider: unknown) => RegistrationToken;
+type WorkflowGuidanceContributorRegistryV1 = Readonly<{
+  register: (scope: object, contributor: unknown) => RegistrationToken;
   unregister: (token: RegistrationToken) => boolean;
 }>;
 
 type WorkflowIntegrationV1 = Readonly<{
-  registry: WorkflowProviderRegistryV1;
-  createProvider: () => unknown;
+  registry: WorkflowGuidanceContributorRegistryV1;
+  createContributor: () => unknown;
 }>;
 
 /**
@@ -65,16 +65,16 @@ export const isMissingWorkflowContract = (error: unknown): boolean => {
 
 const loadWorkflowIntegrationV1 = async (): Promise<WorkflowIntegrationV1 | undefined> => {
   try {
-    const [contracts, providerModule] = await Promise.all([
+    const [contracts, contributorModule] = await Promise.all([
       import(WORKFLOW_CONTRACT_MODULE),
-      import("./src/unity-workflow-provider"),
+      import("./src/unity-workflow-guidance-contributor"),
     ]);
-    if (typeof contracts.createWorkflowProviderRegistryV1 !== "function" || typeof providerModule.createUnityWorkflowProviderV1 !== "function") {
-      throw new TypeError("@aefree/pi-workflow/contracts/v1 does not provide the required workflow-provider contract.");
+    if (typeof contracts.createWorkflowGuidanceContributorRegistryV1 !== "function" || typeof contributorModule.createUnityWorkflowGuidanceContributorV1 !== "function") {
+      throw new TypeError("@aefree/pi-workflow/contracts/v1 does not provide the required workflow-guidance-contributor contract.");
     }
     return {
-      registry: contracts.createWorkflowProviderRegistryV1() as WorkflowProviderRegistryV1,
-      createProvider: providerModule.createUnityWorkflowProviderV1,
+      registry: contracts.createWorkflowGuidanceContributorRegistryV1() as WorkflowGuidanceContributorRegistryV1,
+      createContributor: contributorModule.createUnityWorkflowGuidanceContributorV1,
     };
   } catch (error) {
     if (isMissingWorkflowContract(error)) return undefined;
@@ -1114,9 +1114,9 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     artifactProfileToken: RegistrationToken;
     repositoryPolicyToken: RegistrationToken;
     migrationToken: RegistrationToken;
-    workflow?: Readonly<{ registry: WorkflowProviderRegistryV1; token: RegistrationToken }>;
+    workflow?: Readonly<{ registry: WorkflowGuidanceContributorRegistryV1; token: RegistrationToken }>;
   }>;
-  // Lifecycle handles are session-scoped. Provider callbacks themselves capture no session state.
+  // Lifecycle handles are session-scoped. Contributor callbacks capture no session state.
   const registrations = new WeakMap<object, ScopeRegistrations>();
   const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
     if (current === undefined) return false;
@@ -1133,7 +1133,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
     // Keep core Unity contracts synchronous for reverse-load-order compatibility;
-    // only the optional provider composition waits on a dynamic import.
+    // only the optional guidance composition waits on a dynamic import.
     const coreRegistrations = Object.freeze({
       artifactProfileToken: artifactProfileRegistry.register(scope, createUnityArtifactProfileV1()),
       repositoryPolicyToken: repositoryPolicyRegistry.register(scope, createUnityRepositoryPolicyV1()),
@@ -1149,7 +1149,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         ...coreRegistrations,
         workflow: Object.freeze({
           registry: workflowIntegration.registry,
-          token: workflowIntegration.registry.register(scope, workflowIntegration.createProvider()),
+          token: workflowIntegration.registry.register(scope, workflowIntegration.createContributor()),
         }),
       });
     registrations.set(scope, next);

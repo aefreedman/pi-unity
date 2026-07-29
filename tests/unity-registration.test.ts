@@ -6,7 +6,7 @@ import registerProjectArtifacts from "@aefree/pi-project-artifacts/pi";
 import registerWorkflow from "../../pi-workflow/extensions/index.ts";
 import { resolveArtifactProfilesV1, resolveArtifactSearchServiceV1, resolveTodoLifecycleServiceV1 } from "@aefree/pi-project-artifacts/contracts/v1";
 import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1";
-import { resolveWorkflowProvidersV1, resolveWorkflowServiceV1 } from "@aefree/pi-workflow/contracts/v1";
+import { resolveWorkflowGuidanceContributorsV1, resolveWorkflowGuidanceServiceV1 } from "@aefree/pi-workflow/contracts/v1";
 import registerUnity from "../index";
 import { resolveUnityMigrationServiceV1 } from "../contracts/v1";
 
@@ -42,9 +42,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "available", order);
   assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "available", order);
   assert.equal(resolveUnityMigrationServiceV1(scope).outcome, "available", order);
-  const workflowProviders = resolveWorkflowProvidersV1(scope);
-  assert.equal(workflowProviders.outcome, "available", order);
-  assert.deepEqual(workflowProviders.records.map((provider) => provider.id), ["engine.unity"], order);
+  const workflowContributors = resolveWorkflowGuidanceContributorsV1(scope);
+  assert.equal(workflowContributors.outcome, "available", order);
+  assert.deepEqual(workflowContributors.records.map((contributor) => contributor.id), ["engine.unity"], order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 1);
   const planningTool = unity.tools.find((tool) => tool.name === "unity_plan_inspect");
   assert(planningTool, "pi-unity must register the guarded planning inspection tool");
@@ -59,7 +59,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
   assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "missing");
   assert.equal(resolveUnityMigrationServiceV1(scope).outcome, "missing");
-  assert.equal(resolveWorkflowProvidersV1(scope).outcome, "missing");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "missing");
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "missing");
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "missing");
 }
@@ -73,11 +73,11 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   registerUnity(unity as any);
   if (order === "workflow-first") { await emit(workflow, "session_start", ctx); await emit(unity, "session_start", ctx); }
   else { await emit(unity, "session_start", ctx); await emit(workflow, "session_start", ctx); }
-  assert.equal(resolveWorkflowProvidersV1(scope).outcome, "available", order);
-  assert.equal(resolveWorkflowServiceV1(scope).outcome, "available", order);
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "available", order);
+  assert.equal(resolveWorkflowGuidanceServiceV1(scope).outcome, "available", order);
   await emit(workflow, "session_shutdown", ctx);
   await emit(unity, "session_shutdown", ctx);
-  assert.equal(resolveWorkflowProvidersV1(scope).outcome, "missing", order);
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "missing", order);
 }
 
 {
@@ -87,11 +87,11 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   registerUnity(unity as any);
   await emit(unity, "session_start", ctx);
   await emit(unity, "session_start", ctx);
-  const workflowProviders = resolveWorkflowProvidersV1(scope);
-  assert.equal(workflowProviders.outcome, "available", "workflow-present reload must preserve the provider");
-  assert.deepEqual(workflowProviders.records.map((provider) => provider.id), ["engine.unity"], "workflow-present reload must replace rather than duplicate the provider");
+  const workflowContributors = resolveWorkflowGuidanceContributorsV1(scope);
+  assert.equal(workflowContributors.outcome, "available", "workflow-present reload must preserve the contributor");
+  assert.deepEqual(workflowContributors.records.map((contributor) => contributor.id), ["engine.unity"], "workflow-present reload must replace rather than duplicate the contributor");
   await emit(unity, "session_shutdown", ctx);
-  assert.equal(resolveWorkflowProvidersV1(scope).outcome, "missing", "workflow-present reload cleanup must remove the matching provider");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "missing", "workflow-present reload cleanup must remove the matching contributor");
 }
 {
   const scopeA = {};
@@ -108,20 +108,20 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available");
   assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "available");
   assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available");
-  assert.equal(resolveWorkflowProvidersV1(scopeA).outcome, "available");
-  assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "available");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scopeA).outcome, "available");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "available");
   await emit(unity, "session_shutdown", ctxA);
   assert.equal(resolveUnityMigrationServiceV1(scopeA).outcome, "missing");
   assert.equal(resolveArtifactProfilesV1(scopeA).outcome, "missing");
   assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "missing");
-  assert.equal(resolveWorkflowProvidersV1(scopeA).outcome, "missing");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scopeA).outcome, "missing");
   assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
-  assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   await emit(unity, "session_shutdown", ctxB);
   assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "missing");
-  assert.equal(resolveWorkflowProvidersV1(scopeB).outcome, "missing");
+  assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "missing");
 }
 {
   const root = await mkdtemp(join(tmpdir(), "pi-unity-plan-tool-"));

@@ -26,7 +26,7 @@ const guidanceEvalRunnerText = readFileSync(new URL("../evals/auditing-unity-age
 const gitignoreText = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
 const guidanceEvalCases = JSON.parse(readFileSync(new URL("../evals/auditing-unity-agent-guidance/cases.json", import.meta.url), "utf8")) as Array<{ id: string; should_trigger: boolean; expected_checks: string[] }>;
 const guidanceAuditSourceText = readFileSync(new URL("../src/unity-guidance-audit.ts", import.meta.url), "utf8");
-const workflowProviderSourceText = readFileSync(new URL("../src/unity-workflow-provider.ts", import.meta.url), "utf8");
+const workflowGuidanceContributorSourceText = readFileSync(new URL("../src/unity-workflow-guidance-contributor.ts", import.meta.url), "utf8");
 const referenceInventoryText = readFileSync(new URL("../references/README.md", import.meta.url), "utf8");
 const planResearchText = readFileSync(new URL("../references/unity-repo-research.md", import.meta.url), "utf8");
 const planOverlayText = readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8");
@@ -43,8 +43,8 @@ assert(packageJson.scripts?.test?.includes("unity-guidance-audit.test.ts"), "Exp
 assert(packageJson.scripts?.test?.includes("unity-test-batch.test.ts"), "Expected pi-unity test script to run test-batch planner tests.");
 assert(packageJson.scripts?.test?.includes("unity-cli.test.ts"), "Expected pi-unity test script to run unity-cli tests.");
 assert(packageJson.scripts?.test?.includes("unity-project-lock.test.ts"), "Expected pi-unity test script to run unity project lock tests.");
-assert(packageJson.scripts?.test?.includes("unity-workflow-provider.test.ts"), "Expected pi-unity test script to run workflow-provider tests.");
-assert(packageJson.scripts?.test?.includes("unity-workflow-packed-copy.test.ts"), "Expected pi-unity test script to run packed workflow-provider dependency tests.");
+assert(packageJson.scripts?.test?.includes("unity-workflow-guidance-contributor.test.ts"), "Expected pi-unity test script to run workflow-guidance-contributor tests.");
+assert(packageJson.scripts?.test?.includes("unity-workflow-guidance-packed-copy.test.ts"), "Expected pi-unity test script to run packed workflow-guidance-contributor dependency tests.");
 assert(packageJson.scripts?.test?.includes("unity-workflow-optional-integration.test.ts"), "Expected pi-unity test script to run isolated optional workflow integration tests.");
 assert(packageJson.scripts?.["eval:guidance-skill"]?.includes("auditing-unity-agent-guidance/run-eval.ts"), "Expected an opt-in guidance-skill behavioral eval script.");
 assert(guidanceEvalCases.length >= 10, "Expected at least ten behavioral skill-eval prompts.");
@@ -69,23 +69,31 @@ assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.devDependencies?.["@aefree/pi-workfl
 assert.equal(packageJson.peerDependenciesMeta?.["@aefree/pi-workflow"]?.optional, true, "Workflow peer integration must be optional.");
 assert.equal(packageJson.bundledDependencies, undefined, "Decomposition packages are co-installed and must not copy sibling repositories into pi-unity tarballs.");
 assert(packageJson.exports?.["./contracts/v1"] === "./contracts/v1.ts", "Expected side-effect-free Unity migration contract subpath.");
-for (const snippet of ["WORKFLOW_CONTRACT_MODULE", "loadWorkflowIntegrationV1", "createWorkflowProviderRegistryV1", "createUnityWorkflowProviderV1", "isMissingWorkflowContract", "WeakMap<object, ScopeRegistrations>"]) {
-  assert(indexText.includes(snippet), `Expected Unity optional workflow-provider registration lifecycle: ${snippet}`);
+for (const snippet of ["WORKFLOW_CONTRACT_MODULE", "loadWorkflowIntegrationV1", "createWorkflowGuidanceContributorRegistryV1", "createUnityWorkflowGuidanceContributorV1", "isMissingWorkflowContract", "WeakMap<object, ScopeRegistrations>"]) {
+  assert(indexText.includes(snippet), `Expected Unity optional workflow-guidance-contributor registration lifecycle: ${snippet}`);
 }
-assert(!indexText.includes('import { createWorkflowProviderRegistryV1 } from "@aefree/pi-workflow/contracts/v1"'), "The main extension must not statically import the optional workflow registry.");
-assert(!indexText.includes('import { createUnityWorkflowProviderV1 } from "./src/unity-workflow-provider"'), "The main extension must not eagerly load the workflow provider.");
-for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "guidance/unity/validation", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
-  assert(workflowProviderSourceText.includes(snippet), `Expected Unity workflow provider capability: ${snippet}`);
+assert(!indexText.includes('import { createWorkflowGuidanceContributorRegistryV1 } from "@aefree/pi-workflow/contracts/v1"'), "The main extension must not statically import the optional workflow registry.");
+assert(!indexText.includes('import { createUnityWorkflowGuidanceContributorV1 } from "./src/unity-workflow-guidance-contributor"'), "The main extension must not eagerly load the workflow guidance contributor.");
+for (const snippet of ["engine.unity", "ProjectVersion.txt", "guidance/unity/plan", "guidance/unity/work", "guidance/unity/review", "resolveUnityProjectCandidates", "unity_project_ambiguous", "MARKDOWN_GUIDANCE_FILES", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
+  assert(workflowGuidanceContributorSourceText.includes(snippet), `Expected Unity workflow guidance contributor capability: ${snippet}`);
 }
-assert(!workflowProviderSourceText.includes("Unity planning research (apply only after engine.unity matches)"), "Detailed plan guidance must be loaded from packaged Markdown, not retained inline.");
+assert(!workflowGuidanceContributorSourceText.includes("Unity planning research (apply only after engine.unity matches)"), "Detailed plan guidance must be loaded from packaged Markdown, not retained inline.");
+assert(!workflowGuidanceContributorSourceText.includes("guidance/unity/validation"), "Validation must remain work-specific rather than an unreachable declared guidance resource.");
 for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
   assert(planResearchText.includes(snippet), `Expected canonical plan research guidance: ${snippet}`);
 }
 for (const snippet of ["unity_plan_inspect", "package-owned purpose-built read", "Generic eval is not a planning default", "fall back to repository research", "Lockfile or process presence is not a planning preflight failure"]) {
   assert(planOverlayText.includes(snippet), `Expected connected planning overlay guidance: ${snippet}`);
 }
-for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "unity_inspect_artifacts", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
+for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
   assert(workOverlayText.includes(snippet), `Expected Unity work overlay guidance: ${snippet}`);
+}
+for (const validationRule of [
+  "known positive executed-test count and no failures before calling XML evidence passing.",
+  "Honor explicit PlayMode skips.",
+  "inspect the exact current-run artifacts once and do not relaunch unchanged work without a new hypothesis.",
+]) {
+  assert.equal(workOverlayText.split(validationRule).length - 1, 1, `Expected exactly one retained work validation rule: ${validationRule}`);
 }
 assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workOverlayText), "Work overlay must not include a machine-specific absolute path.");
 assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
@@ -195,7 +203,7 @@ assert(skillText.includes("Do not close a reachable Pipeline Editor merely to ru
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)), "Expected macOS and Windows package validation workflows.");
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");
-assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workflowProviderSourceText), "Provider guidance/source must not embed machine-specific absolute paths.");
+assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workflowGuidanceContributorSourceText), "Provider guidance/source must not embed machine-specific absolute paths.");
 assert(planOverlayText.includes("unity_plan_inspect") && planOverlayText.includes("Generic eval is not a planning default"), "Expected bounded connected planning guidance and conservative eval policy.");
 assert(indexText.includes("unity_plan_inspect") && indexText.includes("never launches or closes Unity"), "Expected the registered planning tool to state its no-launch/no-close boundary.");
 assert(indexText.includes('StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const'), "The planning tool schema must expose only package-owned reads and exceptional eval.");
@@ -203,6 +211,6 @@ for (const command of ["get_authoring_root", "get_build_settings", "get_player_s
   assert(unityCliSourceText.includes(`"${command}"`), `Expected advertised read-only planning command: ${command}`);
 }
 assert(!/\b(?:read_project_info|read_build_settings|read_compilation_state)\b/.test(unityCliSourceText), "Obsolete invented planning command names must not be packaged.");
-assert(!indexText.includes("purposeBuiltReadCommands") && !workflowProviderSourceText.includes("purposeBuiltReadCommands"), "No caller-supplied planning read allow-list may remain.");
+assert(!indexText.includes("purposeBuiltReadCommands") && !workflowGuidanceContributorSourceText.includes("purposeBuiltReadCommands"), "No caller-supplied planning read allow-list may remain.");
 
 console.log("pi-unity package validation tests passed");
