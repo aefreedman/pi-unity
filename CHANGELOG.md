@@ -19,6 +19,8 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Updated the Pi development baseline to 0.83.0.
+
 - Made `@aefree/pi-workflow` an optional guidance-composition peer integration. `engine.unity` now registers dynamically as a guidance contributor at session startup only when its exact workflow contract resolves; workflow-absent installs retain Unity tools, migration, repository policy, and references, while broken installed contracts fail visibly.
 - Moved `guidance/unity/work` from an inline summary into bounded runtime-loaded package Markdown. The Unity work overlay preserves exact-copy identity, includes the work-specific validation evidence rules formerly declared separately, prefers reachable connected Pipeline routes, constrains isolated batchmode fallback, and retains sanitized missing/unavailable/abort results with stable package/resource provenance.
 - Moved detailed `guidance/unity/plan` content into runtime-loaded packaged Markdown: the canonical Unity repository-research reference now supplies exact-version documentation priority, while a small workflow overlay supplies connected CLI/Pipeline boundaries. Missing packaged guidance is sanitized, and the contributor retains bounded output and stable package provenance.
