@@ -34,6 +34,7 @@ import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-g
 import { createUnityArtifactProfileV1 } from "./src/unity-artifact-profile";
 import { createUnityRepositoryPolicyV1 } from "./src/unity-repo-search-policy";
 import { createUnityMigrationServiceV1 } from "./src/unity-docs-migration";
+import { runUnityPipelineRecompile, runUnityPipelineTests, type UnityPipelineOperationDetails } from "./src/unity-pipeline";
 import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, type UnityMigrationRequestV1 } from "./contracts/v1";
 
 const WORKFLOW_CONTRACT_MODULE = "@aefree/pi-workflow/contracts/v1";
@@ -86,7 +87,7 @@ const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
 
 type UnityToolDetails = {
-  mode: "gui" | "batchmode" | "status" | "artifacts" | "planning_inspection";
+  mode: "gui" | "batchmode" | "status" | "artifacts" | "planning_inspection" | "pipeline";
   projectRoot: string;
   unityVersion: string;
   editorPath: string;
@@ -111,6 +112,7 @@ type UnityToolDetails = {
   testBatch?: UnityTestBatchPlan;
   cliCapabilities?: UnityCliProjectCapabilities;
   planningInspection?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
+  pipeline?: UnityPipelineOperationDetails;
 };
 
 const LAUNCHER_SCHEMA = Type.Optional(StringEnum(["auto", "unity-cli", "editor-executable"] as const, { description: "Launch backend. Defaults to auto, which prefers the Unity CLI and falls back to direct editor executable launch when the CLI is unavailable." }));
@@ -148,6 +150,18 @@ const RUN_TEST_BATCH_PARAMS = Type.Object({
 const PROJECT_STATUS_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
 });
+
+const PIPELINE_RECOMPILE_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ maxLength: 1000, description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 3600, default: 180, description: "Absolute connected-operation deadline in seconds. Timeout does not cancel Unity work." })),
+}, { additionalProperties: false });
+
+const PIPELINE_TEST_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ maxLength: 1000, description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  testPlatform: StringEnum(["EditMode", "PlayMode"] as const, { description: "One Unity Test Framework platform for this focused connected run." }),
+  testFilter: Type.Optional(Type.String({ minLength: 1, maxLength: 500, pattern: "^[^;\\r\\n\\u0000]+$", description: "One test-name filter only; categories, arrays, and semicolon-combined selectors require unity_run_test_batch." })),
+  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 3600, default: 600, description: "Absolute connected-operation deadline in seconds. Timeout does not cancel Unity work." })),
+}, { additionalProperties: false });
 
 const PLANNING_INSPECTION_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
@@ -914,6 +928,29 @@ function createPlanningUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
   };
 }
 
+/** Connected Pipeline execution uses the same injectable CLI seam as capability discovery, never a generated shell program. */
+function createPipelineUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
+  return async (command: string, args: string[], options: { timeout?: number; signal?: AbortSignal }) => {
+    try {
+      const result = await pi.exec(command, args, { signal: options.signal, timeout: options.timeout });
+      return result.code === 0 && !result.killed
+        ? { stdout: result.stdout, stderr: result.stderr }
+        : { stdout: result.stdout, stderr: result.stderr, error: Object.assign(new Error("Unity Pipeline command failed"), { code: result.killed ? "ETIMEDOUT" : result.code }) };
+    } catch (error) {
+      if (options.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+      return { stdout: "", stderr: "", error: error instanceof Error ? error : new Error(String(error)) };
+    }
+  };
+}
+
+function createPipelineDependencies(pi: Pick<ExtensionAPI, "exec">) {
+  const execute = createPipelineUnityCliExecutor(pi);
+  return {
+    execute,
+    inspect: (projectRoot: string, unityVersion: string, signal?: AbortSignal) => inspectUnityCliProjectCapabilities(projectRoot, unityVersion, { execute, signal }),
+  };
+}
+
 async function shouldUseUnityCli(
   pi: ExtensionAPI,
   launcher: UnityLauncherPreference | undefined,
@@ -1063,7 +1100,9 @@ function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text
         ? "Unity Artifacts"
         : details.mode === "planning_inspection"
           ? "Unity Planning Inspection"
-          : getBatchmodeVariantLabel(details.args);
+          : details.mode === "pipeline"
+            ? "Unity Pipeline"
+            : getBatchmodeVariantLabel(details.args);
   const projectLabel = details.projectRoot ?? "(unknown project)";
   let text = `${icon} ${theme.fg("toolTitle", theme.bold(title))} ${theme.fg("muted", projectLabel)}`;
   if (details.mode === "batchmode") {
@@ -1071,6 +1110,8 @@ function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text
     text += buildBatchmodeResultsLine(details, theme);
   } else if (details.mode === "status") {
     text += `\n  ${theme.fg("accent", `status=${details.status ?? "passed"}`)}`;
+  } else if (details.mode === "pipeline" && details.pipeline) {
+    text += `\n  ${theme.fg("accent", `${details.pipeline.operation}=${details.pipeline.terminalState}`)}${theme.fg("muted", ` ${details.pipeline.elapsedSeconds.toFixed(1)}s`)}`;
   }
 
   if (expanded && primaryText) {
@@ -1312,6 +1353,59 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     renderResult(result, { expanded }, theme) {
       return renderUnityToolResult(result, expanded, theme);
     },
+  });
+
+  pi.registerTool({
+    name: "unity_pipeline_recompile",
+    label: "Unity Pipeline Recompile",
+    description: "Recompile an already-open exact Unity project copy through its reachable advertised Pipeline, with internal bounded polling and compact compiler evidence.",
+    promptSnippet: "Recompile an already-open Unity Pipeline project in one bounded connected call without shell polling or Editor lifecycle changes.",
+    promptGuidelines: [
+      "Use unity_pipeline_recompile for connected recompilation of an already-open exact Unity project copy instead of raw Unity CLI status loops.",
+      "unity_pipeline_recompile never launches, closes, stops, saves, retries, or cancels Unity; its timeout means the operation may still be running.",
+    ],
+    parameters: PIPELINE_RECOMPILE_PARAMS,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, timeoutSeconds: params.timeoutSeconds }, createPipelineDependencies(pi), {
+        signal,
+        onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
+      });
+      return {
+        content: [{ type: "text", text: result.text }],
+        details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
+      };
+    },
+    renderCall(args, theme) { return renderUnityToolCall("unity_pipeline_recompile", args, theme, "pipeline", "connected bounded recompile"); },
+    renderResult(result, { expanded }, theme) { return renderUnityToolResult(result, expanded, theme); },
+  });
+
+  pi.registerTool({
+    name: "unity_pipeline_run_tests",
+    label: "Unity Pipeline Run Tests",
+    description: "Run one focused EditMode or PlayMode test selection through an already-open exact Unity Pipeline Editor, with internal bounded polling and aggregate output.",
+    promptSnippet: "Run focused connected Unity EditMode or PlayMode tests in one bounded call without shell polling; aggregate passing results stay compact.",
+    promptGuidelines: [
+      "Use unity_pipeline_run_tests for one focused connected Unity test platform when the exact Editor is already open and reachable.",
+      "Use unity_run_test_batch instead of unity_pipeline_run_tests for closed projects, isolation, complex filters/categories, or required NUnit XML/log evidence.",
+      "unity_pipeline_run_tests does not cancel uncertain work or switch to batchmode after timeout; report that the connected run may still be running.",
+    ],
+    parameters: PIPELINE_TEST_PARAMS,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: params.testPlatform, testFilter: params.testFilter, timeoutSeconds: params.timeoutSeconds }, createPipelineDependencies(pi), {
+        signal,
+        onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
+      });
+      return {
+        content: [{ type: "text", text: result.text }],
+        details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
+      };
+    },
+    renderCall(args, theme) { return renderUnityToolCall("unity_pipeline_run_tests", args, theme, "pipeline", `${args.testPlatform} connected tests`); },
+    renderResult(result, { expanded }, theme) { return renderUnityToolResult(result, expanded, theme); },
   });
 
   pi.registerTool({

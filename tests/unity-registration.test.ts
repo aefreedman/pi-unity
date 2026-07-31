@@ -46,6 +46,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(workflowContributors.outcome, "available", order);
   assert.deepEqual(workflowContributors.records.map((contributor) => contributor.id), ["engine.unity"], order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 1);
+  const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
+  const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_pipeline_run_tests");
+  assert(recompileTool && pipelineTestTool, "pi-unity must register both bounded connected Pipeline execution tools");
+  assert.equal(recompileTool.parameters.additionalProperties, false, "Pipeline recompile schema must be strict.");
+  assert.equal(pipelineTestTool.parameters.additionalProperties, false, "Pipeline test schema must be strict.");
+  assert.deepEqual(pipelineTestTool.parameters.properties.testPlatform.enum, ["EditMode", "PlayMode"]);
+  assert.equal(pipelineTestTool.parameters.properties.testFilter.maxLength, 500);
   const planningTool = unity.tools.find((tool) => tool.name === "unity_plan_inspect");
   assert(planningTool, "pi-unity must register the guarded planning inspection tool");
   assert.deepEqual(planningTool.parameters.properties.command.enum, [
@@ -148,6 +155,42 @@ for (const order of ["workflow-first", "unity-first"] as const) {
     assert.match(result.content[0].text, /token= \[redacted\]/);
     assert(calls.some((args) => args.includes("get_authoring_root")), "The guarded handler must dispatch only after discovery.");
     assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Planning inspection must not launch or close Unity.");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+{
+  const root = await mkdtemp(join(tmpdir(), "pi-unity-pipeline-tools-"));
+  const project = join(root, "Game");
+  const dispatched: string[] = [];
+  try {
+    await mkdir(join(project, "ProjectSettings"), { recursive: true });
+    await mkdir(join(project, "Packages"), { recursive: true });
+    await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
+    await writeFile(join(project, "Packages", "manifest.json"), "{\"dependencies\":{\"com.unity.pipeline\":\"0.3.0-exp.1\"}}\n");
+    const pi = fakePi(async (_command, args) => {
+      if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
+      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "recompile", "recompile_status", "run_tests", "test_status"] } }), stderr: "" };
+      const command = args[args.indexOf("--timeout") + 2];
+      dispatched.push(command);
+      if (command === "editor_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "idle" } } }), stderr: "" };
+      if (command === "recompile") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "up_to_date" } } }), stderr: "" };
+      if (command === "test_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", summary: { total: 1, passed: 1, failed: 0 } } } }), stderr: "" };
+      if (command === "run_tests") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", mode: "editor", summary: { total: 21, passed: 21, failed: 0 }, tests: [{ name: "Passing.Record", result: "Passed" }] } } }), stderr: "" };
+      throw new Error(`Unexpected Pipeline command: ${String(command)}`);
+    });
+    registerUnity(pi as any);
+    const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
+    const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
+    const tests = pi.tools.find((item) => item.name === "unity_pipeline_run_tests");
+    const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctx);
+    const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctx);
+    assert.match(compileResult.content[0].text, /up to date/);
+    assert.match(testResult.content[0].text, /21 executed, 21 passed, 0 failed/);
+    assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");
+    assert.equal(dispatched.filter((command) => command === "recompile").length, 1);
+    assert.equal(dispatched.filter((command) => command === "run_tests").length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -9,6 +9,8 @@ and this project follows semantic versioning for public package releases.
 
 ### Added
 
+- Added `unity_pipeline_recompile` and `unity_pipeline_run_tests`: typed connected exact-copy Pipeline operations with advertised-command preflight, lifecycle/identity checks, fixed-deadline internal polling, compact aggregate results, and bounded failure diagnostics.
+- Added sanitized nested object/stringified Pipeline response, zero-running initiation, identity-change, abort, pre-existing-run, and compact-output regression coverage.
 - Added a session-scoped Unity repository-search policy for detected generated/cache/output directories and reusable provider conformance coverage.
 - Added the preserved `unity-docs` solution-capture skill with skill-relative schema, templates, and references.
 - Added explicit Unity solution artifact v1/v2 fields and validators over the canonical project-artifact profile contract, including complete-v2 authority and partial-hybrid conflict semantics.

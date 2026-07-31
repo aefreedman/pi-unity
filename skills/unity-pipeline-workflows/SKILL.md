@@ -1,90 +1,51 @@
 ---
 name: unity-pipeline-workflows
-description: Compile code or run focused Unity tests through a reachable com.unity.pipeline Editor without launching or closing another Unity process. Use for exact-copy connected recompile, EditMode tests, PlayMode tests, and bounded status polling.
+description: Recompile code or run focused Unity tests through a reachable com.unity.pipeline Editor without launching, closing, or manually polling another Unity process.
 ---
 
 # Unity Pipeline Workflows
 
 Use this workflow only for an already-running exact project copy with `com.unity.pipeline` installed and reachable.
 
-## Preconditions
+## Preferred typed tools
 
-1. Resolve the exact project path; never route by display name.
-2. Call `unity_project_status` and require:
-   - a verified matching Editor process
-   - a reachable exact-copy Pipeline instance
-   - live advertised commands needed by the operation (`run_tests` and `test_status` for tests)
-3. Revalidate the exact project path and Editor/Pipeline process identity before dispatch and during polling. If status is unknown, unreachable, stale, or identity changes, stop. Do not silently start batchmode or close the Editor.
-4. Inspect `editor_status` before lifecycle-sensitive work. Preserve whether the Editor is in Play Mode, paused, compiling, or reloading; reachability alone does not make every operation safe.
-5. Do not expose generic `eval` for ordinary compile/test work.
+Use one typed tool call for each supported connected operation:
 
-Until typed connected compile/test tools are available, use the installed standalone Unity CLI only for the constrained commands below. Put global options before `command` and `--project-path` before the dynamic command name.
+- `unity_pipeline_recompile` for connected script compilation.
+- `unity_pipeline_run_tests` for one focused `EditMode` or `PlayMode` test-name selection.
 
-## Command Discovery and Raw CLI Fallback
+These tools resolve the exact copy, require advertised commands, inspect lifecycle state, dispatch once, validate identity, and poll internally with a fixed deadline. Do not recreate their wait loops with `bash`, `unity recompile_status`, or `unity test_status` calls.
 
-- Prefer the advertised command inventory returned by `unity_project_status`; do not probe several CLI help or interaction modes when that inventory already answers availability.
-- If raw `unity list` is exceptionally needed, parse the outer JSON envelope and read command records from `data.tools`, not a guessed top-level `commands` field. Inspect one exact command schema rather than repeatedly trialing argument forms against the live Editor.
-- `unity shell` is a human interactive convenience over the same connected Pipeline surface. It is not a better automation route than explicit one-shot commands with exact-copy revalidation.
-- Treat a successful outer CLI process as transport evidence only. Parse nested `success`, status, diagnostics, and result fields before claiming the operation succeeded.
+A timeout or malformed response is uncertain: the Unity operation may still be running. Do not cancel, retry, launch batchmode, close the Editor, or claim a result without a new user-authorized decision.
+
+## Preconditions and boundaries
+
+1. Pass an explicit `path` when multiple project copies may be found; paths identify copies, not display names.
+2. The typed tools require a reachable exact-copy Pipeline and advertised `editor_status` plus operation commands. A different connected client is not itself a project lock.
+3. The tools reject clearly incompatible Play Mode/paused lifecycle state without changing it. They never stop, pause, save, import, launch, or close Unity.
+4. Test success requires a well-formed terminal result, a known positive executed count, and zero failures. An asynchronous initiation with `Total: 0` and `running` is nonterminal.
+5. Passing test records are intentionally discarded. Failures retain only a bounded set of failed/inconclusive names, messages, and stack excerpts.
 
 ## Compile
 
-```text
-unity --format json --no-banner --non-interactive command --project-path <exact-project> recompile
-unity --format json --no-banner --non-interactive command --project-path <exact-project> recompile_status
-```
+Call `unity_pipeline_recompile` with optional `path` and `timeoutSeconds` (default 180, maximum 3600). It reports either up-to-date scripts or a compact completion summary. Compiler failures, identity changes, cancellation, malformed evidence, and deadline expiry are tool errors.
 
-- `recompile` may return `up_to_date` immediately or trigger a domain reload.
-- Before dispatch, define a timeout and bounded-backoff polling schedule. Poll `recompile_status` with bounded backoff until `completed` or `up_to_date`; do not improvise an open-ended sequence of sleeps.
-- If `editor_status` reports Play Mode and the persistent edit requires import or compilation, do not assume `recompile` will safely stop or preserve Play Mode. Obtain lifecycle authorization unless already explicit, dispatch the advertised `editor_stop`, verify Play Mode exited, and only then compile.
-- A nonterminal state such as `triggered` or `compiling` is not completion even when `failed:false`.
-- Temporary disconnects are expected during domain reload; rediscover the exact copy rather than changing targets.
-- Pipeline may return the status payload as a JSON string nested inside the outer JSON envelope. Parse both layers.
-- Fail on compiler errors, malformed payloads, unknown/nonterminal status after timeout, or changed project/PID identity.
+## Focused tests
 
-## Tests
+Call `unity_pipeline_run_tests` with:
 
-Prefer asynchronous execution for one uniform lifecycle:
+- required `testPlatform`: `EditMode` or `PlayMode`;
+- optional `testFilter`: one test-name filter only;
+- optional `path` and `timeoutSeconds` (default 600, maximum 3600).
 
-```text
-unity --format json --no-banner --non-interactive command --project-path <exact-project> run_tests --mode editor --filter <filter> --filter_type testName --async_tests true
-unity --format json --no-banner --non-interactive command --project-path <exact-project> test_status
-```
+The tool detects a pre-existing active connected test before dispatch and stops rather than claiming or replacing it. It captures returned mode/filter/run identity fields when available and stops as uncertain if status is clearly displaced by another run.
 
-For PlayMode use `--mode playmode --async_tests true`; synchronous PlayMode requests are not reliable across domain reload.
+## Bounded raw CLI troubleshooting only
 
-- Use one filter and filter type per connected run. If the required selection needs combined name/category arrays, use isolated `unity_run_test_batch` instead.
-- The initial asynchronous `run_tests` response can legitimately report `Total: 0` with `result: running`; this is a valid nonterminal initiating response, not terminal zero-test evidence.
-- Establish the timeout and bounded-backoff polling schedule before dispatch. Poll `test_status` with bounded backoff until a terminal result while leaving the Editor open; do not extend the deadline merely because repeated polls continue to report `running`.
-- Parse both outer CLI envelopes and stringified nested JSON results. Inspect nested status/result objects for failures; nested `success:false` is non-passing even when the CLI process exits zero.
-- A terminal result is passing evidence only when it is well formed, reports successful completion, reports a known positive executed-test count (`Total > 0`), and reports no failures.
-- Fail on a terminal zero or unknown executed-test count, reported failures, malformed/incomplete data, changed exact-copy identity, or polling timeout.
-- If dispatch may have succeeded but its response or later polling is uncertain, stop and report the uncertainty. A result-collector exception combined with a continuing `running` status is uncertain state, not permission to launch another test. Do not silently fall back to batchmode because the connected test run may still be running.
-- Connected tests do not inherently produce NUnit XML. Use `unity_run_test_batch` or `unity test` when report artifacts are required.
-- Bound `list_tests` output; broad projects can return thousands of test records.
+Normally call the typed tools, not raw CLI commands. If a typed tool is unavailable in an older installed package and a user specifically authorizes troubleshooting, first use `unity_project_status` and require advertised `recompile_status` or `run_tests` and `test_status`. Use the documented asynchronous form with `--async_tests true`, one fixed deadline, and bounded backoff; parse object and stringified nested JSON. `Total: 0` with `result: running` is a valid nonterminal initiating response. Passing evidence reports successful completion, a known positive executed-test count, and zero failures; nested `success:false`, changed exact-copy identity, or polling timeout is non-passing uncertainty. Do not silently fall back to batchmode after uncertain connected dispatch. Connected work does not guarantee NUnit XML.
 
-### Test Cancellation
+## When not to use connected tools
 
-Do not treat Pipeline `cancel_tests` or `test_status: cancelled` as proof that Unity Test Framework stopped the underlying job. In Pipeline 0.4.0-exp.1, `cancel_tests` can detach the result collector while the Unity test job continues running.
+Use `unity_run_test_batch` for a closed project, intentional isolation/CI, category or multiple filters, or required NUnit XML/log evidence. State the reason for that route. Do not use batchmode as an automatic fallback after an uncertain connected dispatch.
 
-When the exact copy advertises the package- or project-owned `cancel_unity_test_runs` command, prefer its guarded contract:
-
-```text
-unity command --project-path <exact-project> cancel_unity_test_runs --confirm true
-```
-
-Then inspect its state without mutation:
-
-```text
-unity command --project-path <exact-project> cancel_unity_test_runs --dry_run true
-```
-
-Attempt one documented cancellation path. Do not start another connected test run until activeRunCount is known to be 0. If cancellation times out or cannot establish that state, stop rather than retrying cancellation or changing execution routes.
-
-If cancel_unity_test_runs is unavailable, use the Unity Test Runner window’s Stop button. If no reliable terminal state can be established, restart the Editor before running more tests. Never rely on cancel_tests alone to clean up a hung run.
-
-Interactive runtime authoring and temporary Play Mode tuning are outside this compile/test workflow. Use the `unity-interactive-playmode-authoring` skill when that intent is explicit.
-
-## Fallback policy
-
-Use the `unity-batchmode-tests` skill only when the Editor is closed, connected execution is unavailable before dispatch, CI/isolation is intentional, complex filters are required, or NUnit XML/log evidence is required. State the reason for switching routes. Never switch routes silently after an uncertain connected dispatch.
+Use `unity_plan_inspect` only for package-owned read-only planning commands. Do not expose generic `eval` for ordinary compile/test work.
