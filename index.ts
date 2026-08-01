@@ -36,25 +36,13 @@ import {
   type OptionalRegistrationToken,
 } from "./src/optional-integration-rendezvous";
 
-const WORKFLOW_GUIDANCE_CONTRIBUTOR_REGISTRY_KEY_V1 = "@aefree/pi-workflow/guidance-contributors/v1";
 const ARTIFACT_PROFILE_REGISTRY_KEY_V1 = "@aefree/pi-project-artifacts/profiles/v1";
 const REPOSITORY_POLICY_REGISTRY_KEY_V1 = "@aefree/pi-repo-search/policies/v1";
 
 type RegistrationToken = OptionalRegistrationToken;
 type ScopedRegistryV1 = OptionalIntegrationRegistryV1;
-type WorkflowGuidanceContributorRegistryV1 = ScopedRegistryV1;
-type WorkflowIntegrationV1 = Readonly<{ registry: WorkflowGuidanceContributorRegistryV1; createContributor: () => Promise<Readonly<Record<string, unknown>>> }>;
 type ArtifactProfileIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createProfile: () => Promise<Readonly<Record<string, unknown>>> }>;
 type RepositoryPolicyIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createPolicy: () => Promise<Readonly<Record<string, unknown>>> }>;
-
-async function loadWorkflowIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<WorkflowIntegrationV1 | undefined> {
-  if (!isOptionalIntegrationActive(pi, "workflow_guidance")) return undefined;
-  const contributorModule = await import("./src/unity-workflow-guidance-contributor");
-  return {
-    registry: createOptionalIntegrationRegistryV1(WORKFLOW_GUIDANCE_CONTRIBUTOR_REGISTRY_KEY_V1, "@aefree/pi-workflow"),
-    createContributor: async () => contributorModule.createUnityWorkflowGuidanceContributorV1() as Readonly<Record<string, unknown>>,
-  };
-}
 
 async function loadArtifactProfileIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<ArtifactProfileIntegrationV1 | undefined> {
   if (!isOptionalIntegrationActive(pi, "project_artifact_search")) return undefined;
@@ -1200,9 +1188,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   type ScopeRegistrations = Readonly<{
     artifactProfile?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
     repositoryPolicy?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
-    workflow?: Readonly<{ registry: WorkflowGuidanceContributorRegistryV1; token: RegistrationToken }>;
   }>;
-  // Lifecycle handles are session-scoped. Contributor callbacks capture no session state.
+  // Lifecycle handles are session-scoped.
   const registrations = new WeakMap<object, ScopeRegistrations>();
   const playModeExitAuthorization = new WeakMap<object, boolean>();
   const sessionAllowsAutonomousPlayModeExit = (ctx: ExtensionContext): boolean => playModeExitAuthorization.get(ctx.sessionManager) ?? false;
@@ -1222,7 +1209,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     return [
       current.artifactProfile?.registry.unregister(current.artifactProfile.token) ?? false,
       current.repositoryPolicy?.registry.unregister(current.repositoryPolicy.token) ?? false,
-      current.workflow?.registry.unregister(current.workflow.token) ?? false,
     ].some(Boolean);
   };
 
@@ -1240,8 +1226,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       if (registrations.get(scope) !== pending) return;
       const repositoryIntegration = await loadRepositoryPolicyIntegrationV1(pi);
       if (registrations.get(scope) !== pending) return;
-      const workflowIntegration = await loadWorkflowIntegrationV1(pi);
-      if (registrations.get(scope) !== pending) return;
 
       // Registration is all-or-nothing: a later contract failure must not leave
       // early optional records in the shared scope.
@@ -1255,17 +1239,12 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         token: repositoryIntegration.registry.register(scope, await repositoryIntegration.createPolicy()),
       });
       staged = Object.freeze({ ...staged, ...(repositoryPolicy === undefined ? {} : { repositoryPolicy }) });
-      const workflow = workflowIntegration === undefined ? undefined : Object.freeze({
-        registry: workflowIntegration.registry,
-        token: workflowIntegration.registry.register(scope, await workflowIntegration.createContributor()),
-      });
-      staged = Object.freeze({ ...staged, ...(workflow === undefined ? {} : { workflow }) });
       if (registrations.get(scope) !== pending) {
         unregisterScope(staged);
         return;
       }
       registrations.set(scope, staged);
-      if (artifactIntegration || repositoryIntegration || workflowIntegration) {
+      if (artifactIntegration || repositoryIntegration) {
         pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
       }
     } catch (error) {

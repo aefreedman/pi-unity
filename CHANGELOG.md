@@ -11,11 +11,11 @@ and this project follows semantic versioning for public package releases.
 
 - Removed the Unity solution-document migration and capture surface; pi-unity now contributes schema metadata without selecting schemas or rewriting project documents.
 - Removed `package-lock.json` until the optional development packages are publicly resolvable and a standalone lockfile can be generated.
+- Retired the Unity workflow-guidance contributor and its workflow-only references; Unity procedures remain in their owning skills and tool safety remains enforced by the package runtime.
 
 ### Changed
 
-- Reduced workflow composition to Unity repository research plus one inspection-only planning boundary; compile, test, batchmode, and validation routing remains owned by the package skills.
-- Optional artifact-profile, repository-policy, and workflow composition now uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
+- Optional artifact-profile and repository-policy integration uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
 
 ### Fixed
 

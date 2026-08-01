@@ -57,7 +57,7 @@ pi install -l <path-to-pi-unity>
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
 - `unity-debugging` provides general-purpose, evidence-first Unity diagnosis. For inactive features it routes agents through exact-version documentation, documented feature gates, and observable activation signals before project code, reflection, assembly searches, or Unity internals. Its UI Toolkit example checks the Game View Live Reload setting before callback diagnosis.
-- `@aefree/pi-project-artifacts`, `@aefree/pi-repo-search`, and `@aefree/pi-workflow` are independent optional peer integrations. When their Pi tools are active, pi-unity uses the capability contracts' global registry rendezvous to register a Unity solution-artifact profile candidate, generated-directory repository-search policy candidate, and/or `engine.unity` workflow contributor. It never resolves optional peers from pi-unity's own module root, so separately installed Git/local packages compose correctly. Core Unity tools load without them; an advertised but malformed registry contract fails visibly. Registrations are scoped, reverse-load-order safe, transactional across all active integrations, and a delayed old-session shutdown cannot remove another scope's current records.
+- `@aefree/pi-project-artifacts` and `@aefree/pi-repo-search` are independent optional peer integrations. When their Pi tools are active, pi-unity uses the capability contracts' global registry rendezvous to register a Unity solution-artifact profile candidate and/or generated-directory repository-search policy candidate. It never resolves optional peers from pi-unity's own module root, so separately installed Git/local packages compose correctly. Core Unity tools load without them; an advertised but malformed registry contract fails visibly. Registrations are scoped, reverse-load-order safe, transactional across active integrations, and a delayed old-session shutdown cannot remove another scope's current records.
 - The repository policy excludes `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs` only for detected Unity project roots. The canonical repository-search package remains Unity-neutral.
 - The optional artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. It contributes only when the workspace has Unity `ProjectVersion.txt` evidence, so a generic `docs/solutions` path never selects it by itself.
 - `unity_guidance_audit` performs a bounded, read-only scan of AGENTS.md, CLAUDE.md, Copilot, and Cursor guidance for outdated Unity CLI/Pipeline, batchmode, test, lifecycle, and exact-project-copy instructions. The `auditing-unity-agent-guidance` skill owns contextual migration and user-authorized edits.
@@ -146,9 +146,6 @@ pi-unity/
     unity-processes.ts
     unity-project-lock.ts
     unity-projects.ts
-  references/
-    unity-repo-research.md
-    workflow/plan.md
   skills/
     unity-debugging/
       SKILL.md
@@ -170,7 +167,7 @@ npm test
 npm pack --dry-run
 ```
 
-The package declares optional peer integrations for `@aefree/pi-project-artifacts`, `@aefree/pi-repo-search`, and `@aefree/pi-workflow`; install only the integrations needed for profile, repository-policy, or workflow composition. The standalone Unity tools do not require them. The package archive contains no copied dependency tree, sibling `file:` path, or workspace link.
+The package declares optional peer integrations for `@aefree/pi-project-artifacts` and `@aefree/pi-repo-search`; install only the integrations needed for artifact profiles or repository policy. The standalone Unity tools and skills do not require them. The package archive contains no copied dependency tree, sibling `file:` path, or workspace link.
 
 ## Release status
 

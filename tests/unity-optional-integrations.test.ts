@@ -5,17 +5,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveArtifactProfilesV1 } from "@aefree/pi-project-artifacts/contracts/v1";
 import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1";
-import { resolveWorkflowGuidanceContributorsV1 } from "@aefree/pi-workflow/contracts/v1";
 
 const packagePath = fileURLToPath(new URL("../", import.meta.url));
 const workspacePath = dirname(packagePath);
-const artifactPackagePath = join(workspacePath, "pi-project-artifacts");
-const repoSearchPackagePath = join(workspacePath, "pi-repo-search");
-
 const keys = {
   artifacts: "@aefree/pi-project-artifacts/profiles/v1",
   repoSearch: "@aefree/pi-repo-search/policies/v1",
-  workflow: "@aefree/pi-workflow/guidance-contributors/v1",
 } as const;
 
 type FakePi = ReturnType<typeof fakePi>;
@@ -42,7 +37,7 @@ function clearRendezvous(): void {
 /** pi-unity gets only Pi core modules; optional package roots remain external. */
 async function createIsolatedUnityCopy(name: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `pi-unity-optional-${name}-`));
-  for (const entry of ["index.ts", "src", "references", "package.json"]) {
+  for (const entry of ["index.ts", "src", "package.json"]) {
     await cp(join(packagePath, entry), join(root, entry), { recursive: true });
   }
   const nodeModules = join(root, "node_modules");
@@ -74,7 +69,6 @@ async function externalRegister(relativeModule: string): Promise<(pi: any) => vo
     assert(pi.tools.some((tool) => tool.name === "unity_project_status"), "Optional integration absence must not suppress Unity tools.");
     assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
     assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "missing");
-    assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "missing");
   } finally {
     await rm(root, { recursive: true, force: true });
     clearRendezvous();
@@ -84,7 +78,6 @@ async function externalRegister(relativeModule: string): Promise<(pi: any) => vo
 for (const fixture of [
   { name: "artifacts", module: "pi-project-artifacts/src/pi/index.ts", resolve: (scope: object) => resolveArtifactProfilesV1(scope).outcome },
   { name: "repo-search", module: "pi-repo-search/extensions/index.ts", resolve: (scope: object) => resolveRepositoryPoliciesV1(scope).outcome },
-  { name: "workflow", module: "pi-workflow/extensions/index.ts", resolve: (scope: object) => resolveWorkflowGuidanceContributorsV1(scope).outcome },
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(fixture.name);
@@ -108,14 +101,13 @@ for (const fixture of [
 for (const [name, key, resolver] of [
   ["artifacts", keys.artifacts, (scope: object) => resolveArtifactProfilesV1(scope).outcome],
   ["repo-search", keys.repoSearch, (scope: object) => resolveRepositoryPoliciesV1(scope).outcome],
-  ["workflow", keys.workflow, (scope: object) => resolveWorkflowGuidanceContributorsV1(scope).outcome],
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(`broken-${name}`);
   try {
     const registerUnity = await loadIsolatedUnity(root);
     const pi = fakePi();
-    pi.registerTool({ name: name === "artifacts" ? "project_artifact_search" : name === "repo-search" ? "repository_search" : "workflow_guidance" });
+    pi.registerTool({ name: name === "artifacts" ? "project_artifact_search" : "repository_search" });
     registerUnity(pi as any);
     (globalThis as Record<symbol, unknown>)[Symbol.for(key)] = { broken: true };
     await assert.rejects(
@@ -131,16 +123,15 @@ for (const [name, key, resolver] of [
 
 for (const [failureAt, firstResolver, secondResolver] of [
   ["repo-search", (scope: object) => resolveArtifactProfilesV1(scope).outcome, undefined],
-  ["workflow", (scope: object) => resolveArtifactProfilesV1(scope).outcome, (scope: object) => resolveRepositoryPoliciesV1(scope).outcome],
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(`rollback-${failureAt}`);
   try {
     const registerUnity = await loadIsolatedUnity(root);
     const pi = fakePi();
-    for (const tool of ["project_artifact_search", "repository_search", "workflow_guidance"]) pi.registerTool({ name: tool });
+    for (const tool of ["project_artifact_search", "repository_search"]) pi.registerTool({ name: tool });
     registerUnity(pi as any);
-    const key = failureAt === "repo-search" ? keys.repoSearch : keys.workflow;
+    const key = keys.repoSearch;
     class ThrowingWeakMap extends WeakMap<object, unknown> { override get(): undefined { throw new Error(`intentional ${failureAt} registration failure`); } }
     (globalThis as Record<symbol, unknown>)[Symbol.for(key)] = {
       protocol: "@aefree/pi-capability-registry/root", protocolVersion: 1, registryKey: key,

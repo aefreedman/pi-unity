@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -20,7 +20,6 @@ const pipelineSkillText = readFileSync(new URL("../skills/unity-pipeline-workflo
 const debuggingSkillText = readFileSync(new URL("../skills/unity-debugging/SKILL.md", import.meta.url), "utf8");
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
 const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
-const referenceInventoryText = readFileSync(new URL("../references/README.md", import.meta.url), "utf8");
 
 assert(packageJson.pi?.extensions?.includes("./index.ts"));
 assert(packageJson.pi?.skills?.includes("./skills"));
@@ -32,7 +31,7 @@ for (const test of ["unity-core.test.ts", "unity-registration.test.ts", "unity-o
 assert(!packageJson.scripts?.test?.includes("unity-docs-migration.test.ts"));
 assert(!packageJson.scripts?.test?.includes("unity-workflow-optional-integration.test.ts"));
 
-for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-repo-search", "@aefree/pi-workflow"]) {
+for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-repo-search"]) {
   assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.peerDependencies?.[integration] ?? ""), `Expected optional semver peer ${integration}.`);
   assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.devDependencies?.[integration] ?? ""), `Expected development dependency ${integration}.`);
   assert.equal(packageJson.peerDependenciesMeta?.[integration]?.optional, true, `Expected ${integration} to be optional.`);
@@ -42,7 +41,7 @@ assert.equal(packageJson.dependencies?.["@aefree/pi-capability-registry"], undef
 assert.equal(packageJson.bundledDependencies, undefined);
 assert(!JSON.stringify(packageJson).includes("file:../"));
 
-for (const snippet of ["loadArtifactProfileIntegrationV1", "loadRepositoryPolicyIntegrationV1", "loadWorkflowIntegrationV1", "createOptionalIntegrationRegistryV1", "isOptionalIntegrationActive", "ARTIFACT_PROFILE_REGISTRY_KEY_V1", "REPOSITORY_POLICY_REGISTRY_KEY_V1"]) {
+for (const snippet of ["loadArtifactProfileIntegrationV1", "loadRepositoryPolicyIntegrationV1", "createOptionalIntegrationRegistryV1", "isOptionalIntegrationActive", "ARTIFACT_PROFILE_REGISTRY_KEY_V1", "REPOSITORY_POLICY_REGISTRY_KEY_V1"]) {
   assert(indexText.includes(snippet), `Expected optional integration rendezvous: ${snippet}`);
 }
 assert(!indexText.includes('import(WORKFLOW_CONTRACT_MODULE)'));
@@ -62,6 +61,7 @@ assert(!existsSync(new URL("../src/unity-docs-migration.ts", import.meta.url)));
 assert(!existsSync(new URL("../scripts/migrate-unity-docs-schema.ts", import.meta.url)));
 assert(!existsSync(new URL("../skills/unity-docs", import.meta.url)));
 assert(!existsSync(new URL("../prompts/cg-migrate-unity-docs-schema.md", import.meta.url)));
+assert(!existsSync(new URL("../references", import.meta.url)));
 for (const skillName of ["unity-debugging", "unity-pipeline-workflows", "unity-batchmode-tests", "unity-interactive-playmode-authoring", "auditing-unity-agent-guidance"]) {
   assert(readmeText.includes(`- \`${skillName}\``), `Expected README skill boundary for ${skillName}.`);
 }
@@ -91,12 +91,6 @@ assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.in
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
 assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
 
-const packagedReferences = readdirSync(new URL("../references/", import.meta.url), { recursive: true })
-  .map((entry) => `references/${entry.replaceAll("\\", "/")}`)
-  .filter((entry) => entry.endsWith(".md") && entry !== "references/README.md")
-  .sort();
-const inventoryReferences = [...referenceInventoryText.matchAll(/\| `((?:references)\/[^`]+\.md)` \|/g)].map((match) => match[1]).sort();
-assert.deepEqual(inventoryReferences, packagedReferences, "Reference inventory must list every packaged reference exactly once.");
 assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)));
 
 console.log("pi-unity package validation tests passed");
