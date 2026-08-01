@@ -4,6 +4,7 @@ Pi skill and tool package for reusable Unity workflows.
 
 ## Contents
 
+- skill: `unity-debugging`
 - skill: `unity-pipeline-workflows`
 - skill: `unity-batchmode-tests`
 - skill: `auditing-unity-agent-guidance`
@@ -44,6 +45,7 @@ pi install -l <path-to-pi-unity>
 ## Notes
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
+- `unity-debugging` provides general-purpose, evidence-first Unity diagnosis. For inactive features it routes agents through exact-version documentation, documented feature gates, and observable activation signals before project code, reflection, assembly searches, or Unity internals. Its UI Toolkit example checks the Game View Live Reload setting before callback diagnosis.
 - On every `session_start`, pi-unity registers a Unity generated-directory repository-search policy, a Unity solution-artifact v1/v2 profile, and `UnityMigrationServiceV1`. When the optional `@aefree/pi-workflow` contract is installed and valid, it also registers the `engine.unity` `WorkflowGuidanceContributorV1`; when that package is absent, all Unity tools, migration, repository policy, and references remain available without workflow composition. A broken installed workflow contract fails visibly. The contributor resolves an exact or enclosing Unity root from validated `ProjectSettings/ProjectVersion.txt` evidence and performs bounded nested discovery only when one copy is unambiguous; multiple copies are an explicit selection gap. Composition performs no Editor lock, process, or readiness inspection. Its plan, work, and review guidance is loaded from package-owned resources with bounded, sanitized results and stable package/resource provenance. The work overlay preserves exact-copy identity, includes Unity validation evidence rules, prefers reachable connected Pipeline compile/test routes, and limits isolated batchmode to explicit supported reasons; it never switches after uncertain connected dispatch. For external Unity/package API behavior, plan guidance inspects the project/version manifests and routes evidence from project docs, exact-version local docs, active Pi docs tools, then reachable official vendor docs; unavailable docs are a verification gap, never a reason to install or upgrade. Registrations are isolated per session scope, safe under reverse load order, and a delayed old-session shutdown cannot remove another scope's current records.
 - The repository policy excludes `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs` only for detected Unity project roots. The canonical repository-search package remains Unity-neutral.
 - The artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. Generic artifact search remains available when this profile is missing, while profile-specific filters return `missing_profile`.
@@ -145,6 +147,8 @@ pi-unity/
   scripts/
     migrate-unity-docs-schema.ts
   skills/
+    unity-debugging/
+      SKILL.md
     unity-docs/
       SKILL.md
       schema.yaml

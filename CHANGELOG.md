@@ -9,6 +9,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Added
 
+- Added the general-purpose `unity-debugging` skill with a documented-prerequisite-first feature activation decision tree and a UI Toolkit Live Reload prerequisite example.
 - Added `unity_pipeline_recompile`, `unity_pipeline_run_tests`, and `unity_pipeline_eval`: typed connected exact-copy Pipeline operations with advertised-command preflight, lifecycle/identity checks, fixed-deadline internal polling, compact aggregate results, and bounded failure diagnostics.
 - Added sanitized nested object/stringified Pipeline response, zero-running initiation, identity-change, abort, pre-existing-run, and compact-output regression coverage.
 - Added `/unity-playmode-exit allow|disallow|status`, a session-branch-scoped, default-disallowed authorization toggle enforced by package-owned typed lifecycle operations that may exit Play Mode.
