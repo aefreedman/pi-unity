@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { keyHint, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RegistrationToken } from "@aefree/pi-capability-registry";
 import { createArtifactProfileRegistryV1 } from "@aefree/pi-project-artifacts/contracts/v1";
 import { createRepositoryPolicyRegistryV1 } from "@aefree/pi-repo-search/contracts/v1";
@@ -854,14 +854,33 @@ async function buildBatchmodeReport(
   };
 }
 
+function compactUnityRendererValue(value: unknown, limit = 160): string {
+  const redacted = String(value ?? "").replace(
+    /\b(token|secret|password|api[_-]?key)\s*([:=])\s*((?:\$@?|@\$?)?"(?:""|\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;)}\]]+)/gi,
+    "$1$2[redacted]",
+  );
+  const normalized = redacted.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
+}
+
+function reuseRendererText(context: { lastComponent?: unknown } | undefined, text: string): Text {
+  const component = context?.lastComponent;
+  if (component instanceof Text) {
+    component.setText(text);
+    return component;
+  }
+  return new Text(text, 0, 0);
+}
+
 function renderUnityToolCall(
   name: string,
   args: { path?: string; args?: string[] },
   theme: any,
   modeLabel: string,
   emphasis: string,
+  context?: { lastComponent?: unknown },
 ): Text {
-  const pathLabel = args.path?.trim() ? args.path : "auto-resolve";
+  const pathLabel = compactUnityRendererValue(args.path?.trim() || "auto-resolve", 120);
   const extraArgs = Array.isArray(args.args) && args.args.length > 0
     ? args.args.slice(0, 4).join(" ") + (args.args.length > 4 ? ` ... +${args.args.length - 4}` : "")
     : undefined;
@@ -873,7 +892,23 @@ function renderUnityToolCall(
   if (extraArgs) {
     text += `\n  ${theme.fg("muted", extraArgs)}`;
   }
-  return new Text(text, 0, 0);
+  return reuseRendererText(context, text);
+}
+
+function renderUnityPipelineCall(
+  name: string,
+  args: { path?: string; testPlatform?: string; testFilter?: string; command?: string; code?: string },
+  theme: any,
+  context: { lastComponent?: unknown },
+): Text {
+  const detail = name === "unity_pipeline_run_tests"
+    ? `${args.testPlatform ?? "tests"}${args.testFilter ? ` • ${compactUnityRendererValue(args.testFilter, 100)}` : ""}`
+    : name === "unity_pipeline_inspect"
+      ? `command=${compactUnityRendererValue(args.command ?? "(missing)", 100)}`
+      : name === "unity_pipeline_eval"
+        ? `C# ${compactUnityRendererValue(args.code ?? "(missing)", 140)}`
+        : "connected bounded recompile";
+  return renderUnityToolCall(name, args, theme, "pipeline", detail, context);
 }
 
 function getToolTextContent(result: any): string {
@@ -1084,6 +1119,41 @@ async function runGuardedUnityBatchmode(
       }
     },
   );
+}
+
+function renderUnityPipelineResult(result: any, options: { expanded: boolean; isPartial: boolean }, theme: any, context: { lastComponent?: unknown }): Text {
+  const details = result.details as UnityToolDetails | undefined;
+  const primaryText = getToolTextContent(result);
+  if (options.isPartial) {
+    return reuseRendererText(context, `${theme.fg("warning", "…")} ${theme.fg("toolTitle", theme.bold("Unity Pipeline working"))}\n  ${theme.fg("muted", compactUnityRendererValue(primaryText || "Waiting for Pipeline…", 180))}`);
+  }
+  if (!details) return reuseRendererText(context, primaryText || "(no output)");
+
+  const pipeline = details.pipeline;
+  const icon = details.status === "passed" ? theme.fg("success", "✓") : theme.fg("error", "✗");
+  let text: string;
+  if (pipeline?.operation === "recompile") {
+    text = `${icon} ${theme.fg("toolTitle", theme.bold("Unity recompile"))} ${theme.fg("accent", pipeline.terminalState)}${theme.fg("muted", ` • ${pipeline.elapsedSeconds.toFixed(1)}s`)}`;
+  } else if (pipeline?.operation === "tests") {
+    const counts = pipeline.counts;
+    const passed = counts?.passed === undefined || counts?.total === undefined ? "tests completed" : `${counts.passed}/${counts.total} passed`;
+    text = `${icon} ${theme.fg("toolTitle", theme.bold(`Unity ${pipeline.testPlatform ?? ""} tests`.trim()))} ${theme.fg("accent", passed)}${theme.fg("muted", ` • ${pipeline.elapsedSeconds.toFixed(1)}s`)}`;
+  } else if (details.mode === "pipeline_eval" || details.mode === "pipeline_inspection") {
+    const output = details.mode === "pipeline_eval" ? details.pipelineEval : details.pipelineInspection;
+    const label = details.mode === "pipeline_eval" ? "Unity Pipeline Eval" : "Unity Pipeline Inspection";
+    const summary = output?.outcome === "dispatched" ? output.output || "(no bounded output returned)" : output?.message || primaryText;
+    text = `${icon} ${theme.fg("toolTitle", theme.bold(label))}\n  ${theme.fg("toolOutput", compactUnityRendererValue(summary, 240))}`;
+  } else {
+    return renderUnityToolResult(result, options.expanded, theme);
+  }
+
+  if (pipeline?.playModeHandling && pipeline.playModeHandling !== "not_playing") {
+    const handling = pipeline.playModeHandling === "agent_exited" ? "Play Mode exited by pi-unity" : `Play Mode: ${pipeline.playModeHandling.replace(/_/g, " ")}`;
+    text += `\n  ${theme.fg("warning", handling)}`;
+  }
+  if (options.expanded && primaryText) text += `\n\n${theme.fg("toolOutput", primaryText)}`;
+  else if (!options.expanded) text += ` ${theme.fg("dim", `(${keyHint("app.tools.expand", "details")})`)}`;
+  return reuseRendererText(context, text);
 }
 
 function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text {
@@ -1424,8 +1494,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
       };
     },
-    renderCall(args, theme) { return renderUnityToolCall("unity_pipeline_recompile", args, theme, "pipeline", "connected bounded recompile"); },
-    renderResult(result, { expanded }, theme) { return renderUnityToolResult(result, expanded, theme); },
+    renderCall(args, theme, context) { return renderUnityPipelineCall("unity_pipeline_recompile", args, theme, context); },
+    renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
   });
 
   pi.registerTool({
@@ -1452,8 +1522,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
       };
     },
-    renderCall(args, theme) { return renderUnityToolCall("unity_pipeline_run_tests", args, theme, "pipeline", `${args.testPlatform} connected tests`); },
-    renderResult(result, { expanded }, theme) { return renderUnityToolResult(result, expanded, theme); },
+    renderCall(args, theme, context) { return renderUnityPipelineCall("unity_pipeline_run_tests", args, theme, context); },
+    renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
   });
 
   pi.registerTool({
@@ -1498,11 +1568,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         },
       };
     },
-    renderCall(args, theme) {
-      return renderUnityToolCall("unity_pipeline_eval", args, theme, "eval", "bounded Pipeline C# eval");
+    renderCall(args, theme, context) {
+      return renderUnityPipelineCall("unity_pipeline_eval", args, theme, context);
     },
-    renderResult(result, { expanded }, theme) {
-      return renderUnityToolResult(result, expanded, theme);
+    renderResult(result, options, theme, context) {
+      return renderUnityPipelineResult(result, options, theme, context);
     },
   });
 
@@ -1547,11 +1617,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         },
       };
     },
-    renderCall(args, theme) {
-      return renderUnityToolCall("unity_pipeline_inspect", args, theme, "inspection", "guarded Pipeline inspection");
+    renderCall(args, theme, context) {
+      return renderUnityPipelineCall("unity_pipeline_inspect", args, theme, context);
     },
-    renderResult(result, { expanded }, theme) {
-      return renderUnityToolResult(result, expanded, theme);
+    renderResult(result, options, theme, context) {
+      return renderUnityPipelineResult(result, options, theme, context);
     },
   });
 

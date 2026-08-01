@@ -7,8 +7,11 @@ import registerWorkflow from "../../pi-workflow/extensions/index.ts";
 import { resolveArtifactProfilesV1, resolveArtifactSearchServiceV1, resolveTodoLifecycleServiceV1 } from "@aefree/pi-project-artifacts/contracts/v1";
 import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1";
 import { resolveWorkflowGuidanceContributorsV1, resolveWorkflowGuidanceServiceV1 } from "@aefree/pi-workflow/contracts/v1";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import registerUnity from "../index";
 import { resolveUnityMigrationServiceV1 } from "../contracts/v1";
+
+initTheme("dark");
 
 function fakePi(exec: (command: string, args: string[]) => Promise<any> = async () => ({ code: 0, stdout: "", stderr: "" })) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
@@ -67,6 +70,51 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     "editor_status", "list_open_scenes", "list_build_targets",
   ], "The inspection schema must advertise only package-owned purpose-built commands.");
   assert.match(inspectionTool.promptGuidelines.join(" "), /never launches or closes Unity/i);
+  const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+  const rendererContext = { lastComponent: undefined };
+  const testCall = pipelineTestTool.renderCall({ path: "C:/Game", testPlatform: "EditMode", testFilter: "Game.Fast" }, theme, rendererContext);
+  assert.match(testCall.render(300).join("\n"), /EditMode • Game.Fast/, "Test call headers retain platform and bounded filter.");
+  const reusedTestCall = pipelineTestTool.renderCall({ path: "C:/Game", testPlatform: "PlayMode", testFilter: "secret=visible" }, theme, { lastComponent: testCall });
+  assert.equal(reusedTestCall, testCall, "Pipeline call renderer reuses the prior Text component.");
+  assert.match(reusedTestCall.render(300).join("\n"), /secret=\[redacted\]/i, "Sensitive-looking filter values are redacted.");
+  const evalCall = evalTool.renderCall({ code: "return api_key=super-secret-value;" }, theme, rendererContext);
+  assert.match(evalCall.render(300).join("\n"), /api_key=\[redacted\]/i, "Eval previews redact sensitive-looking values.");
+  for (const code of [
+    'password = "correct horse battery staple"; return password;',
+    "token: 'multi word value'",
+    'PASSWORD = "correct \\"horse\\" battery staple";',
+  ]) {
+    const rendered = evalTool.renderCall({ code }, theme, rendererContext).render(300).join("\n");
+    assert.match(rendered, /(password|token)\s*[:=]\[redacted\]/i, "Quoted sensitive values are fully redacted.");
+    for (const fragment of ["horse", "battery", "staple", "multi word value"]) {
+      assert(!rendered.includes(fragment), `Sensitive fragment must not survive renderer redaction: ${fragment}`);
+    }
+  }
+  const inspectCall = inspectionTool.renderCall({ command: "get_scene_hierarchy" }, theme, rendererContext);
+  assert.match(inspectCall.render(300).join("\n"), /command=get_scene_hierarchy/);
+  const partial = pipelineTestTool.renderResult({ content: [{ type: "text", text: "Unity EditMode tests running; 1.0s elapsed." }], details: {} }, { expanded: false, isPartial: true }, theme, rendererContext);
+  assert.match(partial.render(300).join("\n"), /Unity Pipeline working/);
+  const completedResult = {
+    content: [{ type: "text", text: "Unity EditMode tests passed for C:/Game: 21 executed, 21 passed, 0 failed." }],
+    details: { mode: "pipeline", status: "passed", pipeline: { operation: "tests", terminalState: "completed", elapsedSeconds: 2.4, testPlatform: "EditMode", counts: { total: 21, passed: 21, failed: 0 }, playModeHandling: "not_playing" } },
+  };
+  const completed = pipelineTestTool.renderResult(completedResult, { expanded: false, isPartial: false }, theme, { lastComponent: partial });
+  assert.equal(completed, partial, "Pipeline result renderer reuses the partial Text component for the settled result.");
+  assert.match(completed.render(300).join("\n"), /EditMode tests 21\/21 passed • 2.4s/);
+  assert.match(completed.render(300).join("\n"), /details/, "Collapsed Pipeline results include the configured expansion hint.");
+  const expanded = pipelineTestTool.renderResult(completedResult, { expanded: true, isPartial: false }, theme, { lastComponent: completed });
+  assert.equal(expanded, completed, "Expanded Pipeline results reuse the settled Text component.");
+  assert.match(expanded.render(300).join("\n"), /Unity EditMode tests passed for C:\/Game/, "Expanded Pipeline results show the bounded model-visible evidence.");
+  const recompileWithoutPlayModeDetails = recompileTool.renderResult({
+    content: [{ type: "text", text: "Unity recompile completed." }],
+    details: { mode: "pipeline", status: "passed", pipeline: { operation: "recompile", terminalState: "completed", elapsedSeconds: 1.2 } },
+  }, { expanded: false, isPartial: false }, theme, rendererContext);
+  assert.match(recompileWithoutPlayModeDetails.render(300).join("\n"), /Unity recompile completed • 1.2s/, "Optional Play Mode details may be absent without breaking rendering.");
+  const collapsedEval = evalTool.renderResult({ content: [{ type: "text", text: "Unity Pipeline eval completed.\n42" }], details: { mode: "pipeline_eval", status: "passed", pipelineEval: { outcome: "dispatched", command: "eval", output: "42", truncated: false } } }, { expanded: false, isPartial: false }, theme, rendererContext);
+  assert.match(collapsedEval.render(300).join("\n"), /42/, "Collapsed eval output remains useful.");
+  const rejectedEval = evalTool.renderResult({ content: [{ type: "text", text: "Unity Pipeline eval rejected: eval_failed\nRoslyn compilation failed." }], details: { mode: "pipeline_eval", status: "failed", pipelineEval: { outcome: "rejected", code: "eval_failed", message: "Roslyn compilation failed." } } }, { expanded: false, isPartial: false }, theme, { lastComponent: collapsedEval });
+  assert.equal(rejectedEval, collapsedEval, "Rejected eval results reuse the prior Text component.");
+  assert.match(rejectedEval.render(300).join("\n"), /Roslyn compilation failed/, "Rejected eval summaries remain visible while collapsed.");
   assert.equal(artifacts.tools.filter((tool) => tool.name === "project_artifact_search").length, 1);
   await emit(unity, "session_shutdown", ctx);
   await emit(artifacts, "session_shutdown", ctx);
