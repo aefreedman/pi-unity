@@ -147,9 +147,8 @@ pi-unity/
     unity-project-lock.ts
     unity-projects.ts
   references/
-    _shared/unity-repo-research.md
+    unity-repo-research.md
     workflow/plan.md
-    workflow/work.md
   skills/
     unity-debugging/
       SKILL.md
