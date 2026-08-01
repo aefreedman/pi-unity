@@ -28,6 +28,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Documented the boundaries and rationale of the package's six Unity skills, including the distinction between reusable diagnostic strategy and operation-specific failure handling.
 - Improved connected Pipeline TUI rows with bounded operation-specific call previews, styled transient progress, compact compile/test summaries, collapsed eval/inspection evidence, expansion hints, and component reuse; sensitive-looking preview assignments are redacted before rendering.
 - Added `unity_pipeline_eval` as the bounded C# REPL tool and renamed the purpose-built connected inspection surface to `unity_pipeline_inspect`; the obsolete planning-oriented eval parameter shape is not retained. Eval is documented accurately as Roslyn-compiled arbitrary C# on the Editor main thread; typed tools remain preferred evidence-producing conveniences, while user intent and guidance—not a syntax allowlist—govern mutations.
 - Updated the Pi development baseline to 0.83.0.

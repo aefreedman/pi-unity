@@ -171,6 +171,10 @@ for (const skillSnippet of [
   assert(skillText.includes(skillSnippet), `Expected skill doc to contain: ${skillSnippet}`);
 }
 
+for (const skillName of ["unity-debugging", "unity-pipeline-workflows", "unity-batchmode-tests", "unity-interactive-playmode-authoring", "auditing-unity-agent-guidance", "unity-docs"]) {
+  assert(readmeText.includes(`- \`${skillName}\``), `Expected README skill-boundary rationale for ${skillName}.`);
+}
+assert(readmeText.includes("Operation-specific failure handling remains with the owning operational skill") && readmeText.includes("reusable diagnostic strategy"), "Expected README to distinguish general debugging strategy from operational troubleshooting.");
 assert(readmeText.includes("explicit user/project PlayMode skips") && readmeText.includes("exact current-run artifact paths"), "Expected README validation stop-rule summary.");
 assert(indexText.includes("For Unity Test Framework runs, always provide absolute -testResults and -logFile paths"), "Expected batchmode tool guidance for compact test summaries.");
 assert(indexText.includes("skip PlayMode tests") && indexText.includes("exact current-run -testResults/-logFile paths") && indexText.includes("do not relaunch without a new stated hypothesis"), "Expected batchmode tool guidance to honor skips, inspect exact artifacts, and stop unchanged infrastructure retries.");

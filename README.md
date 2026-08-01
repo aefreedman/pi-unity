@@ -7,6 +7,7 @@ Pi skill and tool package for reusable Unity workflows.
 - skill: `unity-debugging`
 - skill: `unity-pipeline-workflows`
 - skill: `unity-batchmode-tests`
+- skill: `unity-interactive-playmode-authoring`
 - skill: `auditing-unity-agent-guidance`
 - skill: `unity-docs` (solution-capture compatibility name preserved)
 - tool: `unity_migrate_solution_docs`
@@ -21,6 +22,19 @@ Pi skill and tool package for reusable Unity workflows.
 - tool: `unity_launch_batchmode`
 - tool: `unity_run_test_batch`
 - commands: `/unity-open`, `/unity-playmode-exit`
+
+## Skill boundaries
+
+Each packaged skill owns a distinct kind of Unity work:
+
+- `unity-debugging` owns reusable diagnostic strategy across Editor, runtime, package, asset, lifecycle, callback, and feature-activation problems.
+- `unity-pipeline-workflows` owns connected compilation and focused test execution through an already-running exact-copy Pipeline Editor.
+- `unity-batchmode-tests` owns isolated or report-producing Unity Test Framework execution.
+- `unity-interactive-playmode-authoring` owns explicit temporary inspection and tuning of live runtime state, followed by deliberate persistence when requested.
+- `auditing-unity-agent-guidance` owns review and migration of project-local Unity automation instructions.
+- `unity-docs` owns capture of validated solutions and migration of solution-document schemas.
+
+Operation-specific failure handling remains with the owning operational skill. `unity-debugging` owns reusable diagnostic strategy, not every troubleshooting instruction associated with Unity operations.
 
 ## Install
 
