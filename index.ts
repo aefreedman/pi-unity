@@ -1,7 +1,4 @@
 import { keyHint, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { RegistrationToken } from "@aefree/pi-capability-registry";
-import { createArtifactProfileRegistryV1 } from "@aefree/pi-project-artifacts/contracts/v1";
-import { createRepositoryPolicyRegistryV1 } from "@aefree/pi-repo-search/contracts/v1";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { mkdir, readdir, stat, unlink } from "node:fs/promises";
@@ -31,57 +28,51 @@ import { assertUnityProjectNotBusy, evaluateUnityLaunchSafety, getUnityNativeLoc
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
-import { createUnityArtifactProfileV1 } from "./src/unity-artifact-profile";
-import { createUnityRepositoryPolicyV1 } from "./src/unity-repo-search-policy";
-import { createUnityMigrationServiceV1 } from "./src/unity-docs-migration";
 import { runUnityPipelineRecompile, runUnityPipelineTests, type UnityPipelineOperationDetails } from "./src/unity-pipeline";
-import { createUnityMigrationServiceRegistryV1, resolveUnityMigrationServiceV1, type UnityMigrationRequestV1 } from "./contracts/v1";
+import {
+  createOptionalIntegrationRegistryV1,
+  isOptionalIntegrationActive,
+  type OptionalIntegrationRegistryV1,
+  type OptionalRegistrationToken,
+} from "./src/optional-integration-rendezvous";
 
-const WORKFLOW_CONTRACT_MODULE = "@aefree/pi-workflow/contracts/v1";
+const WORKFLOW_GUIDANCE_CONTRIBUTOR_REGISTRY_KEY_V1 = "@aefree/pi-workflow/guidance-contributors/v1";
+const ARTIFACT_PROFILE_REGISTRY_KEY_V1 = "@aefree/pi-project-artifacts/profiles/v1";
+const REPOSITORY_POLICY_REGISTRY_KEY_V1 = "@aefree/pi-repo-search/policies/v1";
 
-type WorkflowGuidanceContributorRegistryV1 = Readonly<{
-  register: (scope: object, contributor: unknown) => RegistrationToken;
-  unregister: (token: RegistrationToken) => boolean;
-}>;
+type RegistrationToken = OptionalRegistrationToken;
+type ScopedRegistryV1 = OptionalIntegrationRegistryV1;
+type WorkflowGuidanceContributorRegistryV1 = ScopedRegistryV1;
+type WorkflowIntegrationV1 = Readonly<{ registry: WorkflowGuidanceContributorRegistryV1; createContributor: () => Promise<Readonly<Record<string, unknown>>> }>;
+type ArtifactProfileIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createProfile: () => Promise<Readonly<Record<string, unknown>>> }>;
+type RepositoryPolicyIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createPolicy: () => Promise<Readonly<Record<string, unknown>>> }>;
 
-type WorkflowIntegrationV1 = Readonly<{
-  registry: WorkflowGuidanceContributorRegistryV1;
-  createContributor: () => unknown;
-}>;
+async function loadWorkflowIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<WorkflowIntegrationV1 | undefined> {
+  if (!isOptionalIntegrationActive(pi, "workflow_guidance")) return undefined;
+  const contributorModule = await import("./src/unity-workflow-guidance-contributor");
+  return {
+    registry: createOptionalIntegrationRegistryV1(WORKFLOW_GUIDANCE_CONTRIBUTOR_REGISTRY_KEY_V1, "@aefree/pi-workflow"),
+    createContributor: async () => contributorModule.createUnityWorkflowGuidanceContributorV1() as Readonly<Record<string, unknown>>,
+  };
+}
 
-/**
- * Only a missing requested workflow-contract module is optional. Failures
- * within an installed workflow package (including incompatible exports) must
- * remain visible rather than disabling Unity workflow composition silently.
- */
-export const isMissingWorkflowContract = (error: unknown): boolean => {
-  if (typeof error !== "object" || error === null) return false;
-  const candidate = error as { code?: unknown; message?: unknown };
-  if (candidate.code !== "ERR_MODULE_NOT_FOUND" && candidate.code !== "MODULE_NOT_FOUND") return false;
-  if (typeof candidate.message !== "string") return false;
-  return candidate.message.includes(`'${WORKFLOW_CONTRACT_MODULE}'`) ||
-    candidate.message.includes(`\"${WORKFLOW_CONTRACT_MODULE}\"`) ||
-    candidate.message.includes("Cannot find package '@aefree/pi-workflow'");
-};
+async function loadArtifactProfileIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<ArtifactProfileIntegrationV1 | undefined> {
+  if (!isOptionalIntegrationActive(pi, "project_artifact_search")) return undefined;
+  const profileModule = await import("./src/unity-artifact-profile");
+  return {
+    registry: createOptionalIntegrationRegistryV1(ARTIFACT_PROFILE_REGISTRY_KEY_V1, "@aefree/pi-project-artifacts"),
+    createProfile: async () => profileModule.createUnityArtifactProfileV1() as Readonly<Record<string, unknown>>,
+  };
+}
 
-const loadWorkflowIntegrationV1 = async (): Promise<WorkflowIntegrationV1 | undefined> => {
-  try {
-    const [contracts, contributorModule] = await Promise.all([
-      import(WORKFLOW_CONTRACT_MODULE),
-      import("./src/unity-workflow-guidance-contributor"),
-    ]);
-    if (typeof contracts.createWorkflowGuidanceContributorRegistryV1 !== "function" || typeof contributorModule.createUnityWorkflowGuidanceContributorV1 !== "function") {
-      throw new TypeError("@aefree/pi-workflow/contracts/v1 does not provide the required workflow-guidance-contributor contract.");
-    }
-    return {
-      registry: contracts.createWorkflowGuidanceContributorRegistryV1() as WorkflowGuidanceContributorRegistryV1,
-      createContributor: contributorModule.createUnityWorkflowGuidanceContributorV1,
-    };
-  } catch (error) {
-    if (isMissingWorkflowContract(error)) return undefined;
-    throw error;
-  }
-};
+async function loadRepositoryPolicyIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<RepositoryPolicyIntegrationV1 | undefined> {
+  if (!isOptionalIntegrationActive(pi, "repository_search")) return undefined;
+  const policyModule = await import("./src/unity-repo-search-policy");
+  return {
+    registry: createOptionalIntegrationRegistryV1(REPOSITORY_POLICY_REGISTRY_KEY_V1, "@aefree/pi-repo-search"),
+    createPolicy: async () => policyModule.createUnityRepositoryPolicyV1() as Readonly<Record<string, unknown>>,
+  };
+}
 
 const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same as batchmode/headless Unity.";
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
@@ -191,29 +182,6 @@ const INSPECT_ARTIFACTS_PARAMS = Type.Object({
   latestFromLogs: Type.Optional(Type.Boolean({ default: true, description: "When paths are omitted, inspect the newest .xml and .log files under the project's Logs folder." })),
   maxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, default: 60, description: "Maximum log/output lines to include." })),
   maxChars: Type.Optional(Type.Integer({ minimum: 500, maximum: 20000, default: 6000, description: "Maximum log/output characters to include." })),
-});
-
-const UNITY_CLASSIFICATION_SCHEMA = Type.Object({
-  doc_type: StringEnum(["solution", "pattern", "workflow", "documentation_gap"] as const),
-  category: Type.String(),
-  failure_mode: Type.String(),
-});
-const UNITY_MIGRATION_PARAMS = Type.Object({
-  operation: StringEnum(["plan", "apply", "recover"] as const),
-  workspaceRoot: Type.String({ description: "Exact workspace root. Migration never infers a coordination workspace." }),
-  solutionsRoot: Type.Optional(Type.String({ description: "Physical docs/solutions root. Required for plan/apply." })),
-  artifactRoot: Type.Optional(Type.String({ description: "Authorized Markdown scope for inbound-link reconciliation. Defaults to the solutions parent." })),
-  mapping: Type.Optional(Type.Object({
-    problemTypeMap: Type.Optional(Type.Record(Type.String(), UNITY_CLASSIFICATION_SCHEMA)),
-    pathOverrides: Type.Optional(Type.Record(Type.String(), UNITY_CLASSIFICATION_SCHEMA)),
-  })),
-  move: Type.Optional(Type.Boolean({ default: true })),
-  approvalHash: Type.Optional(Type.String({ pattern: "^sha256:[a-f0-9]{64}$", description: "Exact manifest hash from the reviewed current plan. Required for apply." })),
-  runRoot: Type.Optional(Type.String({ description: "Exclusive journal/run root outside authoritative artifacts." })),
-  recoveryMode: Type.Optional(StringEnum(["backup", "vcs"] as const)),
-  vcsCheckpoint: Type.Optional(Type.String({ description: "Pinned VCS checkpoint recorded in addition to byte backups." })),
-  runDirectory: Type.Optional(Type.String({ description: "Existing migration run directory. Required for recover." })),
-  recoveryAction: Type.Optional(StringEnum(["resume", "rollback"] as const)),
 });
 
 function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate): string {
@@ -1229,13 +1197,9 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
 }
 
 export default function freeUnityPi(pi: ExtensionAPI) {
-  const artifactProfileRegistry = createArtifactProfileRegistryV1();
-  const repositoryPolicyRegistry = createRepositoryPolicyRegistryV1();
-  const migrationRegistry = createUnityMigrationServiceRegistryV1();
   type ScopeRegistrations = Readonly<{
-    artifactProfileToken: RegistrationToken;
-    repositoryPolicyToken: RegistrationToken;
-    migrationToken: RegistrationToken;
+    artifactProfile?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
+    repositoryPolicy?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
     workflow?: Readonly<{ registry: WorkflowGuidanceContributorRegistryV1; token: RegistrationToken }>;
   }>;
   // Lifecycle handles are session-scoped. Contributor callbacks capture no session state.
@@ -1255,41 +1219,60 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   };
   const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
     if (current === undefined) return false;
-    const changes = [
-      artifactProfileRegistry.unregister(current.artifactProfileToken),
-      repositoryPolicyRegistry.unregister(current.repositoryPolicyToken),
-      migrationRegistry.unregister(current.migrationToken),
+    return [
+      current.artifactProfile?.registry.unregister(current.artifactProfile.token) ?? false,
+      current.repositoryPolicy?.registry.unregister(current.repositoryPolicy.token) ?? false,
       current.workflow?.registry.unregister(current.workflow.token) ?? false,
-    ];
-    return changes.some(Boolean);
+    ].some(Boolean);
   };
 
   pi.on("session_start", async (_event, ctx) => {
     restoreSessionSettings(ctx);
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
-    // Keep core Unity contracts synchronous for reverse-load-order compatibility;
-    // only the optional guidance composition waits on a dynamic import.
-    const coreRegistrations = Object.freeze({
-      artifactProfileToken: artifactProfileRegistry.register(scope, createUnityArtifactProfileV1()),
-      repositoryPolicyToken: repositoryPolicyRegistry.register(scope, createUnityRepositoryPolicyV1()),
-      migrationToken: migrationRegistry.register(scope, createUnityMigrationServiceV1()),
-    });
-    registrations.set(scope, coreRegistrations);
-    const workflowIntegration = await loadWorkflowIntegrationV1();
-    // A later start or shutdown for this scope won while the optional import ran.
-    if (registrations.get(scope) !== coreRegistrations) return;
-    const next = workflowIntegration === undefined
-      ? coreRegistrations
-      : Object.freeze({
-        ...coreRegistrations,
-        workflow: Object.freeze({
-          registry: workflowIntegration.registry,
-          token: workflowIntegration.registry.register(scope, workflowIntegration.createContributor()),
-        }),
+    // Optional package integrations resolve independently. The Unity extension and
+    // its own tools remain usable when either consumer package is not installed.
+    const pending = Object.freeze({});
+    registrations.set(scope, pending);
+    let staged: ScopeRegistrations | undefined;
+    try {
+      const artifactIntegration = await loadArtifactProfileIntegrationV1(pi);
+      if (registrations.get(scope) !== pending) return;
+      const repositoryIntegration = await loadRepositoryPolicyIntegrationV1(pi);
+      if (registrations.get(scope) !== pending) return;
+      const workflowIntegration = await loadWorkflowIntegrationV1(pi);
+      if (registrations.get(scope) !== pending) return;
+
+      // Registration is all-or-nothing: a later contract failure must not leave
+      // early optional records in the shared scope.
+      const artifactProfile = artifactIntegration === undefined ? undefined : Object.freeze({
+        registry: artifactIntegration.registry,
+        token: artifactIntegration.registry.register(scope, await artifactIntegration.createProfile()),
       });
-    registrations.set(scope, next);
-    pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
+      staged = Object.freeze({ ...(artifactProfile === undefined ? {} : { artifactProfile }) });
+      const repositoryPolicy = repositoryIntegration === undefined ? undefined : Object.freeze({
+        registry: repositoryIntegration.registry,
+        token: repositoryIntegration.registry.register(scope, await repositoryIntegration.createPolicy()),
+      });
+      staged = Object.freeze({ ...staged, ...(repositoryPolicy === undefined ? {} : { repositoryPolicy }) });
+      const workflow = workflowIntegration === undefined ? undefined : Object.freeze({
+        registry: workflowIntegration.registry,
+        token: workflowIntegration.registry.register(scope, await workflowIntegration.createContributor()),
+      });
+      staged = Object.freeze({ ...staged, ...(workflow === undefined ? {} : { workflow }) });
+      if (registrations.get(scope) !== pending) {
+        unregisterScope(staged);
+        return;
+      }
+      registrations.set(scope, staged);
+      if (artifactIntegration || repositoryIntegration || workflowIntegration) {
+        pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
+      }
+    } catch (error) {
+      unregisterScope(staged);
+      if (registrations.get(scope) === pending) registrations.delete(scope);
+      throw error;
+    }
   });
   pi.on("session_shutdown", (_event, ctx) => {
     ctx.ui.setStatus?.("pi-unity-playmode-exit", undefined);
@@ -1349,49 +1332,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
         ctx.ui.notify(message, "error");
       }
-    },
-  });
-
-  pi.registerTool({
-    name: "unity_migrate_solution_docs",
-    label: "Unity Solution Docs Migration",
-    description: "Plan, apply, resume, or roll back the journaled Unity solution-doc schema v1-to-v2 migration. Plan is dry-run; apply requires an exact reviewed approval hash and a backup/VCS recovery gate.",
-    promptSnippet: "Safely plan or execute an explicit Unity solution-doc v1/v2 migration with collision, link, backup, and recovery checks.",
-    promptGuidelines: [
-      "Use unity_migrate_solution_docs operation=plan before any apply and present its exact approvalHash plus every conflict.",
-      "Call unity_migrate_solution_docs operation=apply only after explicit user approval of the exact current plan hash; never use migration as package validation against real project docs.",
-      "Unity migration partial-v2/legacy hybrids and normalized destination collisions block; there is no manual-review bypass.",
-      "Retain the migration run directory and use recover resume/rollback after interruption; do not hand-edit a run journal.",
-    ],
-    parameters: UNITY_MIGRATION_PARAMS,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const workspaceRoot = resolve(ctx.cwd, params.workspaceRoot);
-      let request: UnityMigrationRequestV1;
-      if (params.operation === "recover") {
-        if (!params.runDirectory || !params.recoveryAction) throw new Error("recover requires runDirectory and recoveryAction");
-        request = { operation: "recover", workspaceRoot, runDirectory: resolve(ctx.cwd, params.runDirectory), action: params.recoveryAction };
-      } else {
-        if (!params.solutionsRoot) throw new Error(`${params.operation} requires solutionsRoot`);
-        const base = {
-          workspaceRoot,
-          solutionsRoot: resolve(workspaceRoot, params.solutionsRoot),
-          ...(params.artifactRoot ? { artifactRoot: resolve(workspaceRoot, params.artifactRoot) } : {}),
-          ...(params.mapping ? { mapping: params.mapping } : {}),
-          ...(params.move === undefined ? {} : { move: params.move }),
-        };
-        if (params.operation === "plan") request = { operation: "plan", ...base };
-        else {
-          if (!params.approvalHash) throw new Error("apply requires approvalHash from the exact reviewed plan");
-          const recovery = params.recoveryMode === "vcs"
-            ? (() => { if (!params.vcsCheckpoint) throw new Error("recoveryMode=vcs requires vcsCheckpoint"); return { mode: "vcs" as const, checkpoint: params.vcsCheckpoint }; })()
-            : { mode: "backup" as const };
-          request = { operation: "apply", ...base, approvalHash: params.approvalHash, recovery, ...(params.runRoot ? { runRoot: resolve(workspaceRoot, params.runRoot) } : {}) };
-        }
-      }
-      const resolvedService = resolveUnityMigrationServiceV1(ctx.sessionManager, migrationRegistry);
-      if (resolvedService.outcome !== "available") throw new Error(`UnityMigrationServiceV1 unavailable: ${resolvedService.code}. Install/enable a compatible @aefree/pi-unity registrar and start a fresh session.`);
-      const result = await resolvedService.records[0]!.execute({ cwd: ctx.cwd, signal: signal ?? new AbortController().signal }, request);
-      return { content: [{ type: "text", text: result.text }], details: { ...result.details, provenance: result.provenance } };
     },
   });
 

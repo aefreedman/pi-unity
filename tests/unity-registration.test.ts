@@ -9,7 +9,6 @@ import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1
 import { resolveWorkflowGuidanceContributorsV1, resolveWorkflowGuidanceServiceV1 } from "@aefree/pi-workflow/contracts/v1";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import registerUnity from "../index";
-import { resolveUnityMigrationServiceV1 } from "../contracts/v1";
 
 initTheme("dark");
 
@@ -40,17 +39,18 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   const unity = fakePi();
   registerProjectArtifacts(artifacts as any);
   registerUnity(unity as any);
+  // The shared Pi host advertises separately loaded optional packages globally.
+  unity.setActiveTools(["project_artifact_search", "repository_search", "workflow_guidance"]);
   if (order === "artifacts-first") { await emit(artifacts, "session_start", ctx); await emit(unity, "session_start", ctx); }
   else { await emit(unity, "session_start", ctx); await emit(artifacts, "session_start", ctx); }
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "available", order);
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "available", order);
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "available", order);
   assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "available", order);
-  assert.equal(resolveUnityMigrationServiceV1(scope).outcome, "available", order);
   const workflowContributors = resolveWorkflowGuidanceContributorsV1(scope);
   assert.equal(workflowContributors.outcome, "available", order);
   assert.deepEqual(workflowContributors.records.map((contributor) => contributor.id), ["engine.unity"], order);
-  assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 1);
+  assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 0);
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
   const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_pipeline_run_tests");
   assert(recompileTool && pipelineTestTool, "pi-unity must register both bounded connected Pipeline execution tools");
@@ -120,7 +120,6 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   await emit(artifacts, "session_shutdown", ctx);
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
   assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "missing");
-  assert.equal(resolveUnityMigrationServiceV1(scope).outcome, "missing");
   assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "missing");
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "missing");
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "missing");
@@ -133,6 +132,7 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   const unity = fakePi();
   registerWorkflow(workflow as any);
   registerUnity(unity as any);
+  unity.setActiveTools(["workflow_guidance"]);
   if (order === "workflow-first") { await emit(workflow, "session_start", ctx); await emit(unity, "session_start", ctx); }
   else { await emit(unity, "session_start", ctx); await emit(workflow, "session_start", ctx); }
   assert.equal(resolveWorkflowGuidanceContributorsV1(scope).outcome, "available", order);
@@ -147,6 +147,7 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   const unity = fakePi();
   const ctx = { cwd: process.cwd(), sessionManager: scope, mode: "print", hasUI: false, ui: {} };
   registerUnity(unity as any);
+  unity.setActiveTools(["workflow_guidance"]);
   await emit(unity, "session_start", ctx);
   await emit(unity, "session_start", ctx);
   const workflowContributors = resolveWorkflowGuidanceContributorsV1(scope);
@@ -160,12 +161,11 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   const scopeB = {};
   const unity = fakePi();
   registerUnity(unity as any);
+  unity.setActiveTools(["project_artifact_search", "repository_search", "workflow_guidance"]);
   const ctxA = { cwd: process.cwd(), sessionManager: scopeA, mode: "print", hasUI: false, ui: {} };
   const ctxB = { ...ctxA, sessionManager: scopeB };
   await emit(unity, "session_start", ctxA);
   await emit(unity, "session_start", ctxB);
-  assert.equal(resolveUnityMigrationServiceV1(scopeA).outcome, "available");
-  assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "available");
   assert.equal(resolveArtifactProfilesV1(scopeA).outcome, "available");
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available");
   assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "available");
@@ -173,16 +173,13 @@ for (const order of ["workflow-first", "unity-first"] as const) {
   assert.equal(resolveWorkflowGuidanceContributorsV1(scopeA).outcome, "available");
   assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "available");
   await emit(unity, "session_shutdown", ctxA);
-  assert.equal(resolveUnityMigrationServiceV1(scopeA).outcome, "missing");
   assert.equal(resolveArtifactProfilesV1(scopeA).outcome, "missing");
   assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "missing");
   assert.equal(resolveWorkflowGuidanceContributorsV1(scopeA).outcome, "missing");
-  assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   await emit(unity, "session_shutdown", ctxB);
-  assert.equal(resolveUnityMigrationServiceV1(scopeB).outcome, "missing");
   assert.equal(resolveWorkflowGuidanceContributorsV1(scopeB).outcome, "missing");
 }
 {

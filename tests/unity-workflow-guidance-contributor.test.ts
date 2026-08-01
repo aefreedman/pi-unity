@@ -18,12 +18,6 @@ const expectedPlanGuidance = [
   fs.readFileSync(new URL("../references/unity-repo-research.md", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../references/workflow/plan.md", import.meta.url), "utf8"),
 ].join("\n\n");
-const expectedWorkGuidance = fs.readFileSync(new URL("../references/workflow/work.md", import.meta.url), "utf8");
-const retainedValidationRules = [
-  "known positive executed-test count and no failures before calling XML evidence passing.",
-  "Honor explicit PlayMode skips.",
-  "inspect the exact current-run artifacts once and do not relaunch unchanged work without a new hypothesis.",
-] as const;
 fs.mkdirSync(path.dirname(nestedTarget), { recursive: true });
 fs.mkdirSync(path.join(projectRoot, "ProjectSettings"), { recursive: true });
 fs.writeFileSync(path.join(projectRoot, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.18f1\n");
@@ -36,10 +30,10 @@ try {
   assert.equal(contributor.owner.packageVersion, JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
   assert.equal(contributor.owner.packageRoot, UNITY_WORKFLOW_GUIDANCE_CONTRIBUTOR_OWNER_V1.packageRoot);
   assert(path.isAbsolute(contributor.owner.packageRoot), "workflow guidance contributor owner must retain its physical package root");
-  assert.deepEqual(contributor.resources.map((resource) => resource.resourceId), ["guidance/unity/plan", "guidance/unity/work", "guidance/unity/review"]);
+  assert.deepEqual(contributor.resources.map((resource) => resource.resourceId), ["guidance/unity/plan", "guidance/unity/review"]);
   for (const [purpose, expectedResourceIds] of [
     ["plan", ["guidance/unity/plan"]],
-    ["work", ["guidance/unity/work"]],
+    ["work", []],
     ["review", ["guidance/unity/review"]],
     ["validation", []],
   ] as const) {
@@ -76,8 +70,8 @@ try {
     }
   }
   assert(!workflowGuidanceContributorSource.includes("Unity planning research (apply only after engine.unity matches)"), "Plan guidance must not retain the old detailed inline string.");
-  assert(workflowGuidanceContributorSource.includes("MARKDOWN_GUIDANCE_FILES") && workflowGuidanceContributorSource.includes("references/workflow/plan.md") && workflowGuidanceContributorSource.includes("references/workflow/work.md"), "Plan and work guidance must name packaged Markdown resources.");
-  assert(!workflowGuidanceContributorSource.includes("Unity work: preserve one-process-per-project safety"), "Work guidance must not retain the old inline summary.");
+  assert(workflowGuidanceContributorSource.includes("MARKDOWN_GUIDANCE_FILES") && workflowGuidanceContributorSource.includes("references/workflow/plan.md"), "Plan guidance must name its packaged Markdown resource.");
+  assert(!workflowGuidanceContributorSource.includes("references/workflow/work.md") && !workflowGuidanceContributorSource.includes('"guidance/unity/work"'), "Operational work guidance belongs to skills, not workflow composition.");
   const fullPlan = await contributor.loadGuidance!(context, { resourceId: "guidance/unity/plan", purpose: "work", maxChars: expectedPlanGuidance.length + 1, signal });
   assert.equal(fullPlan.outcome, "available");
   if (fullPlan.outcome === "available") {
@@ -86,7 +80,7 @@ try {
     assert.equal(fullPlan.ref.packageName, "@aefree/pi-unity");
     assert.equal(fullPlan.ref.packageVersion, contributor.owner.packageVersion);
     assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(fullPlan.content), "Plan guidance must not contain a machine-specific absolute path.");
-    for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "unity_pipeline_eval", "unity_pipeline_inspect", "package-owned purpose-built inspection command", "arbitrary C# compiled by Roslyn", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
+    for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "Planning is inspection-only", "do not launch, mutate, build, test, install, save, or change lifecycle state without explicit authorization", "verification gap"]) {
       assert(fullPlan.content.includes(snippet), `Missing planning guidance: ${snippet}`);
     }
   }
@@ -96,26 +90,9 @@ try {
     assert.equal(boundedPlan.content, expectedPlanGuidance.slice(0, 80));
     assert.equal(boundedPlan.truncated, true);
   }
-  const fullWork = await contributor.loadGuidance!(context, { resourceId: "guidance/unity/work", purpose: "work", maxChars: expectedWorkGuidance.length + 1, signal });
-  assert.equal(fullWork.outcome, "available");
-  if (fullWork.outcome === "available") {
-    assert.equal(fullWork.content, expectedWorkGuidance, "Work guidance must load from packaged Markdown.");
-    assert.equal(fullWork.truncated, false);
-    assert.deepEqual(fullWork.ref, { packageName: "@aefree/pi-unity", packageVersion: contributor.owner.packageVersion, resourceId: "guidance/unity/work" });
-    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(fullWork.content), "Work guidance must not contain a machine-specific absolute path.");
-    for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
-      assert(fullWork.content.includes(snippet), `Missing Unity work guidance: ${snippet}`);
-    }
-    for (const rule of retainedValidationRules) {
-      assert.equal(fullWork.content.split(rule).length - 1, 1, `Work guidance must retain validation rule exactly once: ${rule}`);
-    }
-  }
-  const boundedWork = await contributor.loadGuidance!(context, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 80, signal });
-  assert.equal(boundedWork.outcome, "available");
-  if (boundedWork.outcome === "available") {
-    assert.equal(boundedWork.content, expectedWorkGuidance.slice(0, 80));
-    assert.equal(boundedWork.truncated, true);
-  }
+  assert.deepEqual(await contributor.loadGuidance!(context, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 80, signal }), {
+    outcome: "missing", code: "guidance_resource_missing", retryable: false,
+  }, "Work routing must remain skill-owned rather than workflow-composed.");
   for (const resourceId of ["guidance/unity/missing", "guidance/unity/validation"]) {
     assert.deepEqual(await contributor.loadGuidance!(context, { resourceId, purpose: "validation", maxChars: 10, signal }), {
       outcome: "missing", code: "guidance_resource_missing", retryable: false,
@@ -134,7 +111,7 @@ try {
   assert.deepEqual(await contributor.detect({ cwd: tempRoot, signal: aborted.signal }, { targetPath: nestedTarget, workflow: "work", signal: aborted.signal }), {
     outcome: "unavailable", code: "aborted", retryable: true,
   });
-  for (const resourceId of ["guidance/unity/plan", "guidance/unity/work"] as const) {
+  for (const resourceId of ["guidance/unity/plan"] as const) {
     assert.deepEqual(await contributor.loadGuidance!({ cwd: tempRoot, signal: aborted.signal }, { resourceId, purpose: "work", maxChars: 10, signal: aborted.signal }), {
       outcome: "unavailable", code: "aborted", retryable: true,
     });
@@ -144,7 +121,7 @@ try {
     createContributor: createUnityWorkflowGuidanceContributorV1,
     matchingTarget: nestedTarget,
     nonMatchingTarget: noMatchRoot,
-    guidanceResourceId: "guidance/unity/work",
+    guidanceResourceId: "guidance/unity/plan",
   });
   assert.equal(report.passed, true);
   assert(report.checks.includes("bounded guidance"));

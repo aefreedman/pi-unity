@@ -59,11 +59,14 @@ export function createUnityArtifactProfileV1(): ArtifactProfileV1 {
     }]),
     async appliesTo(_context, request) {
       if (request.signal.aborted) return false;
-      if (request.artifactPath && /(?:^|[\\/])solutions(?:[\\/]|$)/iu.test(request.artifactPath)) return true;
+      // Profiles are composable candidates. A solution path alone is not Unity
+      // authority: require Unity project evidence before contributing metadata.
       try {
         await access(path.join(request.workspaceRoot, "ProjectSettings", "ProjectVersion.txt"));
         return true;
-      } catch { return false; }
+      } catch {
+        return false;
+      }
     },
   });
 }

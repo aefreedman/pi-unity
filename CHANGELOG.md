@@ -7,55 +7,19 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
-### Added
+### Removed
 
-- Added the general-purpose `unity-debugging` skill with a documented-prerequisite-first feature activation decision tree and a UI Toolkit Live Reload prerequisite example.
-- Added `unity_pipeline_recompile`, `unity_pipeline_run_tests`, and `unity_pipeline_eval`: typed connected exact-copy Pipeline operations with advertised-command preflight, lifecycle/identity checks, fixed-deadline internal polling, compact aggregate results, and bounded failure diagnostics.
-- Added sanitized nested object/stringified Pipeline response, zero-running initiation, identity-change, abort, pre-existing-run, and compact-output regression coverage.
-- Added `/unity-playmode-exit allow|disallow|status`, a session-branch-scoped, default-disallowed authorization toggle enforced by package-owned typed lifecycle operations that may exit Play Mode.
-- Added a session-scoped Unity repository-search policy for detected generated/cache/output directories and reusable provider conformance coverage.
-- Added the preserved `unity-docs` solution-capture skill with skill-relative schema, templates, and references.
-- Added explicit Unity solution artifact v1/v2 fields and validators over the canonical project-artifact profile contract, including complete-v2 authority and partial-hybrid conflict semantics.
-- Added `UnityMigrationServiceV1`, `unity_migrate_solution_docs`, and an updated CLI migrator with normalized collision detection, complete mapping/override authority, content-hashed staging and backups, journaled apply/resume/rollback, inbound-link reconciliation, exclusive run/report paths, and backup/VCS restore gates.
-- Added synthetic profile, repository-policy, migration collision/interruption/link/backup/recovery, physical symlink/junction containment, concurrent recovery, lossless frontmatter, POSIX mode, reverse load-order, and Pi registration fixtures.
-- Added the `engine.unity` `WorkflowGuidanceContributorV1`, with validated exact/enclosing `ProjectVersion.txt` applicability, deterministic nested-project ambiguity handling, bounded plan/work/review guidance, conformance coverage, and packed-copy checks.
-- Added deterministic Unity planning coverage for nested-project ambiguity, bounded command discovery, exact-copy eval dispatch, credential redaction, timeout uncertainty, and route-specific launch safety.
-
-### Fixed
-
-- Corrected connected recompile Play Mode handling: it never preemptively sends `editor_stop` or overrides Unity's Script Changes While Playing policy. Known continue, stop-and-recompile, and defer policies are normalized when future `editor_status` payloads expose them; the current unavailable preference is conservatively reported as uncertainty, with session exit authorization required only where recompile may exit Play Mode. Output/details distinguish explicit test-driven agent exit from Unity-policy-driven or unknown recompile behavior.
-- Recognized Pipeline `no_tests`, idle, and not-started responses as safe inactive test preflight states, including the stringified Pipeline 0.4 response observed in live NOR sessions; unknown states now report their bounded status token.
+- Removed the Unity solution-document migration and capture surface; pi-unity now contributes schema metadata without selecting schemas or rewriting project documents.
+- Removed `package-lock.json` until the optional development packages are publicly resolvable and a standalone lockfile can be generated.
 
 ### Changed
 
-- Documented the boundaries and rationale of the package's six Unity skills, including the distinction between reusable diagnostic strategy and operation-specific failure handling.
-- Improved connected Pipeline TUI rows with bounded operation-specific call previews, styled transient progress, compact compile/test summaries, collapsed eval/inspection evidence, expansion hints, and component reuse; sensitive-looking preview assignments are redacted before rendering.
-- Added `unity_pipeline_eval` as the bounded C# REPL tool and renamed the purpose-built connected inspection surface to `unity_pipeline_inspect`; the obsolete planning-oriented eval parameter shape is not retained. Eval is documented accurately as Roslyn-compiled arbitrary C# on the Editor main thread; typed tools remain preferred evidence-producing conveniences, while user intent and guidance—not a syntax allowlist—govern mutations.
-- Updated the Pi development baseline to 0.83.0.
-
-- Made `@aefree/pi-workflow` an optional guidance-composition peer integration. `engine.unity` now registers dynamically as a guidance contributor at session startup only when its exact workflow contract resolves; workflow-absent installs retain Unity tools, migration, repository policy, and references, while broken installed contracts fail visibly.
-- Moved `guidance/unity/work` from an inline summary into bounded runtime-loaded package Markdown. The Unity work overlay preserves exact-copy identity, includes the work-specific validation evidence rules formerly declared separately, prefers reachable connected Pipeline routes, constrains isolated batchmode fallback, and retains sanitized missing/unavailable/abort results with stable package/resource provenance.
-- Moved detailed `guidance/unity/plan` content into runtime-loaded packaged Markdown: the canonical Unity repository-research reference now supplies exact-version documentation priority, while a small workflow overlay supplies connected CLI/Pipeline boundaries. Missing packaged guidance is sanitized, and the contributor retains bounded output and stable package provenance.
-- Declared semver dependencies on the capability registry and canonical repository/artifact contracts; neutral installs co-install their tarballs and never copy sibling repositories into the Unity archive.
-- Reworked solution migration to exact-range frontmatter patches, complete moved-document outbound-link rebasing, final broken-link blocking, POSIX mode journaling/restoration, physical nearest-ancestor revalidation, and one queue/lock domain for apply/resume/rollback.
-- Made Unity capability shutdown scope-owned so a delayed old-session shutdown cannot unregister a newer active session.
-- Made Unity repository policy, artifact, migration, and workflow-guidance-contributor registrations independently scoped rather than replacing another live session.
-
-### Removed
-
-- Removed the `capturing-screenshots-unity` skill, its screenshot utility, and its unreferenced capture guidance.
-- Removed the frozen pi-game-dev legacy-reference payload copies, `LegacyReferenceServiceV1` provider registration, and compatibility snapshot test. Canonical Unity resources and their direct package validation remain.
-
-### Safety
-
-- Unity document migration remains dry-run by default, requires approval of the exact current manifest hash before apply, rejects manual-review bypasses, and is never run against real project docs during package validation.
+- Reduced workflow composition to Unity repository research plus one inspection-only planning boundary; compile, test, batchmode, and validation routing remains owned by the package skills.
+- Optional artifact-profile, repository-policy, and workflow composition now uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
 
 ### Fixed
 
-- Kept guidance composition limited to validated Unity project-copy applicability: it does not inspect Editor locks, processes, or readiness; nested discovery never guesses among copies, and owning Unity tools retain lifecycle checks.
-- Raised bounded Pipeline discovery waits beyond the old five-second edge while exposing timeout/startup uncertainty separately from confirmed absence; process fallback rendering now redacts access-token and credential-like argument values.
-- Required connected, batchmode, and artifact-inspected Unity test evidence to report a known positive executed-test count while preserving bounded connected polling and nonterminal running responses.
-- Made inherited-guidance audit tests compare canonical paths so macOS `/var` aliases do not cause false CI failures.
+- Made multi-integration registration transactional: failures while registering a second or third optional integration roll back every earlier record for that session scope.
 
 ## [0.8.2] - 2026-07-24
 

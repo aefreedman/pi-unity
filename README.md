@@ -9,8 +9,6 @@ Pi skill and tool package for reusable Unity workflows.
 - skill: `unity-batchmode-tests`
 - skill: `unity-interactive-playmode-authoring`
 - skill: `auditing-unity-agent-guidance`
-- skill: `unity-docs` (solution-capture compatibility name preserved)
-- tool: `unity_migrate_solution_docs`
 - tool: `unity_guidance_audit`
 - tool: `unity_project_status`
 - tool: `unity_pipeline_recompile`
@@ -32,7 +30,6 @@ Each packaged skill owns a distinct kind of Unity work:
 - `unity-batchmode-tests` owns isolated or report-producing Unity Test Framework execution.
 - `unity-interactive-playmode-authoring` owns explicit temporary inspection and tuning of live runtime state, followed by deliberate persistence when requested.
 - `auditing-unity-agent-guidance` owns review and migration of project-local Unity automation instructions.
-- `unity-docs` owns capture of validated solutions and migration of solution-document schemas.
 
 Operation-specific failure handling remains with the owning operational skill. `unity-debugging` owns reusable diagnostic strategy, not every troubleshooting instruction associated with Unity operations.
 
@@ -60,12 +57,9 @@ pi install -l <path-to-pi-unity>
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
 - `unity-debugging` provides general-purpose, evidence-first Unity diagnosis. For inactive features it routes agents through exact-version documentation, documented feature gates, and observable activation signals before project code, reflection, assembly searches, or Unity internals. Its UI Toolkit example checks the Game View Live Reload setting before callback diagnosis.
-- On every `session_start`, pi-unity registers a Unity generated-directory repository-search policy, a Unity solution-artifact v1/v2 profile, and `UnityMigrationServiceV1`. When the optional `@aefree/pi-workflow` contract is installed and valid, it also registers the `engine.unity` `WorkflowGuidanceContributorV1`; when that package is absent, all Unity tools, migration, repository policy, and references remain available without workflow composition. A broken installed workflow contract fails visibly. The contributor resolves an exact or enclosing Unity root from validated `ProjectSettings/ProjectVersion.txt` evidence and performs bounded nested discovery only when one copy is unambiguous; multiple copies are an explicit selection gap. Composition performs no Editor lock, process, or readiness inspection. Its plan, work, and review guidance is loaded from package-owned resources with bounded, sanitized results and stable package/resource provenance. The work overlay preserves exact-copy identity, includes Unity validation evidence rules, prefers reachable connected Pipeline compile/test routes, and limits isolated batchmode to explicit supported reasons; it never switches after uncertain connected dispatch. For external Unity/package API behavior, plan guidance inspects the project/version manifests and routes evidence from project docs, exact-version local docs, active Pi docs tools, then reachable official vendor docs; unavailable docs are a verification gap, never a reason to install or upgrade. Registrations are isolated per session scope, safe under reverse load order, and a delayed old-session shutdown cannot remove another scope's current records.
+- `@aefree/pi-project-artifacts`, `@aefree/pi-repo-search`, and `@aefree/pi-workflow` are independent optional peer integrations. When their Pi tools are active, pi-unity uses the capability contracts' global registry rendezvous to register a Unity solution-artifact profile candidate, generated-directory repository-search policy candidate, and/or `engine.unity` workflow contributor. It never resolves optional peers from pi-unity's own module root, so separately installed Git/local packages compose correctly. Core Unity tools load without them; an advertised but malformed registry contract fails visibly. Registrations are scoped, reverse-load-order safe, transactional across all active integrations, and a delayed old-session shutdown cannot remove another scope's current records.
 - The repository policy excludes `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs` only for detected Unity project roots. The canonical repository-search package remains Unity-neutral.
-- The artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. Generic artifact search remains available when this profile is missing, while profile-specific filters return `missing_profile`.
-- `unity_migrate_solution_docs` is dry-run for `operation=plan`. Apply requires the exact reviewed `approvalHash`, explicit authorization, and a backup/VCS recovery gate. It performs normalized destination collision checks; exact-range, lossless classification patches; rebases inbound and all moved-document outbound local Markdown links (inline, reference-definition, and bare paths); rejects final broken links; preserves POSIX modes; stages hashed outputs; creates byte backups; and journals every operation. Apply/resume/rollback share one root queue and nonce-owned lock with explicit journal transitions. Destination, run, lock, backup, and stage paths are physically revalidated immediately before mutation. `--include-manual-review` is intentionally unsupported.
-- Package validation uses synthetic migration fixtures only. Publication/package install never authorizes migration against real project documents.
-- `unity-docs` keeps all templates, schema, and guidance under its own skill directory and uses the canonical project artifact/migration tools rather than installation-specific package paths.
+- The optional artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. It contributes only when the workspace has Unity `ProjectVersion.txt` evidence, so a generic `docs/solutions` path never selects it by itself.
 - `unity_guidance_audit` performs a bounded, read-only scan of AGENTS.md, CLAUDE.md, Copilot, and Cursor guidance for outdated Unity CLI/Pipeline, batchmode, test, lifecycle, and exact-project-copy instructions. The `auditing-unity-agent-guidance` skill owns contextual migration and user-authorized edits.
 - `unity_open_editor` launches the full Unity Editor GUI.
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
@@ -152,22 +146,13 @@ pi-unity/
     unity-processes.ts
     unity-project-lock.ts
     unity-projects.ts
-  contracts/
-    v1.ts
   references/
     _shared/unity-repo-research.md
     workflow/plan.md
     workflow/work.md
-  scripts/
-    migrate-unity-docs-schema.ts
   skills/
     unity-debugging/
       SKILL.md
-    unity-docs/
-      SKILL.md
-      schema.yaml
-      references/
-      assets/
     auditing-unity-agent-guidance/
       SKILL.md
       references/
@@ -186,7 +171,11 @@ npm test
 npm pack --dry-run
 ```
 
-The package declares semver dependencies on `@aefree/pi-capability-registry`, `@aefree/pi-project-artifacts`, and `@aefree/pi-repo-search`. `@aefree/pi-workflow` is an optional peer integration: install it to compose `engine.unity`, or omit it to use the standalone Unity package. Neutral consumers co-install tarballs; the Unity archive contains no copied dependency tree, sibling `file:` path, or workspace link.
+The package declares optional peer integrations for `@aefree/pi-project-artifacts`, `@aefree/pi-repo-search`, and `@aefree/pi-workflow`; install only the integrations needed for profile, repository-policy, or workflow composition. The standalone Unity tools do not require them. The package archive contains no copied dependency tree, sibling `file:` path, or workspace link.
+
+## Release status
+
+No `package-lock.json` is committed while the optional development packages remain unpublished. Publishing remains blocked until those development dependencies can resolve from a public registry (or another authorized distribution source), after which a standalone lockfile must be generated and validated.
 
 ## License
 

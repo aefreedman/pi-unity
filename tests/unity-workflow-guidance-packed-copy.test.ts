@@ -14,7 +14,7 @@ const packed = JSON.parse(output) as Array<{ files?: Array<{ path: string }>; bu
 assert.equal(packed.length, 1, "Expected one packed pi-unity archive description.");
 const archive = packed[0]!;
 const files = new Set((archive.files ?? []).map((entry) => entry.path));
-for (const required of ["src/unity-workflow-guidance-contributor.ts", "contracts/v1.ts", "index.ts", "package.json", "references/unity-repo-research.md", "references/workflow/plan.md", "references/workflow/work.md"]) {
+for (const required of ["src/unity-workflow-guidance-contributor.ts", "index.ts", "package.json", "references/unity-repo-research.md", "references/workflow/plan.md"]) {
   assert(files.has(required), `Packed pi-unity copy is missing ${required}.`);
 }
 assert.equal((archive.bundled ?? []).length, 0, "Packed pi-unity must co-install contract owners instead of bundling sibling repositories.");
@@ -36,27 +36,18 @@ try {
   assert.equal(planGuidance.outcome, "available", "A copied installed contributor must load its packaged planning Markdown.");
   if (planGuidance.outcome === "available") {
     assert(planGuidance.content.includes("# Unity Repository Research"));
-    assert(planGuidance.content.includes("# Connected Planning and Documentation Routing"));
+    assert(planGuidance.content.includes("Planning is inspection-only"));
     assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(planGuidance.content), "Copied-contributor guidance must not leak its installation path.");
   }
-  const workGuidance = await contributor.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100_000, signal });
-  assert.equal(workGuidance.outcome, "available", "A copied installed contributor must load its packaged work Markdown.");
-  if (workGuidance.outcome === "available") {
-    assert(workGuidance.content.includes("# Unity Work Routing"));
-    assert(workGuidance.content.includes("Do not silently switch to batchmode after an uncertain connected dispatch."));
-    assert.deepEqual(workGuidance.ref, { packageName: "@aefree/pi-unity", packageVersion: contributor.owner.packageVersion, resourceId: "guidance/unity/work" });
-    assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workGuidance.content), "Copied work guidance must not leak its installation path.");
-  }
   assert.equal(contributor.owner.packageRoot, installedCopy, "Copied contributor provenance must use its installed package root.");
-  const workPath = path.join(installedCopy, "references", "workflow", "work.md");
-  fs.rmSync(workPath);
   assert.deepEqual(await contributor.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100, signal }), {
     outcome: "missing", code: "guidance_resource_missing", retryable: false,
-  }, "A missing packaged optional work resource must produce a sanitized stable result.");
-  fs.mkdirSync(workPath);
-  assert.deepEqual(await contributor.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/work", purpose: "work", maxChars: 100, signal }), {
-    outcome: "unavailable", code: "guidance_resource_unavailable", retryable: false,
-  }, "An unreadable packaged work resource must produce a sanitized stable result.");
+  }, "Operational work routing must remain skill-owned rather than workflow-composed.");
+  const planPath = path.join(installedCopy, "references", "workflow", "plan.md");
+  fs.rmSync(planPath);
+  assert.deepEqual(await contributor.loadGuidance({ cwd: installedCopy, signal }, { resourceId: "guidance/unity/plan", purpose: "plan", maxChars: 100, signal }), {
+    outcome: "missing", code: "guidance_resource_missing", retryable: false,
+  }, "A missing packaged planning boundary must produce a sanitized stable result.");
 } finally {
   fs.rmSync(installedCopy, { recursive: true, force: true });
 }

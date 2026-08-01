@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { assertArtifactProfileConformanceV1 } from "@aefree/pi-project-artifacts/contracts/v1/conformance";
 import { createUnityArtifactProfileV1, validateUnitySolutionArtifact } from "../src/unity-artifact-profile";
 
@@ -20,4 +23,17 @@ const report = await assertArtifactProfileConformanceV1({
 });
 assert.equal(report.passed, true);
 assert(report.checks.includes("invalid fixture"));
+
+const root = await mkdtemp(join(tmpdir(), "pi-unity-artifact-profile-"));
+try {
+  const profile = createUnityArtifactProfileV1();
+  const context = { cwd: root, signal: new AbortController().signal };
+  const request = { workspaceRoot: root, artifactPath: join(root, "docs", "solutions", "entry.md"), signal: context.signal };
+  assert.equal(await profile.appliesTo?.(context, request), false, "A generic solutions path must not select the Unity profile.");
+  await mkdir(join(root, "ProjectSettings"));
+  await writeFile(join(root, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.0f1\n");
+  assert.equal(await profile.appliesTo?.(context, request), true, "Unity project evidence makes the profile a candidate.");
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 console.log("pi-unity artifact profile tests passed");
