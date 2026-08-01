@@ -10,15 +10,24 @@ export const UNITY_PIPELINE_BACKOFF_SECONDS = Object.freeze([1, 2, 3, 5, 8]);
 export const UNITY_PIPELINE_MAX_DIAGNOSTICS = 8;
 export const UNITY_PIPELINE_MAX_STACK_CHARS = 600;
 
-export type UnityPipelineCompileRequest = { projectRoot: string; unityVersion: string; timeoutSeconds?: number };
-export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; timeoutSeconds?: number };
+export type UnityPipelineCompileRequest = { projectRoot: string; unityVersion: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
+export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
 export type UnityPipelineProgress = (message: string) => void;
+/** Unity's EditorSettings.ScriptChangesWhilePlaying values when a future editor_status payload supplies one. */
+export type UnityScriptChangesWhilePlayingPolicy = "recompile_and_continue" | "stop_and_recompile" | "defer" | "unknown";
+export type UnityPipelinePlayModeHandling = "not_playing" | "agent_exited" | "unity_policy_continue" | "unity_policy_may_exit" | "unity_policy_defer" | "policy_unknown";
 export type UnityPipelineOperationDetails = {
   projectRoot: string;
   operation: "recompile" | "tests";
   terminalState: "up_to_date" | "completed";
   elapsedSeconds: number;
   compilationTriggered?: boolean;
+  /** True only when pi-unity explicitly sent editor_stop and verified Edit Mode. */
+  exitedPlayMode?: boolean;
+  /** Distinguishes an explicit agent exit from Unity-policy-driven or unavailable-policy behavior. */
+  playModeHandling?: UnityPipelinePlayModeHandling;
+  /** Present for a recompile started while Play Mode was active; unknown means Pipeline did not expose the preference. */
+  scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy;
   testPlatform?: "EditMode" | "PlayMode";
   testFilter?: string;
   counts?: { total: number; passed?: number; failed: number; inconclusive?: number };
@@ -29,7 +38,7 @@ type RecordValue = Record<string, unknown>;
 type ParsedEnvelope = { result: RecordValue; outerSuccess: boolean; malformed?: string };
 type NormalizedCompile = { state: "up_to_date" | "triggered" | "compiling" | "completed" | "failed" | "uncertain"; diagnostics: string[]; failed: boolean };
 type NormalizedTest = {
-  state: "starting" | "running" | "completed" | "failed" | "cancelled" | "uncertain";
+  state: "inactive" | "starting" | "running" | "completed" | "failed" | "cancelled" | "uncertain";
   total?: number; passed?: number; failed?: number; inconclusive?: number; failures: string[];
   correlation: Record<string, string>;
 };
@@ -78,7 +87,7 @@ async function defaultSleep(milliseconds: number, signal?: AbortSignal): Promise
 }
 
 /** Only package-owned argument arrays are produced; callers cannot select arbitrary Pipeline commands. */
-export function createUnityPipelineCommand(projectRoot: string, command: "editor_status" | "recompile" | "recompile_status" | "run_tests" | "test_status", args: string[] = [], options: { timeoutSeconds?: number; cliCommand?: string } = {}) {
+export function createUnityPipelineCommand(projectRoot: string, command: "editor_status" | "editor_stop" | "recompile" | "recompile_status" | "run_tests" | "test_status", args: string[] = [], options: { timeoutSeconds?: number; cliCommand?: string } = {}) {
   return {
     command: resolveUnityCliCommand({ cliCommand: options.cliCommand }),
     args: ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--timeout", String(options.timeoutSeconds ?? 12), command, ...args],
@@ -178,10 +187,13 @@ function normalizedMode(value: string): string {
 function correlation(result: RecordValue): Record<string, string> {
   const found: Record<string, string> = {};
   walk(result, item => {
-    for (const [name, keys] of Object.entries({ mode: ["mode", "testplatform", "platform"], filter: ["filter", "testfilter"], runId: ["runid", "id", "testrunid"], statusPath: ["statuspath", "status_path"] })) {
+    for (const [name, keys] of Object.entries({ mode: ["mode", "testplatform", "platform"], filter: ["filter", "testfilter", "filterapplied"], runId: ["runid", "id", "testrunid"], statusPath: ["statuspath", "status_path"] })) {
       if (found[name]) continue;
       const value = string(field(item, ...keys));
-      if (value) found[name] = name === "mode" ? normalizedMode(value) : bounded(value, 200);
+      if (!value) continue;
+      found[name] = name === "mode" ? normalizedMode(value)
+        : name === "filter" ? bounded(value.replace(/^testname\s*:\s*/i, ""), 200)
+          : bounded(value, 200);
     }
   });
   return found;
@@ -197,16 +209,57 @@ export function normalizeUnityPipelineTest(output: string): NormalizedTest {
   const raw = statusOf(parsed.result);
   const semanticFailed = !parsed.outerSuccess || hasSemanticFailure(parsed.result) || (failedCount ?? 0) > 0;
   const state = semanticFailed || raw === "failed" || raw === "error" ? "failed" : raw === "cancelled" || raw === "canceled" ? "cancelled"
-    : raw === "running" ? "running" : raw === "starting" || raw === "queued" ? "starting"
-      : raw === "completed" || raw === "complete" || raw === "success" ? "completed" : "uncertain";
+    : raw === "no_tests" || raw === "idle" || raw === "not_started" || raw === "not_running" ? "inactive"
+      : raw === "running" ? "running" : raw === "starting" || raw === "queued" ? "starting"
+        : raw === "completed" || raw === "complete" || raw === "success" ? "completed" : "uncertain";
   return { state, total, passed, failed: failedCount, inconclusive, failures: testFailures(parsed.result), correlation: correlation(parsed.result) };
 }
 
-function lifecycleIsIncompatible(output: string): boolean {
+function editorStopSucceeded(output: string): boolean {
+  try {
+    const outer = record(JSON.parse(output));
+    const data = record(outer?.data);
+    if (outer?.success !== true || data?.success === false) return false;
+    const rawResult = data?.result;
+    if (typeof rawResult === "string") return /^(?:exited play mode|already in edit mode)$/i.test(rawResult.trim());
+    const result = record(rawResult);
+    return Boolean(result && !hasSemanticFailure(result));
+  } catch {
+    return false;
+  }
+}
+
+function editorLifecycleState(result: RecordValue): "compatible" | "playing" | "paused" {
+  const state = statusOf(result);
+  const playMode = string(field(result, "playmode", "play_mode"))?.toLowerCase();
+  if (state === "paused" || playMode === "paused" || field(result, "ispaused") === true) return "paused";
+  if (state === "playmode" || state === "playing" || playMode === "playing" || playMode === "started" || field(result, "isplaying") === true) return "playing";
+  return "compatible";
+}
+
+/** Normalizes Unity's documented ScriptChangesWhilePlaying enum labels and serialized enum values. */
+export function normalizeUnityScriptChangesWhilePlaying(value: unknown): UnityScriptChangesWhilePlayingPolicy {
+  if (value === 0 || value === "0") return "recompile_and_continue";
+  if (value === 1 || value === "1") return "defer";
+  if (value === 2 || value === "2") return "stop_and_recompile";
+  if (typeof value !== "string") return "unknown";
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (normalized === "recompileandcontinue" || normalized.endsWith("recompileandcontinueplaying")) return "recompile_and_continue";
+  if (normalized === "stopandrecompile" || normalized.endsWith("stopplayingandrecompile")) return "stop_and_recompile";
+  if (normalized === "recompileafterplaymode" || normalized === "defer" || normalized === "deferred" || normalized.endsWith("recompileafterfinishedplaying")) return "defer";
+  return "unknown";
+}
+
+function editorStatus(output: string): { lifecycle: "compatible" | "playing" | "paused"; scriptChangesWhilePlaying: UnityScriptChangesWhilePlayingPolicy } {
   const parsed = parseUnityPipelineEnvelope(output);
   if (parsed.malformed || !parsed.outerSuccess) throw new Error("Unity Pipeline editor_status evidence is malformed or unavailable; operation not started.");
-  const state = statusOf(parsed.result);
-  return state === "playmode" || state === "playing" || state === "paused" || field(parsed.result, "isplaying") === true || field(parsed.result, "ispaused") === true;
+  let policy: UnityScriptChangesWhilePlayingPolicy = "unknown";
+  walk(parsed.result, item => {
+    if (policy !== "unknown") return;
+    const candidate = field(item, "scriptchangeswhileplaying", "script_changes_while_playing", "scriptchangepolicy", "script_change_policy");
+    policy = normalizeUnityScriptChangesWhilePlaying(candidate);
+  });
+  return { lifecycle: editorLifecycleState(parsed.result), scriptChangesWhilePlaying: policy };
 }
 function capabilityError(capabilities: UnityCliProjectCapabilities, required: string[]): string | undefined {
   if (!capabilities.cliAvailable) return "Unity CLI is unavailable; operation not started.";
@@ -263,15 +316,69 @@ async function executeCommand(deps: PipelineDependencies, projectRoot: string, c
   if (deadline !== undefined) ensureBeforeDeadline(deadline, now, command);
   return result;
 }
-async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], signal: AbortSignal | undefined, deadline: number, now: () => number): Promise<UnityCliProjectCapabilities> {
+async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = false): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
   const capabilities = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   const error = capabilityError(capabilities, commands); if (error) throw new Error(error);
-  const editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
+  let editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
   if (editor.error) throw new Error("Unity Pipeline editor_status failed; operation not started.");
-  if (lifecycleIsIncompatible(editor.stdout)) throw new Error("Unity Editor is in Play Mode or paused; operation not started without lifecycle mutation.");
+  let status = editorStatus(editor.stdout);
+  let exitedPlayMode = false;
+  let playModeHandling: UnityPipelinePlayModeHandling = "not_playing";
+
+  if (status.lifecycle !== "compatible" && operation === "recompile") {
+    const policy = status.scriptChangesWhilePlaying;
+    if (policy === "recompile_and_continue") {
+      playModeHandling = "unity_policy_continue";
+    } else if (policy === "defer") {
+      playModeHandling = "unity_policy_defer";
+    } else {
+      const policyDescription = policy === "stop_and_recompile"
+        ? "Unity's Script Changes While Playing policy may stop Play Mode to recompile"
+        : "Pipeline editor_status does not expose Unity's Script Changes While Playing policy, so recompilation may continue, defer, or stop Play Mode";
+      if (!allowAutonomousExitPlayMode) throw new Error(`${policyDescription}; autonomous Play Mode exit is disallowed for this session, so recompile was not started.`);
+      // RecompileCommand owns AssetDatabase.Refresh. Do not preempt it with editor_stop or override Unity's policy.
+      playModeHandling = policy === "stop_and_recompile" ? "unity_policy_may_exit" : "policy_unknown";
+    }
+  } else if (status.lifecycle !== "compatible") {
+    // Test execution has separate lifecycle semantics: stop explicitly only with session authorization.
+    if (!allowAutonomousExitPlayMode) throw new Error("Unity Editor is in Play Mode or paused; autonomous Play Mode exit is disallowed for this session, so tests were not started.");
+    const stopError = capabilityError(capabilities, ["editor_stop"]); if (stopError) throw new Error(stopError);
+    const stopped = await executeCommand(deps, projectRoot, "editor_stop", [], signal, deadline, now);
+    if (stopped.error) throw new Error("Unity Pipeline editor_stop failed; tests were not started and Play Mode state is uncertain.");
+    if (!editorStopSucceeded(stopped.stdout)) throw new Error("Unity Pipeline editor_stop returned failing or malformed evidence; tests were not started and Play Mode state is uncertain.");
+    const sleep = deps.sleep ?? defaultSleep;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const delay = Math.min(UNITY_PIPELINE_BACKOFF_SECONDS[attempt]! * 1000, deadline - now());
+      if (delay <= 0) break;
+      await sleep(delay, signal); throwIfAborted(signal); ensureBeforeDeadline(deadline, now, "Play Mode exit");
+      editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
+      if (editor.error) continue;
+      status = editorStatus(editor.stdout);
+      if (status.lifecycle === "compatible") { exitedPlayMode = true; break; }
+    }
+    if (!exitedPlayMode) throw new Error("Unity Play Mode exit did not reach a verified stopped state; tests were not started.");
+    playModeHandling = "agent_exited";
+  }
   const refreshed = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   if (capabilityError(refreshed, commands) || !sameIdentity(capabilities, refreshed, projectRoot)) throw new Error("Unity Pipeline identity changed before dispatch; operation not started.");
-  return refreshed;
+  return { capabilities: refreshed, exitedPlayMode, playModeHandling, ...(operation === "recompile" && status.lifecycle !== "compatible" ? { scriptChangesWhilePlaying: status.scriptChangesWhilePlaying } : {}) };
+}
+function playModeOutcomeText(preflight: { playModeHandling: UnityPipelinePlayModeHandling }): string {
+  switch (preflight.playModeHandling) {
+    case "agent_exited": return "Pi-unity explicitly exited Play Mode under current session authorization.\n";
+    case "unity_policy_continue": return "Unity's Script Changes While Playing policy is recompile and continue; pi-unity did not send editor_stop.\n";
+    case "unity_policy_may_exit": return "Unity's Script Changes While Playing policy may stop Play Mode during recompile; pi-unity did not send editor_stop.\n";
+    case "unity_policy_defer": return "Unity's Script Changes While Playing policy defers recompilation until Play Mode ends; pi-unity did not send editor_stop.\n";
+    case "policy_unknown": return "Unity's Script Changes While Playing policy was unavailable; recompile was authorized because it may affect Play Mode, and pi-unity did not send editor_stop.\n";
+    default: return "";
+  }
+}
+function playModeDetails(preflight: { exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }) {
+  return {
+    exitedPlayMode: preflight.exitedPlayMode,
+    playModeHandling: preflight.playModeHandling,
+    ...(preflight.scriptChangesWhilePlaying === undefined ? {} : { scriptChangesWhilePlaying: preflight.scriptChangesWhilePlaying }),
+  };
 }
 function checkCorrelation(expected: Record<string, string>, actual: Record<string, string>): boolean {
   return Object.entries(expected).every(([key, value]) => !actual[key] || actual[key] === value);
@@ -292,7 +399,9 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
   const timeoutSeconds = request.timeoutSeconds ?? UNITY_PIPELINE_COMPILE_TIMEOUT_SECONDS;
   if (timeoutSeconds < 1 || timeoutSeconds > UNITY_PIPELINE_MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${UNITY_PIPELINE_MAX_TIMEOUT_SECONDS}.`);
   const projectRoot = await (deps.canonicalize ?? realpath)(request.projectRoot); const start = now(); const deadline = start + timeoutSeconds * 1000;
-  const identity = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "recompile", "recompile_status"], signal, deadline, now);
+  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "recompile", "recompile_status"], "recompile", signal, deadline, now, request.allowAutonomousExitPlayMode);
+  const identity = preflight.capabilities;
+  const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "recompile before dispatch");
   throwIfAborted(signal);
   const dispatched = await executeCommand(deps, projectRoot, "recompile", [], signal, deadline, now);
@@ -300,7 +409,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
   let state = normalizeUnityPipelineCompile(dispatched.stdout);
   if (state.state === "uncertain") throw new Error("Unity Pipeline recompile dispatch returned malformed or uncertain evidence; operation may have started.");
   if (state.state === "failed") throw new Error(`Unity recompile failed: ${state.diagnostics.join("; ") || "compiler failure reported"}`);
-  if (state.state === "up_to_date") return { text: `Unity scripts are up to date for ${projectRoot}; no compilation was triggered.`, details: { projectRoot, operation: "recompile", terminalState: "up_to_date", elapsedSeconds: elapsed(start, now), compilationTriggered: false } };
+  if (state.state === "up_to_date") return { text: `${lifecyclePrefix}Unity scripts are up to date for ${projectRoot}; no compilation was triggered.`,  details: { projectRoot, operation: "recompile", terminalState: "up_to_date", elapsedSeconds: elapsed(start, now), compilationTriggered: false, ...playModeDetails(preflight) } };
   for (let poll = 0; now() < deadline; poll += 1) {
     options.onUpdate?.(`Unity recompile ${state.state}; ${elapsed(start, now).toFixed(1)}s elapsed.`);
     const delay = Math.min(UNITY_PIPELINE_BACKOFF_SECONDS[Math.min(poll, UNITY_PIPELINE_BACKOFF_SECONDS.length - 1)]! * 1000, deadline - now());
@@ -314,7 +423,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
     if (response.error) continue; // Domain reload can briefly disconnect the same exact copy.
     state = normalizeUnityPipelineCompile(response.stdout);
     if (state.state === "failed") throw new Error(`Unity recompile failed: ${state.diagnostics.join("; ") || "compiler failure reported"}`);
-    if (state.state === "completed" || state.state === "up_to_date") return { text: `Unity recompile completed for ${projectRoot} in ${elapsed(start, now).toFixed(1)}s; 0 compiler errors.`, details: { projectRoot, operation: "recompile", terminalState: state.state, elapsedSeconds: elapsed(start, now), compilationTriggered: true } };
+    if (state.state === "completed" || state.state === "up_to_date") return { text: `${lifecyclePrefix}Unity recompile completed for ${projectRoot} in ${elapsed(start, now).toFixed(1)}s; 0 compiler errors.`,  details: { projectRoot, operation: "recompile", terminalState: state.state, elapsedSeconds: elapsed(start, now), compilationTriggered: true, ...playModeDetails(preflight) } };
     if (state.state === "uncertain") throw new Error("Unity Pipeline recompile status is malformed or uncertain; operation may still be running.");
   }
   throw timeoutMessage("recompile");
@@ -325,19 +434,24 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   const timeoutSeconds = request.timeoutSeconds ?? UNITY_PIPELINE_TEST_TIMEOUT_SECONDS;
   if (timeoutSeconds < 1 || timeoutSeconds > UNITY_PIPELINE_MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${UNITY_PIPELINE_MAX_TIMEOUT_SECONDS}.`);
   const projectRoot = await (deps.canonicalize ?? realpath)(request.projectRoot); const start = now(); const deadline = start + timeoutSeconds * 1000;
-  const identity = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "run_tests", "test_status"], signal, deadline, now);
+  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "run_tests", "test_status"], "tests", signal, deadline, now, request.allowAutonomousExitPlayMode);
+  const identity = preflight.capabilities;
+  const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "tests before dispatch");
   const before = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now);
   if (before.error) throw new Error("Unity Pipeline test status is unavailable; test run not started.");
   const existing = normalizeUnityPipelineTest(before.stdout);
   if (existing.state === "starting" || existing.state === "running") throw new Error("A pre-existing connected Unity test run is active; test run not started.");
-  if (existing.state === "uncertain") throw new Error("Unity Pipeline test status is uncertain; test run not started.");
+  if (existing.state === "uncertain") {
+    const observed = statusOf(parseUnityPipelineEnvelope(before.stdout).result) ?? "unknown";
+    throw new Error(`Unity Pipeline returned unsupported preflight test status '${bounded(observed, 80)}'; test run not started.`);
+  }
   const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...(request.testFilter ? ["--filter", request.testFilter, "--filter_type", "testName"] : []), "--async_tests", "true"];
   ensureBeforeDeadline(deadline, now, "tests before dispatch"); throwIfAborted(signal);
   const dispatched = await executeCommand(deps, projectRoot, "run_tests", args, signal, deadline, now);
   if (dispatched.error) throw new Error("Unity Pipeline test dispatch failed; test run may not have started.");
   let state = normalizeUnityPipelineTest(dispatched.stdout);
-  if (state.state === "uncertain") throw new Error("Unity Pipeline test dispatch returned malformed or uncertain evidence; test run may have started.");
+  if (state.state === "uncertain" || state.state === "inactive") throw new Error("Unity Pipeline test dispatch returned inactive, malformed, or uncertain evidence; test run may not have started.");
   if (state.state === "failed" || state.state === "cancelled") throw new Error(`Unity ${request.testPlatform} tests failed: ${state.failures.join("; ") || state.state}.`);
   const requestedCorrelation = { mode: request.testPlatform, ...(request.testFilter ? { filter: request.testFilter } : {}) };
   if (!checkCorrelation(requestedCorrelation, state.correlation)) throw new Error("Unity Pipeline test dispatch reported a different mode or filter; operation state is uncertain.");
@@ -346,7 +460,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   if (state.state === "completed") {
     const counts = passingCounts(state);
     if (!counts) throw new Error("Unity test result is terminal but lacks passing evidence (consistent positive total, passed count, and reported zero failures).");
-    return { text: `Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
+    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
   }
   for (let poll = 0; now() < deadline; poll += 1) {
     options.onUpdate?.(`Unity ${request.testPlatform} tests ${state.state}; ${elapsed(start, now).toFixed(1)}s elapsed.`);
@@ -363,10 +477,11 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     if (!checkCorrelation(expected, state.correlation)) throw new Error("Unity Pipeline test status was displaced by a different run; operation state is uncertain.");
     if (state.state === "failed" || state.state === "cancelled") throw new Error(`Unity ${request.testPlatform} tests failed: ${state.failures.join("; ") || state.state}.`);
     if (state.state === "uncertain") throw new Error("Unity Pipeline test status is malformed or uncertain; operation may still be running.");
+    if (state.state === "inactive") throw new Error("Unity Pipeline test status became inactive before a terminal result; operation state is uncertain.");
     if (state.state !== "completed") continue;
     const counts = passingCounts(state);
     if (!counts) throw new Error("Unity test result is terminal but lacks passing evidence (consistent positive total, passed count, and reported zero failures).");
-    return { text: `Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
+    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
   }
   throw timeoutMessage("tests");
 }

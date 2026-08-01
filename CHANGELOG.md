@@ -9,18 +9,25 @@ and this project follows semantic versioning for public package releases.
 
 ### Added
 
-- Added `unity_pipeline_recompile` and `unity_pipeline_run_tests`: typed connected exact-copy Pipeline operations with advertised-command preflight, lifecycle/identity checks, fixed-deadline internal polling, compact aggregate results, and bounded failure diagnostics.
+- Added `unity_pipeline_recompile`, `unity_pipeline_run_tests`, and `unity_pipeline_eval`: typed connected exact-copy Pipeline operations with advertised-command preflight, lifecycle/identity checks, fixed-deadline internal polling, compact aggregate results, and bounded failure diagnostics.
 - Added sanitized nested object/stringified Pipeline response, zero-running initiation, identity-change, abort, pre-existing-run, and compact-output regression coverage.
+- Added `/unity-playmode-exit allow|disallow|status`, a session-branch-scoped, default-disallowed authorization toggle enforced by package-owned typed lifecycle operations that may exit Play Mode.
 - Added a session-scoped Unity repository-search policy for detected generated/cache/output directories and reusable provider conformance coverage.
 - Added the preserved `unity-docs` solution-capture skill with skill-relative schema, templates, and references.
 - Added explicit Unity solution artifact v1/v2 fields and validators over the canonical project-artifact profile contract, including complete-v2 authority and partial-hybrid conflict semantics.
 - Added `UnityMigrationServiceV1`, `unity_migrate_solution_docs`, and an updated CLI migrator with normalized collision detection, complete mapping/override authority, content-hashed staging and backups, journaled apply/resume/rollback, inbound-link reconciliation, exclusive run/report paths, and backup/VCS restore gates.
 - Added synthetic profile, repository-policy, migration collision/interruption/link/backup/recovery, physical symlink/junction containment, concurrent recovery, lossless frontmatter, POSIX mode, reverse load-order, and Pi registration fixtures.
 - Added the `engine.unity` `WorkflowGuidanceContributorV1`, with validated exact/enclosing `ProjectVersion.txt` applicability, deterministic nested-project ambiguity handling, bounded plan/work/review guidance, conformance coverage, and packed-copy checks.
-- Added deterministic Unity planning coverage for nested-project ambiguity, bounded command discovery, safe read-only eval classification, credential redaction, timeout uncertainty, and route-specific launch safety.
+- Added deterministic Unity planning coverage for nested-project ambiguity, bounded command discovery, exact-copy eval dispatch, credential redaction, timeout uncertainty, and route-specific launch safety.
+
+### Fixed
+
+- Corrected connected recompile Play Mode handling: it never preemptively sends `editor_stop` or overrides Unity's Script Changes While Playing policy. Known continue, stop-and-recompile, and defer policies are normalized when future `editor_status` payloads expose them; the current unavailable preference is conservatively reported as uncertainty, with session exit authorization required only where recompile may exit Play Mode. Output/details distinguish explicit test-driven agent exit from Unity-policy-driven or unknown recompile behavior.
+- Recognized Pipeline `no_tests`, idle, and not-started responses as safe inactive test preflight states, including the stringified Pipeline 0.4 response observed in live NOR sessions; unknown states now report their bounded status token.
 
 ### Changed
 
+- Added `unity_pipeline_eval` as the bounded C# REPL tool and renamed the purpose-built connected inspection surface to `unity_pipeline_inspect`; the obsolete planning-oriented eval parameter shape is not retained. Eval is documented accurately as Roslyn-compiled arbitrary C# on the Editor main thread; typed tools remain preferred evidence-producing conveniences, while user intent and guidance—not a syntax allowlist—govern mutations.
 - Updated the Pi development baseline to 0.83.0.
 
 - Made `@aefree/pi-workflow` an optional guidance-composition peer integration. `engine.unity` now registers dynamically as a guidance contributor at session startup only when its exact workflow contract resolves; workflow-absent installs retain Unity tools, migration, repository policy, and references, while broken installed contracts fail visibly.

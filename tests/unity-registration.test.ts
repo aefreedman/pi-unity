@@ -14,14 +14,16 @@ function fakePi(exec: (command: string, args: string[]) => Promise<any> = async 
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   const tools: any[] = [];
   const commands: any[] = [];
+  const entries: Array<{ customType: string; data: unknown }> = [];
   let activeTools: string[] = [];
   return {
-    handlers, tools, commands,
+    handlers, tools, commands, entries,
     on(name: string, handler: (event: any, ctx: any) => unknown) { const list = handlers.get(name) ?? []; list.push(handler); handlers.set(name, list); },
     registerTool(tool: any) { tools.push(tool); activeTools.push(tool.name); },
     registerCommand(name: string, command: any) { commands.push({ name, ...command }); },
     getActiveTools() { return [...activeTools]; },
     setActiveTools(names: string[]) { activeTools = [...names]; },
+    appendEntry(customType: string, data: unknown) { entries.push({ customType, data }); },
     exec: (command: string, args: string[]) => exec(command, args),
     events: { emit() {}, on() {} },
   };
@@ -53,13 +55,18 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(pipelineTestTool.parameters.additionalProperties, false, "Pipeline test schema must be strict.");
   assert.deepEqual(pipelineTestTool.parameters.properties.testPlatform.enum, ["EditMode", "PlayMode"]);
   assert.equal(pipelineTestTool.parameters.properties.testFilter.maxLength, 500);
-  const planningTool = unity.tools.find((tool) => tool.name === "unity_plan_inspect");
-  assert(planningTool, "pi-unity must register the guarded planning inspection tool");
-  assert.deepEqual(planningTool.parameters.properties.command.enum, [
+  const evalTool = unity.tools.find((tool) => tool.name === "unity_pipeline_eval");
+  assert(evalTool, "pi-unity must register Pipeline eval as the primary C# REPL tool");
+  assert.equal(evalTool.parameters.additionalProperties, false);
+  assert.equal(evalTool.parameters.properties.code.maxLength, 4000);
+  const inspectionTool = unity.tools.find((tool) => tool.name === "unity_pipeline_inspect");
+  assert(inspectionTool, "pi-unity must register the purpose-built Pipeline inspection tool");
+  assert.equal(inspectionTool.parameters.additionalProperties, false);
+  assert.deepEqual(inspectionTool.parameters.properties.command.enum, [
     "get_authoring_root", "get_build_settings", "get_player_settings", "get_scene_hierarchy",
-    "editor_status", "list_open_scenes", "list_build_targets", "eval",
-  ], "The tool schema must advertise only package-owned inspections plus exceptional eval.");
-  assert.match(planningTool.promptGuidelines.join(" "), /never launches or closes Unity/i);
+    "editor_status", "list_open_scenes", "list_build_targets",
+  ], "The inspection schema must advertise only package-owned purpose-built commands.");
+  assert.match(inspectionTool.promptGuidelines.join(" "), /never launches or closes Unity/i);
   assert.equal(artifacts.tools.filter((tool) => tool.name === "project_artifact_search").length, 1);
   await emit(unity, "session_shutdown", ctx);
   await emit(artifacts, "session_shutdown", ctx);
@@ -143,18 +150,25 @@ for (const order of ["workflow-first", "unity-first"] as const) {
       calls.push(args);
       if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
       if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["get_authoring_root"] } }), stderr: "" };
-      return { code: 0, stdout: "token=definitely-not-a-real-secret", stderr: "" };
+      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["get_authoring_root", "eval"] } }), stderr: "" };
+      const connectedCommand = args[args.indexOf("--timeout") + 2];
+      return connectedCommand === "eval"
+        ? { code: 0, stdout: JSON.stringify({ success: true, data: { result: { success: true, result: 42, diagnostics: [] } } }), stderr: "" }
+        : { code: 0, stdout: JSON.stringify({ success: true, data: { result: { root: "token=definitely-not-a-real-secret" } } }), stderr: "" };
     });
     registerUnity(pi as any);
     const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
     await emit(pi, "session_start", ctx);
-    const tool = pi.tools.find((item) => item.name === "unity_plan_inspect");
-    const result = await tool.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
-    assert.equal(result.details.planningInspection.outcome, "dispatched");
+    const pipelineInspection = pi.tools.find((item) => item.name === "unity_pipeline_inspect");
+    const pipelineEval = pi.tools.find((item) => item.name === "unity_pipeline_eval");
+    const result = await pipelineInspection.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
+    assert.equal(result.details.pipelineInspection.outcome, "dispatched");
     assert.match(result.content[0].text, /token= \[redacted\]/);
+    const evalResult = await pipelineEval.execute("eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;" }, undefined, undefined, ctx);
+    assert.equal(evalResult.details.pipelineEval.outcome, "dispatched", "The primary Pipeline eval tool must expose advertised arbitrary C# eval.");
     assert(calls.some((args) => args.includes("get_authoring_root")), "The guarded handler must dispatch only after discovery.");
-    assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Planning inspection must not launch or close Unity.");
+    assert(calls.some((args) => args.includes("var s = UnityEngine.Application.dataPath; return s.Length;")), "The primary eval tool must preserve a local-variable C# snippet.");
+    assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Connected inspection must not launch or close Unity.");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -168,27 +182,49 @@ for (const order of ["workflow-first", "unity-first"] as const) {
     await mkdir(join(project, "Packages"), { recursive: true });
     await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
     await writeFile(join(project, "Packages", "manifest.json"), "{\"dependencies\":{\"com.unity.pipeline\":\"0.3.0-exp.1\"}}\n");
+    let playMode = true;
     const pi = fakePi(async (_command, args) => {
       if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
       if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "recompile", "recompile_status", "run_tests", "test_status"] } }), stderr: "" };
+      if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "editor_stop", "recompile", "recompile_status", "run_tests", "test_status"] } }), stderr: "" };
       const command = args[args.indexOf("--timeout") + 2];
       dispatched.push(command);
-      if (command === "editor_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "idle" } } }), stderr: "" };
+      if (command === "editor_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "ready", playMode: playMode ? "playing" : "stopped" } } }), stderr: "" };
+      if (command === "editor_stop") { playMode = false; return { code: 0, stdout: JSON.stringify({ success: true, data: { result: "Exited play mode", success: true } }), stderr: "" }; }
       if (command === "recompile") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "up_to_date" } } }), stderr: "" };
-      if (command === "test_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", summary: { total: 1, passed: 1, failed: 0 } } } }), stderr: "" };
+      if (command === "test_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: JSON.stringify({ status: "no_tests", message: "No test run in progress" }) } }), stderr: "" };
       if (command === "run_tests") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", mode: "editor", summary: { total: 21, passed: 21, failed: 0 }, tests: [{ name: "Passing.Record", result: "Passed" }] } } }), stderr: "" };
       throw new Error(`Unexpected Pipeline command: ${String(command)}`);
     });
     registerUnity(pi as any);
-    const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
+    const notifications: string[] = [];
+    const branch = () => pi.entries.map((entry, index) => ({ type: "custom", id: String(index), ...entry }));
+    const ctxA = { cwd: root, sessionManager: { getBranch: () => [] }, mode: "print", hasUI: false, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
+    const ctxB = { cwd: root, sessionManager: { getBranch: branch }, mode: "print", hasUI: false, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
+    await emit(pi, "session_start", ctxA);
+    await emit(pi, "session_start", ctxB);
     const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
     const tests = pi.tools.find((item) => item.name === "unity_pipeline_run_tests");
-    const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctx);
-    const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctx);
+    await assert.rejects(() => tests.execute("unauthorized-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /autonomous Play Mode exit is disallowed/, "The package-owned typed test lifecycle operation enforces the default session authorization.");
+    assert.equal(dispatched.includes("editor_stop"), false);
+    const playModeCommand = pi.commands.find((item) => item.name === "unity-playmode-exit");
+    await playModeCommand.handler("allow", ctxB);
+    assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: true } });
+    assert.match(notifications.at(-1) ?? "", /allowed/);
+    await assert.rejects(() => tests.execute("isolated-session-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /autonomous Play Mode exit is disallowed/, "Authorization from session B must not leak into session A.");
+    await emit(pi, "session_shutdown", ctxA);
+    await emit(pi, "session_start", ctxB); // Session reload/resume reconstructs only B's toggle from its branch entries.
+    const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctxB);
+    const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxB);
     assert.match(compileResult.content[0].text, /up to date/);
+    assert.equal(compileResult.details.pipeline.exitedPlayMode, false, "Recompile leaves lifecycle to Unity when editor_status lacks script-change policy.");
+    assert.equal(compileResult.details.pipeline.playModeHandling, "policy_unknown");
+    assert.match(compileResult.content[0].text, /did not send editor_stop/);
     assert.match(testResult.content[0].text, /21 executed, 21 passed, 0 failed/);
+    assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their separate explicit lifecycle guard.");
+    assert.equal(testResult.details.pipeline.playModeHandling, "agent_exited");
     assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");
+    assert.equal(dispatched.filter((command) => command === "editor_stop").length, 1);
     assert.equal(dispatched.filter((command) => command === "recompile").length, 1);
     assert.equal(dispatched.filter((command) => command === "run_tests").length, 1);
   } finally {

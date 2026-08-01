@@ -86,7 +86,7 @@ try {
     assert.equal(fullPlan.ref.packageName, "@aefree/pi-unity");
     assert.equal(fullPlan.ref.packageVersion, contributor.owner.packageVersion);
     assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(fullPlan.content), "Plan guidance must not contain a machine-specific absolute path.");
-    for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "unity_plan_inspect", "package-owned purpose-built read", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
+    for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "unity_pipeline_eval", "unity_pipeline_inspect", "package-owned purpose-built inspection command", "arbitrary C# compiled by Roslyn", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
       assert(fullPlan.content.includes(snippet), `Missing planning guidance: ${snippet}`);
     }
   }

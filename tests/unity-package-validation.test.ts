@@ -82,7 +82,7 @@ assert(!workflowGuidanceContributorSourceText.includes("guidance/unity/validatio
 for (const snippet of ["ProjectSettings/ProjectVersion.txt", "Packages/manifest.json", "Packages/packages-lock.json", "1. Project guidance and checked-in docs.", "2. Engine, package, or platform docs included with or installed locally for the exact detected versions.", "3. Active Pi Unity/package documentation tools or databases when installed.", "4. Official vendor docs reachable through available tools.", "Never install or upgrade documentation, packages, or Pipeline merely to plan", "verification gap"]) {
   assert(planResearchText.includes(snippet), `Expected canonical plan research guidance: ${snippet}`);
 }
-for (const snippet of ["unity_plan_inspect", "package-owned purpose-built read", "Generic eval is not a planning default", "fall back to repository research", "Lockfile or process presence is not a planning preflight failure"]) {
+for (const snippet of ["unity_pipeline_eval", "unity_pipeline_inspect", "package-owned purpose-built inspection command", "advertised `eval`", "arbitrary C# compiled by Roslyn", "fall back to repository research", "Lockfile or process presence is not a planning preflight failure"]) {
   assert(planOverlayText.includes(snippet), `Expected connected planning overlay guidance: ${snippet}`);
 }
 for (const snippet of ["unity_project_status", "recompile_status", "known positive executed-test count", "NUnit XML", "Do not silently switch to batchmode", "Do not delete lockfiles or terminate arbitrary PIDs"]) {
@@ -98,7 +98,7 @@ for (const validationRule of [
 assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workOverlayText), "Work overlay must not include a machine-specific absolute path.");
 assert(!JSON.stringify(packageJson).includes("file:../"), "Packed manifest must not contain sibling file dependencies.");
 
-for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "name: \"unity_plan_inspect\"", "createPlanningUnityCliExecutor", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
+for (const snippet of ["pi.registerCommand(\"unity-open\"", "name: \"unity_migrate_solution_docs\"", "name: \"unity_pipeline_eval\"", "name: \"unity_pipeline_inspect\"", "createPlanningUnityCliExecutor", "createUnityArtifactProfileV1", "createUnityRepositoryPolicyV1", "createUnityMigrationServiceV1", "name: \"unity_guidance_audit\"", "name: \"unity_project_status\"", "name: \"unity_inspect_artifacts\"", "name: \"unity_open_editor\"", "name: \"unity_run_test_batch\"", "name: \"unity_launch_batchmode\"", "closeBlockingUnityProcess", "piUnity.allowCloseRunningUnityProcess", "Unity allows only one process per project folder", "chooseProjectCandidateWithWrappingNavigation", "selectedIndex === 0 ? candidates.length - 1", "selectedIndex === candidates.length - 1 ? 0", "runGuardedUnityBatchmode", "withUnityProjectLaunchMutex", "assertUnityProjectNotBusy", "inspectUnityProjectBusyState", "getUnityNativeLockfilePath", "removeStaleLockfileAfterGuardedClose", "createUnityCliRunCommand", "createUnityCliEditorExitCommand", "launchUnityCliOpenDetached", "listRunningUnityCliEditorsForProject", "terminateRunningUnityProcesses", "renderCall(args, theme)", "renderResult(result, { expanded }, theme)"]) {
   assert(indexText.includes(snippet), `Expected index.ts to contain: ${snippet}`);
 }
 
@@ -204,11 +204,13 @@ assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) &&
 
 assert(!/C:\/Users\/[^/]+/.test(readmeText), "Expected README install instructions to avoid machine-specific absolute paths.");
 assert(!/[A-Za-z]:[\\/]|\/(?:Users|home)\//.test(workflowGuidanceContributorSourceText), "Provider guidance/source must not embed machine-specific absolute paths.");
-assert(planOverlayText.includes("unity_plan_inspect") && planOverlayText.includes("Generic eval is not a planning default"), "Expected bounded connected planning guidance and conservative eval policy.");
-assert(indexText.includes("unity_plan_inspect") && indexText.includes("never launches or closes Unity"), "Expected the registered planning tool to state its no-launch/no-close boundary.");
-assert(indexText.includes('StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const'), "The planning tool schema must expose only package-owned reads and exceptional eval.");
+assert(planOverlayText.includes("unity_pipeline_eval") && planOverlayText.includes("unity_pipeline_inspect") && planOverlayText.includes("arbitrary C# compiled by Roslyn"), "Expected bounded connected planning guidance with separate eval and purpose-built inspection surfaces.");
+assert(indexText.includes("unity_pipeline_eval") && indexText.includes("unity_pipeline_inspect") && indexText.includes("never launches or closes Unity"), "Expected registered eval and inspection tools with exact-copy no-launch/no-close guidance.");
+assert(indexText.includes("StringEnum(UNITY_PLANNING_READ_COMMANDS"), "The inspection schema must expose only package-owned commands; eval has its own tool.");
+assert(!indexText.includes("unity_plan_inspect"), "The obsolete planning-oriented public tool name must not remain.");
+assert(!unityCliSourceText.includes("isSafeUnityPlanningEvalSnippet") && !unityCliSourceText.includes("PLANNING_EVAL_DENY"), "Pipeline eval must not rely on a brittle syntax/property classifier.");
 for (const command of ["get_authoring_root", "get_build_settings", "get_player_settings", "get_scene_hierarchy", "editor_status", "list_open_scenes", "list_build_targets"]) {
-  assert(unityCliSourceText.includes(`"${command}"`), `Expected advertised read-only planning command: ${command}`);
+  assert(unityCliSourceText.includes(`"${command}"`), `Expected advertised planning inspection command: ${command}`);
 }
 assert(!/\b(?:read_project_info|read_build_settings|read_compilation_state)\b/.test(unityCliSourceText), "Obsolete invented planning command names must not be packaged.");
 assert(!indexText.includes("purposeBuiltReadCommands") && !workflowGuidanceContributorSourceText.includes("purposeBuiltReadCommands"), "No caller-supplied planning read allow-list may remain.");

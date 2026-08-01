@@ -10,7 +10,6 @@ import {
   dispatchUnityPlanningInspection,
   haveSameKnownProcessIds,
   inspectUnityCliProjectCapabilities,
-  isSafeUnityPlanningEvalSnippet,
   isUnityCliTimeout,
   normalizeUnityCliForwardedArgs,
   parseUnityCliCommandListOutput,
@@ -162,15 +161,6 @@ assert.equal(parseUnityCliCommandListOutput(JSON.stringify({
   data: { commands: ["eval\nforged", "x".repeat(121), ...Array.from({ length: 300 }, (_, index) => `command_${index}`)] },
 })).length, 256, "Command discovery must remain bounded.");
 
-assert.equal(isSafeUnityPlanningEvalSnippet("return UnityEngine.Application.unityVersion;"), true);
-assert.equal(isSafeUnityPlanningEvalSnippet("return UnityEditor.EditorUserBuildSettings.activeBuildTarget;"), true);
-for (const unsafe of [
-  "UnityEditor.AssetDatabase.SaveAssets(); return true;",
-  "UnityEditor.EditorApplication.Exit(0); return true;",
-  "return unknownMethod();",
-  "return UnityEngine.Application.productName;\nreturn UnityEngine.Application.unityVersion;",
-  "return UnityEngine.Application.productName; {",
-]) assert.equal(isSafeUnityPlanningEvalSnippet(unsafe), false, `Planning eval must reject ${unsafe}`);
 assert.equal(isUnityCliTimeout({ error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }), true);
 assert.equal(isUnityCliTimeout({ error: Object.assign(new Error("not found"), { code: "ENOENT" }) }), false);
 
@@ -236,21 +226,47 @@ try {
   const dispatched: string[][] = [];
   const execute = async (_command: string, args: string[]) => {
     dispatched.push(args);
-    return { stdout: "safe response", stderr: "" };
+    return { stdout: JSON.stringify({ success: true, data: { result: { success: true, result: "safe response", diagnostics: [] } } }), stderr: "" };
   };
-  const safe = await dispatchUnityPlanningInspection({
-    projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval",
-    evalSnippet: "return UnityEngine.Application.unityVersion;",
-  }, { execute, inspect: async () => planningCapabilities(42) });
-  assert.equal(safe.outcome, "dispatched");
-  assert.equal(dispatched.length, 1, "safe eval is dispatched only through the owning guarded path");
-  assert(dispatched[0].includes("eval"));
+  for (const evalSnippet of [
+    "return UnityEditor.EditorSettings.scriptChangesDuringPlay;",
+    "var s = UnityEngine.Application.dataPath; return s.Length;",
+  ]) {
+    const inspected = await dispatchUnityPlanningInspection({
+      projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval", evalSnippet,
+    }, { execute, inspect: async () => planningCapabilities(42) });
+    assert.equal(inspected.outcome, "dispatched", "Advertised eval must allow ordinary C# inspection, including local variables.");
+    assert(dispatched.at(-1)?.includes(evalSnippet));
+    assert(dispatched.at(-1)?.includes("--format") && dispatched.at(-1)?.includes("json"), "Connected inspection requests structured JSON evidence.");
+  }
+  assert.equal(dispatched.length, 2, "Eval is dispatched only through the exact-copy guarded path.");
 
-  const mutating = await dispatchUnityPlanningInspection({
+  const intentGoverned = await dispatchUnityPlanningInspection({
     projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval",
     evalSnippet: "UnityEditor.AssetDatabase.SaveAssets(); return true;",
   }, { execute, inspect: async () => planningCapabilities(42) });
-  assert.deepEqual(mutating, { outcome: "rejected", code: "planning_eval_not_read_only", message: "Planning eval must be a conservative expression-only read." });
+  assert.equal(intentGoverned.outcome, "dispatched", "Syntax classification is not an authorization boundary; callers must honor user intent and guidance.");
+  for (const [label, stdout, expectedCode] of [
+    ["outer failure", JSON.stringify({ success: false, data: {} }), "planning_command_reported_failure"],
+    ["nested failure", JSON.stringify({ success: true, data: { result: { success: false, error: "compile failed" } } }), "planning_command_reported_failure"],
+    ["stringified nested failure", JSON.stringify({ success: true, data: { result: JSON.stringify({ success: false, error: "compile failed" }) } }), "planning_command_reported_failure"],
+    ["Roslyn error diagnostic", JSON.stringify({ success: true, data: { result: { success: true, diagnostics: [{ severity: "error", message: "CS1002" }] } } }), "planning_command_reported_failure"],
+    ["malformed evidence", "not-json", "planning_command_malformed"],
+  ] as const) {
+    const failed = await dispatchUnityPlanningInspection({
+      projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval", evalSnippet: "return true;",
+    }, { execute: async () => ({ stdout, stderr: "" }), inspect: async () => planningCapabilities(42) });
+    assert.equal(failed.outcome, "rejected", `${label} must not be reported as a passed dispatch.`);
+    if (failed.outcome === "rejected") assert.equal(failed.code, expectedCode);
+  }
+  const invalidEval = await dispatchUnityPlanningInspection({
+    projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval", evalSnippet: "",
+  }, { execute, inspect: async () => planningCapabilities(42) });
+  assert.deepEqual(invalidEval, { outcome: "rejected", code: "planning_eval_invalid", message: "Eval requires one non-empty bounded C# snippet and no separate arguments." });
+  const oversizedEval = await dispatchUnityPlanningInspection({
+    projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval", evalSnippet: "x".repeat(4001),
+  }, { execute, inspect: async () => planningCapabilities(42) });
+  assert.equal(oversizedEval.outcome, "rejected", "Eval source remains bounded even though ordinary C# syntax is unrestricted.");
   const unadvertised = await dispatchUnityPlanningInspection({
     projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval",
     evalSnippet: "return UnityEngine.Application.unityVersion;",
@@ -270,7 +286,7 @@ try {
     projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "arbitrary_read",
   }, { execute, inspect: async () => planningCapabilities(42, ["arbitrary_read"]) });
   assert.equal(callerChosenCommand.outcome, "rejected", "Callers cannot self-declare arbitrary commands as planning reads.");
-  if (callerChosenCommand.outcome === "rejected") assert.equal(callerChosenCommand.code, "planning_command_not_read_only");
+  if (callerChosenCommand.outcome === "rejected") assert.equal(callerChosenCommand.code, "planning_command_invalid");
   assert.equal(redactUnityPlanningOutput("token=abc123def456ghijkl and sk_abcdefghijklmnop"), "token= [redacted] and [redacted]");
   assert.equal(disconnected.outcome, "rejected");
   if (disconnected.outcome === "rejected") assert.equal(disconnected.code, "pipeline_not_reachable");

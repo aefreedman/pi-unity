@@ -87,7 +87,7 @@ const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
 
 type UnityToolDetails = {
-  mode: "gui" | "batchmode" | "status" | "artifacts" | "planning_inspection" | "pipeline";
+  mode: "gui" | "batchmode" | "status" | "artifacts" | "pipeline_inspection" | "pipeline_eval" | "pipeline";
   projectRoot: string;
   unityVersion: string;
   editorPath: string;
@@ -109,9 +109,11 @@ type UnityToolDetails = {
   forceClosedProcesses?: RunningUnityProcess[];
   removedLockfile?: string;
   piUnitySettings?: PiUnitySettings;
+  sessionSettings?: { allowAutonomousPlayModeExit: boolean };
   testBatch?: UnityTestBatchPlan;
   cliCapabilities?: UnityCliProjectCapabilities;
-  planningInspection?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
+  pipelineInspection?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
+  pipelineEval?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
   pipeline?: UnityPipelineOperationDetails;
 };
 
@@ -163,12 +165,16 @@ const PIPELINE_TEST_PARAMS = Type.Object({
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 3600, default: 600, description: "Absolute connected-operation deadline in seconds. Timeout does not cancel Unity work." })),
 }, { additionalProperties: false });
 
-const PLANNING_INSPECTION_PARAMS = Type.Object({
+const PIPELINE_EVAL_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ maxLength: 1000, description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  code: Type.String({ minLength: 1, maxLength: 4000, description: "Bounded C# source for advertised Pipeline eval. Roslyn compiles it on the connected Editor main thread; include an explicit return value when evidence is needed." }),
+}, { additionalProperties: false });
+
+const PIPELINE_INSPECTION_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
-  command: StringEnum([...UNITY_PLANNING_READ_COMMANDS, "eval"] as const, { description: "A package-owned advertised planning read command, or exceptional eval." }),
-  args: Type.Optional(Type.Array(Type.String({ maxLength: 500 }), { maxItems: 12, description: "Bounded arguments for a package-owned purpose-built read command. Not allowed with eval." })),
-  evalSnippet: Type.Optional(Type.String({ maxLength: 500, description: "Exceptional conservative expression-only read for advertised eval; never use for ordinary planning." })),
-});
+  command: StringEnum(UNITY_PLANNING_READ_COMMANDS, { description: "An advertised package-owned Pipeline inspection command." }),
+  args: Type.Optional(Type.Array(Type.String({ maxLength: 500 }), { maxItems: 12, description: "Bounded arguments for the selected inspection command." })),
+}, { additionalProperties: false });
 
 const GUIDANCE_AUDIT_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Instruction file or discovery root. Defaults to the current working directory." })),
@@ -609,6 +615,7 @@ async function buildProjectStatusReport(
   ctx: ExtensionContext,
   candidate: UnityProjectCandidate,
   signal?: AbortSignal,
+  allowAutonomousPlayModeExit = false,
 ): Promise<{ text: string; details: UnityToolDetails }> {
   const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
   const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot);
@@ -634,6 +641,7 @@ async function buildProjectStatusReport(
     `- Pipeline command discovery: ${cliCapabilities.commandDiscoverySucceeded ? `${cliCapabilities.advertisedCommands.length}/${cliCapabilities.advertisedCommandCount} command(s) reported${cliCapabilities.advertisedCommandsTruncated ? " (bounded/truncated)" : ""}` : cliCapabilities.commandDiscovery}`,
     `- piUnity.allowCloseRunningUnityProcess: ${piUnitySettings.allowCloseRunningUnityProcess ? "enabled" : "disabled"}`,
     `- piUnity.closeRunningUnityProcessOnlyForTests: ${piUnitySettings.closeRunningUnityProcessOnlyForTests ? "enabled" : "disabled"}`,
+    `- Session autonomous Play Mode exit: ${allowAutonomousPlayModeExit ? "allowed" : "disallowed (default)"}`,
   ];
 
   if (runningProcesses.length > 0) {
@@ -674,6 +682,7 @@ async function buildProjectStatusReport(
       warning: combinedWarning,
       status: "passed",
       piUnitySettings,
+      sessionSettings: { allowAutonomousPlayModeExit },
       cliCapabilities,
     },
   };
@@ -1098,11 +1107,13 @@ function renderUnityToolResult(result: any, expanded: boolean, theme: any): Text
       ? "Unity Project Status"
       : details.mode === "artifacts"
         ? "Unity Artifacts"
-        : details.mode === "planning_inspection"
-          ? "Unity Planning Inspection"
-          : details.mode === "pipeline"
-            ? "Unity Pipeline"
-            : getBatchmodeVariantLabel(details.args);
+        : details.mode === "pipeline_inspection"
+          ? "Unity Pipeline Inspection"
+          : details.mode === "pipeline_eval"
+            ? "Unity Pipeline Eval"
+            : details.mode === "pipeline"
+              ? "Unity Pipeline"
+              : getBatchmodeVariantLabel(details.args);
   const projectLabel = details.projectRoot ?? "(unknown project)";
   let text = `${icon} ${theme.fg("toolTitle", theme.bold(title))} ${theme.fg("muted", projectLabel)}`;
   if (details.mode === "batchmode") {
@@ -1159,6 +1170,19 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   }>;
   // Lifecycle handles are session-scoped. Contributor callbacks capture no session state.
   const registrations = new WeakMap<object, ScopeRegistrations>();
+  const playModeExitAuthorization = new WeakMap<object, boolean>();
+  const sessionAllowsAutonomousPlayModeExit = (ctx: ExtensionContext): boolean => playModeExitAuthorization.get(ctx.sessionManager) ?? false;
+  const restoreSessionSettings = (ctx: ExtensionContext): void => {
+    let allowed = false;
+    const getBranch = (ctx.sessionManager as { getBranch?: () => Array<{ type: string; customType?: string; data?: unknown }> }).getBranch;
+    for (const entry of getBranch?.call(ctx.sessionManager) ?? []) {
+      if (entry.type !== "custom" || entry.customType !== "pi-unity-session-settings-v1") continue;
+      const data = entry.data as { allowAutonomousPlayModeExit?: unknown } | undefined;
+      if (typeof data?.allowAutonomousPlayModeExit === "boolean") allowed = data.allowAutonomousPlayModeExit;
+    }
+    playModeExitAuthorization.set(ctx.sessionManager, allowed);
+    ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? "Unity Play Mode exit: allowed" : undefined);
+  };
   const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
     if (current === undefined) return false;
     const changes = [
@@ -1171,6 +1195,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (_event, ctx) => {
+    restoreSessionSettings(ctx);
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
     // Keep core Unity contracts synchronous for reverse-load-order compatibility;
@@ -1197,12 +1222,33 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    ctx.ui.setStatus?.("pi-unity-playmode-exit", undefined);
+    playModeExitAuthorization.delete(ctx.sessionManager);
     const scope = ctx.sessionManager;
     const current = registrations.get(scope);
     if (current === undefined) return;
     const changed = unregisterScope(current);
     registrations.delete(scope);
     if (changed) pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "unregistered" });
+  });
+  pi.registerCommand("unity-playmode-exit", {
+    description: "Allow, disallow, or show autonomous Play Mode exit for this Pi session (default: disallowed).",
+    getArgumentCompletions: (prefix: string) => ["allow", "disallow", "status"]
+      .filter((value) => value.startsWith(prefix.trim().toLowerCase()))
+      .map((value) => ({ value, label: value })),
+    handler: async (args, ctx) => {
+      const action = args.trim().toLowerCase() || "status";
+      if (action === "allow" || action === "enable" || action === "on") playModeExitAuthorization.set(ctx.sessionManager, true);
+      else if (action === "disallow" || action === "disable" || action === "off") playModeExitAuthorization.set(ctx.sessionManager, false);
+      else if (action !== "status") {
+        ctx.ui.notify("Usage: /unity-playmode-exit allow|disallow|status", "error");
+        return;
+      }
+      const allowed = sessionAllowsAutonomousPlayModeExit(ctx);
+      if (action !== "status") pi.appendEntry("pi-unity-session-settings-v1", { allowAutonomousPlayModeExit: allowed });
+      ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? "Unity Play Mode exit: allowed" : undefined);
+      ctx.ui.notify(`Autonomous Unity Play Mode exit is ${allowed ? "allowed" : "disallowed"} for this session.`, allowed ? "warning" : "info");
+    },
   });
 
   pi.registerCommand("unity-open", {
@@ -1340,7 +1386,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      const report = await buildProjectStatusReport(ctx, candidate, signal);
+      const report = await buildProjectStatusReport(ctx, candidate, signal, sessionAllowsAutonomousPlayModeExit(ctx));
       throwIfAborted(signal);
       return {
         content: [{ type: "text", text: report.text }],
@@ -1359,16 +1405,17 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     name: "unity_pipeline_recompile",
     label: "Unity Pipeline Recompile",
     description: "Recompile an already-open exact Unity project copy through its reachable advertised Pipeline, with internal bounded polling and compact compiler evidence.",
-    promptSnippet: "Recompile an already-open Unity Pipeline project in one bounded connected call without shell polling or Editor lifecycle changes.",
+    promptSnippet: "Recompile an already-open Unity Pipeline project in one bounded connected call without shell polling.",
     promptGuidelines: [
       "Use unity_pipeline_recompile for connected recompilation of an already-open exact Unity project copy instead of raw Unity CLI status loops.",
-      "unity_pipeline_recompile never launches, closes, stops, saves, retries, or cancels Unity; its timeout means the operation may still be running.",
+      "unity_pipeline_recompile never sends editor_stop. In Play Mode it honors Unity's Script Changes While Playing policy; /unity-playmode-exit allow is required only when that policy may exit Play Mode or Pipeline does not expose it.",
+      "unity_pipeline_recompile never launches, closes, saves, retries, cancels Unity, or overrides Unity's script-change policy; its timeout means the operation may still be running.",
     ],
     parameters: PIPELINE_RECOMPILE_PARAMS,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
-      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, timeoutSeconds: params.timeoutSeconds }, createPipelineDependencies(pi), {
+      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
         signal,
         onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
       });
@@ -1388,6 +1435,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     promptSnippet: "Run focused connected Unity EditMode or PlayMode tests in one bounded call without shell polling; aggregate passing results stay compact.",
     promptGuidelines: [
       "Use unity_pipeline_run_tests for one focused connected Unity test platform when the exact Editor is already open and reachable.",
+      "unity_pipeline_run_tests retains a separate lifecycle guard: it exits Play Mode only when the user enabled /unity-playmode-exit allow for the current session; autonomous exit is disallowed by default.",
       "Use unity_run_test_batch instead of unity_pipeline_run_tests for closed projects, isolation, complex filters/categories, or required NUnit XML/log evidence.",
       "unity_pipeline_run_tests does not cancel uncertain work or switch to batchmode after timeout; report that the connected run may still be running.",
     ],
@@ -1395,7 +1443,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
-      const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: params.testPlatform, testFilter: params.testFilter, timeoutSeconds: params.timeoutSeconds }, createPipelineDependencies(pi), {
+      const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: params.testPlatform, testFilter: params.testFilter, timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
         signal,
         onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
       });
@@ -1409,17 +1457,66 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "unity_plan_inspect",
-    label: "Unity Plan Inspect",
-    description: "Dispatch one bounded package-owned read-only Pipeline inspection for an exact Unity project copy without launching or closing Unity.",
-    promptSnippet: "Inspect an already-open exact Unity project copy through a guarded advertised read command for planning.",
+    name: "unity_pipeline_eval",
+    label: "Unity Pipeline Eval",
+    description: "Execute one bounded C# snippet through advertised eval in an already-open exact Unity Pipeline Editor.",
+    promptSnippet: "Query or operate on an already-open exact Unity project through Pipeline's Roslyn C# REPL.",
     promptGuidelines: [
-      "For /plan connected Unity inspection, use unity_plan_inspect rather than raw bash/Unity CLI dispatch. It never launches or closes Unity.",
-      "Use a purpose-built package-owned read command only after repository research identifies a specific connected question. The tool rediscovers exact-copy Pipeline identity and advertised commands immediately before dispatch.",
-      "eval is exceptional: use it only when an advertised purpose-built read cannot answer the question, with a short conservative expression-only read. Never use eval for lifecycle, asset, settings, package, selection, scene, build, test, import, or save operations.",
-      "A rejected inspection is uncertainty, not evidence of absence; fall back to repository research rather than changing routes or invoking raw bash dispatch.",
+      "Use unity_pipeline_eval for project-specific properties, APIs, and operations that advertised typed commands do not cover. It revalidates exact-copy identity and advertised eval immediately before dispatch.",
+      "Pipeline eval compiles arbitrary C# with Roslyn on the Editor main thread. Include an explicit return value for observable evidence; normal property reads and local-variable snippets are supported.",
+      "Eval is not statically read-only. Follow user intent and project guidance, and obtain explicit authorization before lifecycle, persistent-setting, destructive, asset, scene-save, package, build, or test mutations.",
+      "A rejected, malformed, failing, or timed-out eval is not success; do not silently retry it through another route.",
     ],
-    parameters: PLANNING_INSPECTION_PARAMS,
+    parameters: PIPELINE_EVAL_PARAMS,
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate } = await resolveProjectCandidate(ctx, params.path);
+      throwIfAborted(signal);
+      const result = await dispatchUnityPlanningInspection({
+        projectRoot: candidate.projectRoot,
+        unityVersion: candidate.unityVersion,
+        command: "eval",
+        evalSnippet: params.code,
+      }, {
+        execute: createPlanningUnityCliExecutor(pi),
+        signal,
+        timeout: 12_000,
+      });
+      throwIfAborted(signal);
+      const text = result.outcome === "dispatched"
+        ? `Unity Pipeline eval completed.\n${result.output || "(no bounded output returned)"}`
+        : `Unity Pipeline eval rejected: ${result.code}\n${result.message}`;
+      return {
+        content: [{ type: "text", text }],
+        details: {
+          mode: "pipeline_eval",
+          projectRoot: candidate.projectRoot,
+          unityVersion: candidate.unityVersion,
+          editorPath: "",
+          status: result.outcome === "dispatched" ? "passed" : "failed",
+          pipelineEval: result,
+        },
+      };
+    },
+    renderCall(args, theme) {
+      return renderUnityToolCall("unity_pipeline_eval", args, theme, "eval", "bounded Pipeline C# eval");
+    },
+    renderResult(result, { expanded }, theme) {
+      return renderUnityToolResult(result, expanded, theme);
+    },
+  });
+
+  pi.registerTool({
+    name: "unity_pipeline_inspect",
+    label: "Unity Pipeline Inspect",
+    description: "Dispatch one advertised package-owned inspection command in an already-open exact Unity Pipeline Editor.",
+    promptSnippet: "Inspect an already-open exact Unity project through an advertised package-owned Pipeline command.",
+    promptGuidelines: [
+      "Use unity_pipeline_inspect when one of its package-owned commands provides structured connected evidence. It revalidates exact-copy identity and advertised commands immediately before dispatch and never launches or closes Unity.",
+      "Use unity_pipeline_eval instead for regular project-specific C# properties, queries, or operations not covered by the inspection commands.",
+      "A rejected or timed-out command is uncertainty, not evidence of absence; do not silently retry it through another route.",
+    ],
+    parameters: PIPELINE_INSPECTION_PARAMS,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
@@ -1429,7 +1526,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         unityVersion: candidate.unityVersion,
         command: params.command,
         args: params.args,
-        evalSnippet: params.evalSnippet,
       }, {
         execute: createPlanningUnityCliExecutor(pi),
         signal,
@@ -1437,22 +1533,22 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       });
       throwIfAborted(signal);
       const text = result.outcome === "dispatched"
-        ? `Unity planning inspection dispatched: ${result.command}\n${result.output || "(no bounded output returned)"}`
-        : `Unity planning inspection rejected: ${result.code}\n${result.message}`;
+        ? `Unity Pipeline inspection completed: ${result.command}\n${result.output || "(no bounded output returned)"}`
+        : `Unity Pipeline inspection rejected: ${result.code}\n${result.message}`;
       return {
         content: [{ type: "text", text }],
         details: {
-          mode: "planning_inspection",
+          mode: "pipeline_inspection",
           projectRoot: candidate.projectRoot,
           unityVersion: candidate.unityVersion,
           editorPath: "",
           status: result.outcome === "dispatched" ? "passed" : "failed",
-          planningInspection: result,
+          pipelineInspection: result,
         },
       };
     },
     renderCall(args, theme) {
-      return renderUnityToolCall("unity_plan_inspect", args, theme, "planning", "guarded read-only Pipeline inspection");
+      return renderUnityToolCall("unity_pipeline_inspect", args, theme, "inspection", "guarded Pipeline inspection");
     },
     renderResult(result, { expanded }, theme) {
       return renderUnityToolResult(result, expanded, theme);

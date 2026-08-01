@@ -19,11 +19,12 @@ Do not activate this skill for ordinary source edits, serialized-asset authoring
 
 ## Choose the Smallest Interaction Surface
 
-Prefer interaction routes in this order:
+Choose the smallest route that answers the question clearly:
 
-1. **Advertised typed command.** Use a purpose-built command that owns the target object type and operation.
-2. **One-shot connected command.** Prefer explicit, independently auditable commands over a long-lived interactive shell for agent automation.
-3. **Bounded `eval` last resort.** Use only when no advertised typed command can address the live runtime object and the user explicitly requested a temporary experiment.
+1. **Advertised typed command.** Use a purpose-built command when its validation and result shape fit the task.
+2. **One-shot connected command or `eval`.** Use advertised `eval` as the normal REPL escape hatch for project-specific properties, APIs, and operations that registered commands did not anticipate. Prefer one bounded invocation with an explicit return value over a long-lived interactive shell.
+
+Typed commands are conveniences, not exclusive gateways. Do not force repository inference or add a new wrapper merely to avoid a direct connected property inspection.
 
 GameObject transform and component commands do not operate on every runtime object. For example, UI Toolkit `VisualElement`s are not scene GameObjects, so `set_transform` is not an appropriate route for their layout styles.
 
@@ -38,18 +39,18 @@ GameObject transform and component commands do not operate on every runtime obje
 
 ## Bounded Eval Rules
 
-When `eval` is the only adequate live-runtime route:
+Pipeline `eval` compiles C# with Roslyn and runs it on the connected Editor's main thread. It can inspect or call any reachable engine, Editor, or project API; it is not intrinsically read-only, and a static syntax/property allowlist is not a reliable side-effect boundary.
 
-- Use one bounded, target-specific snippet with an explicit return value that reports before/after state.
+- Use one bounded, target-specific snippet with an explicit return value.
+- Regular property and state inspection is allowed when it serves the active task.
 - Resolve the exact target and check for a missing target before mutation.
-- Change only the property authorized for the temporary experiment.
-- Avoid lifecycle, asset, package, selection, scene-save, import, build, test, and source-file operations.
-- Research the relevant Unity/C# API before dispatch. Do not use iterative eval failures for syntax or API discovery.
+- Mutations must match the user's request. Lifecycle, destructive, persistent-setting, asset, package, selection, scene-save, import, build, test, and source-file changes require the same authorization they would through a typed command.
+- Research unfamiliar Unity/C# APIs when needed, but do not add a purpose-built wrapper solely to avoid `eval`.
 - Avoid obsolete APIs; evaluator diagnostics may treat obsolete usage as a compilation failure.
 - Fully qualify APIs when extension-method or namespace ambiguity is likely.
-- Treat any compiler diagnostic, nested failure, null target, malformed result, or identity change as failure. Do not retry with a sequence of speculative snippets.
+- Treat any compiler diagnostic, nested failure, null target, malformed result, or identity change as failure. Do not retry mutations speculatively.
 
-Generic eval is not a planning surface. Use `unity_plan_inspect` and its conservative read-only constraints for planning.
+Use `unity_pipeline_eval` for exact-copy connected C# queries and operations. Use `unity_pipeline_inspect` when one of its package-owned purpose-built inspection commands provides better evidence.
 
 ## Live Tuning Loop
 
@@ -70,7 +71,7 @@ A request to persist authorizes the durable source/asset edit, but lifecycle cha
 1. Capture the final runtime values and the owning coordinate space, dimensions, scale, or other context needed to convert them into authored values.
 2. Identify the authoritative source or serialized field and trace how it becomes the runtime value. Do not write a visual coordinate into a guessed representation.
 3. Determine whether persistence triggers asset import, script compilation, domain reload, or runtime reconstruction, and whether the current instance can consume the change.
-4. Inspect `editor_status`. If Play Mode must stop, obtain lifecycle authorization unless already explicit, dispatch the advertised `editor_stop`, and verify Play Mode exited.
+4. Inspect `editor_status`. If Play Mode must stop, obtain lifecycle authorization unless already explicit (including the current session's `/unity-playmode-exit allow` toggle), dispatch the advertised `editor_stop`, and verify Play Mode exited.
 5. Apply the durable edit with the owning file/asset tool.
 6. Use the `unity-pipeline-workflows` skill for any required connected compilation and terminal status validation.
 7. Re-enter Play Mode only when requested. Report temporary live confirmation and durable verification as separate evidence.

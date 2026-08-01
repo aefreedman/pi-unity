@@ -5,6 +5,7 @@ import { applyDefaultUnityBatchmodeArgs, buildUnityBatchmodeArgs, projectPathsMa
 import type { RunningUnityProcess } from "./unity-processes";
 
 export const DEFAULT_UNITY_CLI_COMMAND = "unity";
+export const UNITY_PIPELINE_EVAL_MAX_CHARS = 4_000;
 
 export type UnityCliCommand = {
   command: string;
@@ -349,22 +350,6 @@ export function parseUnityCliCommandListOutput(output: string): string[] {
   return catalog.valid ? catalog.commands : [];
 }
 
-const PLANNING_EVAL_DENY = /\b(?:EditorApplication|AssetDatabase|PlayerSettings|Selection\s*\.|Undo\s*\.|SaveAssets|Refresh\s*\(|ImportAsset|CreateAsset|DeleteAsset|MoveAsset|OpenScene|SaveScene|Close|Exit|ExecuteMenuItem|PackageManager|BuildPipeline|RunTests?)\b/i;
-const PLANNING_EVAL_READ_ONLY_RETURN = /^\s*return\s+(?:UnityEngine\.Application\.(?:unityVersion|productName|dataPath|persistentDataPath)|UnityEditor\.EditorUserBuildSettings\.[A-Za-z0-9_]+|UnityEditor\.PlayerSettings\.[A-Za-z0-9_]+|UnityEditor\.Compilation\.CompilationPipeline\.[A-Za-z0-9_]+|[0-9+\-*/ ()."']+)\s*;\s*$/;
-
-/**
- * Planning only permits a deliberately tiny, expression-only eval subset. Unknown snippets
- * must use a purpose-built advertised read command or filesystem research instead.
- */
-export function isSafeUnityPlanningEvalSnippet(snippet: string): boolean {
-  const normalized = snippet.trim();
-  return normalized.length > 0
-    && normalized.length <= 500
-    && !/[\r\n{}]/.test(normalized)
-    && !PLANNING_EVAL_DENY.test(normalized)
-    && PLANNING_EVAL_READ_ONLY_RETURN.test(normalized);
-}
-
 export function haveSameKnownProcessIds(
   initial: Array<{ pid?: number | null }>,
   refreshed: Array<{ pid?: number | null }>,
@@ -513,7 +498,7 @@ export type UnityPlanningInspectionRequest = {
   /** Command must be advertised by the exact reachable Pipeline copy. */
   command: string;
   args?: string[];
-  /** Eval is exceptional and must separately satisfy the conservative classifier. */
+  /** A bounded C# snippet for advertised eval. Pipeline compiles it with Roslyn on the Editor main thread. */
   evalSnippet?: string;
 };
 
@@ -530,10 +515,40 @@ function planningInspectionReadiness(capabilities: UnityCliProjectCapabilities):
   return undefined;
 }
 
+function caseInsensitiveField(record: Record<string, unknown>, name: string): unknown {
+  const entry = Object.entries(record).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  return entry?.[1];
+}
+
+function connectedCommandFailure(output: string, isEval: boolean): "malformed" | "failure" | undefined {
+  const envelope = parseJsonObject(output);
+  if (!envelope) return "malformed";
+  if (caseInsensitiveField(envelope, "success") !== true) return "failure";
+  const data = getRecord(caseInsensitiveField(envelope, "data"));
+  if (!data) return "malformed";
+  if (caseInsensitiveField(data, "success") === false) return "failure";
+  if (!isEval) return undefined;
+
+  let response: unknown = caseInsensitiveField(data, "result") ?? data;
+  if (typeof response === "string") {
+    try { response = JSON.parse(response); } catch { return "malformed"; }
+  }
+  const evalResponse = getRecord(response);
+  if (!evalResponse) return "malformed";
+  if (caseInsensitiveField(evalResponse, "success") !== true) return "failure";
+  const diagnostics = caseInsensitiveField(evalResponse, "diagnostics");
+  if (Array.isArray(diagnostics) && diagnostics.some(item => {
+    const diagnostic = getRecord(item);
+    return String(caseInsensitiveField(diagnostic ?? {}, "severity") ?? "").toLowerCase() === "error";
+  })) return "failure";
+  return undefined;
+}
+
 /**
- * The sole planning CLI dispatch seam. It re-discovers the exact canonical copy immediately
- * before command execution and accepts only advertised purpose-built reads or conservative
- * eval. Callers must provide an executor; planning never dispatches as part of detection.
+ * The sole connected planning/eval dispatch seam. It re-discovers the exact canonical copy
+ * immediately before execution and accepts advertised package-owned reads or advertised eval.
+ * Eval is arbitrary bounded C#, so caller task intent and guidance—not syntax classification—
+ * govern mutations. Callers must provide an executor; discovery never dispatches work.
  */
 export async function dispatchUnityPlanningInspection(
   request: UnityPlanningInspectionRequest,
@@ -565,14 +580,15 @@ export async function dispatchUnityPlanningInspection(
   const hasBoundedArgs = (request.args?.length ?? 0) <= 12
     && (request.args ?? []).every((arg) => typeof arg === "string" && arg.length <= 500 && !/[\u0000-\u001f\u007f]/.test(arg));
   if (!hasBoundedArgs) {
-    return { outcome: "rejected", code: "planning_command_args_invalid", message: "Planning command arguments exceed the read-only inspection bounds." };
+    return { outcome: "rejected", code: "planning_command_args_invalid", message: "Connected inspection command arguments exceed the bounded request limits." };
   }
   if (isEval) {
-    if (request.args?.length || !isSafeUnityPlanningEvalSnippet(request.evalSnippet ?? "")) {
-      return { outcome: "rejected", code: "planning_eval_not_read_only", message: "Planning eval must be a conservative expression-only read." };
+    const snippet = request.evalSnippet?.trim() ?? "";
+    if (request.args?.length || !snippet || snippet.length > UNITY_PIPELINE_EVAL_MAX_CHARS || /[\u0000]/.test(snippet)) {
+      return { outcome: "rejected", code: "planning_eval_invalid", message: "Eval requires one non-empty bounded C# snippet and no separate arguments." };
     }
   } else if (!UNITY_PLANNING_READ_COMMANDS.includes(request.command as typeof UNITY_PLANNING_READ_COMMANDS[number]) || (request.evalSnippet?.trim() ?? "") !== "") {
-    return { outcome: "rejected", code: "planning_command_not_read_only", message: "Only a package-owned purpose-built read command may run during planning." };
+    return { outcome: "rejected", code: "planning_command_invalid", message: "Only a package-owned purpose-built inspection command may be selected here." };
   }
   if (!initial.advertisedCommands.includes(request.command)) {
     return { outcome: "rejected", code: "planning_command_unadvertised", message: "The exact Pipeline copy did not advertise the requested command." };
@@ -589,17 +605,25 @@ export async function dispatchUnityPlanningInspection(
 
   const command = resolveUnityCliCommand({ cliCommand: options.cliCommand });
   const args = [
-    "--no-banner", "--non-interactive", "command", "--project-path", projectRoot,
+    "--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot,
     "--timeout", String(Math.max(1, Math.ceil((options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS) / 1000))),
     request.command,
     ...(isEval ? [request.evalSnippet!.trim()] : request.args ?? []),
   ];
   const execution = await options.execute(command, args, { timeout: options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS, signal: options.signal });
   if (execution.error) {
-    return { outcome: "rejected", code: isUnityCliTimeout(execution) ? "planning_command_timeout" : "planning_command_failed", message: "Planning command did not complete successfully; use repository research instead." };
+    return { outcome: "rejected", code: isUnityCliTimeout(execution) ? "planning_command_timeout" : "planning_command_failed", message: "Connected command did not complete successfully; its effect may be uncertain." };
   }
   const raw = [execution.stdout, execution.stderr].filter(Boolean).join("\n");
   const output = redactUnityPlanningOutput(summarizeUnityCliText(raw, 4_000, 40));
+  const reportedFailure = connectedCommandFailure(execution.stdout, isEval);
+  if (reportedFailure) {
+    return {
+      outcome: "rejected",
+      code: reportedFailure === "malformed" ? "planning_command_malformed" : "planning_command_reported_failure",
+      message: `${reportedFailure === "malformed" ? "Connected command returned malformed JSON evidence" : "Connected command reported failure"}.${output ? ` ${output}` : ""}`,
+    };
+  }
   return { outcome: "dispatched", command: request.command, output, truncated: output.length < raw.trim().length };
 }
 

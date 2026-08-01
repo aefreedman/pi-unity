@@ -13,11 +13,13 @@ Pi skill and tool package for reusable Unity workflows.
 - tool: `unity_project_status`
 - tool: `unity_pipeline_recompile`
 - tool: `unity_pipeline_run_tests`
+- tool: `unity_pipeline_eval`
+- tool: `unity_pipeline_inspect`
 - tool: `unity_inspect_artifacts`
 - tool: `unity_open_editor`
 - tool: `unity_launch_batchmode`
 - tool: `unity_run_test_batch`
-- command: `/unity-open`
+- commands: `/unity-open`, `/unity-playmode-exit`
 
 ## Install
 
@@ -53,8 +55,8 @@ pi install -l <path-to-pi-unity>
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
 - `unity_project_status` reports native Unity lockfile state, Unity CLI status output, running Unity processes, the locally declared `com.unity.pipeline` version, exact-project-copy Pipeline instances, and bounded live advertised commands without launching Unity. Pipeline discovery has distinct `absent`, `timeout`, and `unavailable` states; a timeout is startup uncertainty rather than proof of absence. Rendered process command lines redact access tokens and credential-like values.
 - `unity_inspect_artifacts` summarizes existing Unity Test Framework XML results and Unity logs without launching Unity, reducing ad hoc shell parsing after failures.
-- Planning and test routing preserve the exact project copy: a reachable Pipeline Editor is a positive connected inspection surface for bounded advertised read-only commands; the project should run connected tests without closing the Editor or replacing it with a second Editor. `unity_plan_inspect` is the registered planning inspection tool and only planning CLI dispatch route: it rechecks canonical identity and advertised commands immediately before dispatch, permits only package-owned purpose-built reads, and permits `eval` only for its conservative expression-only subset. It never launches or closes Unity; use repository research when it rejects a read rather than raw bash dispatch.
-- `unity-pipeline-workflows` routes focused connected work through `unity_pipeline_recompile` and `unity_pipeline_run_tests`. Each performs exact-copy preflight, advertised-command checks, lifecycle inspection, identity-aware bounded internal polling, and compact output in one model-visible call. Timeouts are uncertain and do not cancel, retry, close Unity, or switch to batchmode. Connected tests do not inherently produce NUnit XML.
+- Planning and test routing preserve the exact project copy: a reachable Pipeline Editor is a positive connected inspection surface, and the project should run connected tests without closing the Editor or replacing it with a second Editor. Other connected operations use that same exact copy. `unity_pipeline_eval` rechecks canonical identity and advertised `eval` immediately before dispatch and is the general REPL escape hatch for project-specific properties and questions that registered commands did not anticipate. `unity_pipeline_inspect` exposes the package-owned purpose-built inspection commands when their structured results fit the question. Tooling should bound the request and result, preserve exact-copy evidence, and distinguish reads from mutations—not maintain a brittle API-property allowlist or pretend arbitrary C# can be proven read-only from syntax alone.
+- `unity-pipeline-workflows` routes focused connected work through `unity_pipeline_recompile` and `unity_pipeline_run_tests`. Each performs exact-copy preflight, advertised-command checks, lifecycle inspection, identity-aware bounded internal polling, and compact output in one model-visible call. `unity_pipeline_recompile` never preemptively sends `editor_stop`: while Play Mode is active it honors Unity's Script Changes While Playing policy (continue, stop-and-recompile, or defer) when future `editor_status` payloads expose it, and reports unavailable policy as uncertainty. Connected tests retain a separate explicit lifecycle guard. Pipeline `no_tests`/idle status is treated as safe pre-dispatch inactivity rather than uncertainty. Timeouts are uncertain and do not cancel, retry, close Unity, or switch to batchmode. Connected tests do not inherently produce NUnit XML.
 - `unity_run_test_batch` is the preferred isolated/report-producing Unity Test Framework entry point, not a reason to close a reachable Pipeline Editor. Choose it for a closed project, intentional CI isolation, category/multiple filters unsupported by the single connected test-name filter, or required NUnit XML/log artifacts. It runs exactly one EditMode or PlayMode batch, combines filter/category arrays into one launch, creates collision-safe absolute XML/log paths under the project `Logs` directory, omits `-quit`, and uses the same guarded launcher as `unity_launch_batchmode`.
 - `unity_launch_batchmode` prefers the installed `unity run` CLI when available, falling back to direct editor executable batchmode launch; use it when custom raw Editor arguments are required.
 - `unity_launch_batchmode` adds `-nographics` by default to avoid unnecessary graphics initialization and reduce focus stealing; set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
@@ -75,6 +77,21 @@ pi install -l <path-to-pi-unity>
 - The `unity-batchmode-tests` skill is intended for Unity Test Framework CLI runs.
 - Keep skill-specific references and helper assets under the skill directory beside `SKILL.md`.
 
+## Connected Pipeline and `eval` policy
+
+Registered Pipeline commands are ergonomic shortcuts for anticipated workflows. Advertised `eval` covers the operations and inspections that were not anticipated: it compiles C# with Roslyn, runs it on the connected Editor's main thread, and returns the result. This is a live REPL into the exact running project, not merely a restricted planning expression evaluator.
+
+Use the registered `unity_pipeline_eval` tool with bounded C# `code`, for example:
+
+```text
+{ code: "return UnityEditor.EditorSettings.scriptChangesDuringPlay;" }
+{ code: "var s = UnityEngine.Application.dataPath; return s.Length;" }
+```
+
+Use `unity_pipeline_inspect` for purpose-built connected reads such as `editor_status` or `get_scene_hierarchy`; eval is intentionally owned only by `unity_pipeline_eval`.
+
+Because `eval` reaches the same engine and Editor APIs as project code, its security token and exact-copy identity are meaningful trust boundaries. A static snippet allowlist is not: ordinary property getters can call code, while apparently simple expressions can still have side effects. Pi-unity therefore treats declared task intent as the boundary: regular inspection through `unity_pipeline_eval` is allowed; mutations must match the user's request; lifecycle, destructive, persistent-setting, asset, scene-save, package, build, and test changes require the same explicit authorization they would through a typed command. Typed tools remain preferred when they provide better validation, polling, compact evidence, or recovery semantics, but they are assistance rather than exclusive gateways. Results and diagnostics remain bounded, and an uncertain dispatch is never silently retried through another route.
+
 ## Settings
 
 `pi-unity` reads optional package-specific settings from global `~/.pi/agent/settings.json` and, for trusted projects, project `.pi/settings.json`:
@@ -92,6 +109,8 @@ pi install -l <path-to-pi-unity>
 - `allowCloseRunningUnityProcess` defaults to `false`. When enabled, `unity_launch_batchmode` may close only Unity processes that target the resolved project and only when the tool call explicitly sets `closeBlockingUnityProcess: true`.
 - `closeRunningUnityProcessOnlyForTests` defaults to `true`, limiting process closure to Unity Test Framework launches (`-runTests`).
 - `closeRunningUnityProcessTimeoutMs` defaults to `30000` and is clamped between 1000 and 120000 milliseconds.
+
+Autonomous Play Mode exit is a separate session-scoped toggle and defaults to disallowed. Use `/unity-playmode-exit allow` only to authorize package-owned typed lifecycle operations that may exit Play Mode, `/unity-playmode-exit disallow` to restore the default, or `/unity-playmode-exit status` to inspect it. `unity_pipeline_recompile` never sends `editor_stop` and does not override Unity's Script Changes While Playing preference: a known continue/defer policy needs no exit authorization, a known stop-and-recompile policy does, and a missing policy is conservatively treated as potentially exiting. `unity_pipeline_run_tests` retains its separate verified `editor_stop` lifecycle path when authorized. The choice is recorded in the current session branch so it survives reload/resume, but it is not a global or project setting. Output/details identify explicit agent exit separately from Unity-policy-driven or unavailable-policy behavior; pi-unity never enters Play Mode autonomously.
 
 ## Skill evaluation
 
