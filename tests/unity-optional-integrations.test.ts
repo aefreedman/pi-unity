@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveArtifactProfilesV1 } from "@aefree/pi-project-artifacts/contracts/v1";
-import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1";
+import { resolveFileDiscoveryFiltersV1 } from "@aefree/pi-file-discovery/contracts/v1";
 
 const packagePath = fileURLToPath(new URL("../", import.meta.url));
 const workspacePath = dirname(packagePath);
 const keys = {
   artifacts: "@aefree/pi-project-artifacts/profiles/v1",
-  repoSearch: "@aefree/pi-repo-search/policies/v1",
+  fileDiscovery: "@aefree/pi-file-discovery/filters/v1",
 } as const;
 
 type FakePi = ReturnType<typeof fakePi>;
@@ -68,7 +68,7 @@ async function externalRegister(relativeModule: string): Promise<(pi: any) => vo
     await emit(pi, "session_start", { cwd: root, sessionManager: scope, mode: "print", hasUI: false, ui: {} });
     assert(pi.tools.some((tool) => tool.name === "unity_project_status"), "Optional integration absence must not suppress Unity tools.");
     assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
-    assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "missing");
+    assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "missing");
   } finally {
     await rm(root, { recursive: true, force: true });
     clearRendezvous();
@@ -77,7 +77,7 @@ async function externalRegister(relativeModule: string): Promise<(pi: any) => vo
 
 for (const fixture of [
   { name: "artifacts", module: "pi-project-artifacts/src/pi/index.ts", resolve: (scope: object) => resolveArtifactProfilesV1(scope).outcome },
-  { name: "repo-search", module: "pi-repo-search/extensions/index.ts", resolve: (scope: object) => resolveRepositoryPoliciesV1(scope).outcome },
+  { name: "file-discovery", module: "pi-file-discovery/extensions/index.ts", resolve: (scope: object) => resolveFileDiscoveryFiltersV1(scope).outcome },
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(fixture.name);
@@ -100,14 +100,14 @@ for (const fixture of [
 
 for (const [name, key, resolver] of [
   ["artifacts", keys.artifacts, (scope: object) => resolveArtifactProfilesV1(scope).outcome],
-  ["repo-search", keys.repoSearch, (scope: object) => resolveRepositoryPoliciesV1(scope).outcome],
+  ["file-discovery", keys.fileDiscovery, (scope: object) => resolveFileDiscoveryFiltersV1(scope).outcome],
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(`broken-${name}`);
   try {
     const registerUnity = await loadIsolatedUnity(root);
     const pi = fakePi();
-    pi.registerTool({ name: name === "artifacts" ? "project_artifact_search" : "repository_search" });
+    pi.registerTool({ name: name === "artifacts" ? "project_artifact_search" : "discover_candidate_files" });
     registerUnity(pi as any);
     (globalThis as Record<symbol, unknown>)[Symbol.for(key)] = { broken: true };
     await assert.rejects(
@@ -122,16 +122,16 @@ for (const [name, key, resolver] of [
 }
 
 for (const [failureAt, firstResolver, secondResolver] of [
-  ["repo-search", (scope: object) => resolveArtifactProfilesV1(scope).outcome, undefined],
+  ["file-discovery", (scope: object) => resolveArtifactProfilesV1(scope).outcome, undefined],
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(`rollback-${failureAt}`);
   try {
     const registerUnity = await loadIsolatedUnity(root);
     const pi = fakePi();
-    for (const tool of ["project_artifact_search", "repository_search"]) pi.registerTool({ name: tool });
+    for (const tool of ["project_artifact_search", "discover_candidate_files"]) pi.registerTool({ name: tool });
     registerUnity(pi as any);
-    const key = keys.repoSearch;
+    const key = keys.fileDiscovery;
     class ThrowingWeakMap extends WeakMap<object, unknown> { override get(): undefined { throw new Error(`intentional ${failureAt} registration failure`); } }
     (globalThis as Record<symbol, unknown>)[Symbol.for(key)] = {
       protocol: "@aefree/pi-capability-registry/root", protocolVersion: 1, registryKey: key,

@@ -31,7 +31,7 @@ for (const test of ["unity-core.test.ts", "unity-registration.test.ts", "unity-o
 assert(!packageJson.scripts?.test?.includes("unity-docs-migration.test.ts"));
 assert(!packageJson.scripts?.test?.includes("unity-workflow-optional-integration.test.ts"));
 
-for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-repo-search"]) {
+for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-file-discovery"]) {
   assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.peerDependencies?.[integration] ?? ""), `Expected optional semver peer ${integration}.`);
   assert(/^\^\d+\.\d+\.\d+$/.test(packageJson.devDependencies?.[integration] ?? ""), `Expected development dependency ${integration}.`);
   assert.equal(packageJson.peerDependenciesMeta?.[integration]?.optional, true, `Expected ${integration} to be optional.`);
@@ -41,17 +41,17 @@ assert.equal(packageJson.dependencies?.["@aefree/pi-capability-registry"], undef
 assert.equal(packageJson.bundledDependencies, undefined);
 assert(!JSON.stringify(packageJson).includes("file:../"));
 
-for (const snippet of ["loadArtifactProfileIntegrationV1", "loadRepositoryPolicyIntegrationV1", "createOptionalIntegrationRegistryV1", "isOptionalIntegrationActive", "ARTIFACT_PROFILE_REGISTRY_KEY_V1", "REPOSITORY_POLICY_REGISTRY_KEY_V1"]) {
+for (const snippet of ["loadArtifactProfileIntegrationV1", "loadFileDiscoveryFilterIntegrationV1", "createOptionalIntegrationRegistryV1", "isOptionalIntegrationActive", "ARTIFACT_PROFILE_REGISTRY_KEY_V1", "FILE_DISCOVERY_FILTER_REGISTRY_KEY_V1"]) {
   assert(indexText.includes(snippet), `Expected optional integration rendezvous: ${snippet}`);
 }
 assert(!indexText.includes('import(WORKFLOW_CONTRACT_MODULE)'));
 assert(!indexText.includes('import(PROJECT_ARTIFACTS_CONTRACT_MODULE)'));
-assert(!indexText.includes('import(REPOSITORY_SEARCH_CONTRACT_MODULE)'));
+assert(!indexText.includes('import(FILE_DISCOVERY_CONTRACT_MODULE)'));
 for (const forbidden of ["unity_migrate_solution_docs", "UnityMigrationServiceV1", "createUnityMigrationService", "UNITY_MIGRATION_PARAMS"]) {
   assert(!indexText.includes(forbidden), `Removed migration surface remains in index.ts: ${forbidden}`);
 }
 assert(!indexText.includes('from "@aefree/pi-project-artifacts/contracts/v1"'));
-assert(!indexText.includes('from "@aefree/pi-repo-search/contracts/v1"'));
+assert(!indexText.includes('from "@aefree/pi-file-discovery/contracts/v1"'));
 assert(indexText.includes("name: \"unity_pipeline_eval\"") && indexText.includes("name: \"unity_pipeline_inspect\""));
 assert(indexText.includes("name: \"unity_run_test_batch\"") && indexText.includes("name: \"unity_launch_batchmode\""));
 assert(indexText.includes("pi.registerCommand(\"unity-open\"") && indexText.includes("piUnity.allowCloseRunningUnityProcess"));

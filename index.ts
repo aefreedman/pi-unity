@@ -37,12 +37,12 @@ import {
 } from "./src/optional-integration-rendezvous";
 
 const ARTIFACT_PROFILE_REGISTRY_KEY_V1 = "@aefree/pi-project-artifacts/profiles/v1";
-const REPOSITORY_POLICY_REGISTRY_KEY_V1 = "@aefree/pi-repo-search/policies/v1";
+const FILE_DISCOVERY_FILTER_REGISTRY_KEY_V1 = "@aefree/pi-file-discovery/filters/v1";
 
 type RegistrationToken = OptionalRegistrationToken;
 type ScopedRegistryV1 = OptionalIntegrationRegistryV1;
 type ArtifactProfileIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createProfile: () => Promise<Readonly<Record<string, unknown>>> }>;
-type RepositoryPolicyIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createPolicy: () => Promise<Readonly<Record<string, unknown>>> }>;
+type FileDiscoveryFilterIntegrationV1 = Readonly<{ registry: ScopedRegistryV1; createFilter: () => Promise<Readonly<Record<string, unknown>>> }>;
 
 async function loadArtifactProfileIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<ArtifactProfileIntegrationV1 | undefined> {
   if (!isOptionalIntegrationActive(pi, "project_artifact_search")) return undefined;
@@ -53,12 +53,12 @@ async function loadArtifactProfileIntegrationV1(pi: Pick<ExtensionAPI, "getActiv
   };
 }
 
-async function loadRepositoryPolicyIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<RepositoryPolicyIntegrationV1 | undefined> {
-  if (!isOptionalIntegrationActive(pi, "repository_search")) return undefined;
-  const policyModule = await import("./src/unity-repo-search-policy");
+async function loadFileDiscoveryFilterIntegrationV1(pi: Pick<ExtensionAPI, "getActiveTools">): Promise<FileDiscoveryFilterIntegrationV1 | undefined> {
+  if (!isOptionalIntegrationActive(pi, "discover_candidate_files")) return undefined;
+  const filterModule = await import("./src/unity-file-discovery-filter");
   return {
-    registry: createOptionalIntegrationRegistryV1(REPOSITORY_POLICY_REGISTRY_KEY_V1, "@aefree/pi-repo-search"),
-    createPolicy: async () => policyModule.createUnityRepositoryPolicyV1() as Readonly<Record<string, unknown>>,
+    registry: createOptionalIntegrationRegistryV1(FILE_DISCOVERY_FILTER_REGISTRY_KEY_V1, "@aefree/pi-file-discovery"),
+    createFilter: async () => filterModule.createUnityFileDiscoveryFilterV1() as Readonly<Record<string, unknown>>,
   };
 }
 
@@ -1187,7 +1187,7 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
 export default function freeUnityPi(pi: ExtensionAPI) {
   type ScopeRegistrations = Readonly<{
     artifactProfile?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
-    repositoryPolicy?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
+    fileDiscoveryFilter?: Readonly<{ registry: ScopedRegistryV1; token: RegistrationToken }>;
   }>;
   // Lifecycle handles are session-scoped.
   const registrations = new WeakMap<object, ScopeRegistrations>();
@@ -1208,7 +1208,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     if (current === undefined) return false;
     return [
       current.artifactProfile?.registry.unregister(current.artifactProfile.token) ?? false,
-      current.repositoryPolicy?.registry.unregister(current.repositoryPolicy.token) ?? false,
+      current.fileDiscoveryFilter?.registry.unregister(current.fileDiscoveryFilter.token) ?? false,
     ].some(Boolean);
   };
 
@@ -1224,7 +1224,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     try {
       const artifactIntegration = await loadArtifactProfileIntegrationV1(pi);
       if (registrations.get(scope) !== pending) return;
-      const repositoryIntegration = await loadRepositoryPolicyIntegrationV1(pi);
+      const fileDiscoveryIntegration = await loadFileDiscoveryFilterIntegrationV1(pi);
       if (registrations.get(scope) !== pending) return;
 
       // Registration is all-or-nothing: a later contract failure must not leave
@@ -1234,17 +1234,17 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         token: artifactIntegration.registry.register(scope, await artifactIntegration.createProfile()),
       });
       staged = Object.freeze({ ...(artifactProfile === undefined ? {} : { artifactProfile }) });
-      const repositoryPolicy = repositoryIntegration === undefined ? undefined : Object.freeze({
-        registry: repositoryIntegration.registry,
-        token: repositoryIntegration.registry.register(scope, await repositoryIntegration.createPolicy()),
+      const fileDiscoveryFilter = fileDiscoveryIntegration === undefined ? undefined : Object.freeze({
+        registry: fileDiscoveryIntegration.registry,
+        token: fileDiscoveryIntegration.registry.register(scope, await fileDiscoveryIntegration.createFilter()),
       });
-      staged = Object.freeze({ ...staged, ...(repositoryPolicy === undefined ? {} : { repositoryPolicy }) });
+      staged = Object.freeze({ ...staged, ...(fileDiscoveryFilter === undefined ? {} : { fileDiscoveryFilter }) });
       if (registrations.get(scope) !== pending) {
         unregisterScope(staged);
         return;
       }
       registrations.set(scope, staged);
-      if (artifactIntegration || repositoryIntegration) {
+      if (artifactIntegration || fileDiscoveryIntegration) {
         pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "registered" });
       }
     } catch (error) {

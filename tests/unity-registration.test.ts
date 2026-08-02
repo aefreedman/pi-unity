@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import registerProjectArtifacts from "@aefree/pi-project-artifacts/pi";
 import { resolveArtifactProfilesV1, resolveArtifactSearchServiceV1, resolveTodoLifecycleServiceV1 } from "@aefree/pi-project-artifacts/contracts/v1";
-import { resolveRepositoryPoliciesV1 } from "@aefree/pi-repo-search/contracts/v1";
+import { resolveFileDiscoveryFiltersV1 } from "@aefree/pi-file-discovery/contracts/v1";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import registerUnity from "../index";
 
@@ -38,13 +38,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   registerProjectArtifacts(artifacts as any);
   registerUnity(unity as any);
   // The shared Pi host advertises separately loaded optional packages globally.
-  unity.setActiveTools(["project_artifact_search", "repository_search"]);
+  unity.setActiveTools(["project_artifact_search", "discover_candidate_files"]);
   if (order === "artifacts-first") { await emit(artifacts, "session_start", ctx); await emit(unity, "session_start", ctx); }
   else { await emit(unity, "session_start", ctx); await emit(artifacts, "session_start", ctx); }
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "available", order);
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "available", order);
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "available", order);
-  assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "available", order);
+  assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "available", order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 0);
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
   const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_pipeline_run_tests");
@@ -114,7 +114,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   await emit(unity, "session_shutdown", ctx);
   await emit(artifacts, "session_shutdown", ctx);
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
-  assert.equal(resolveRepositoryPoliciesV1(scope).outcome, "missing");
+  assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "missing");
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "missing");
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "missing");
 }
@@ -124,23 +124,23 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   const scopeB = {};
   const unity = fakePi();
   registerUnity(unity as any);
-  unity.setActiveTools(["project_artifact_search", "repository_search"]);
+  unity.setActiveTools(["project_artifact_search", "discover_candidate_files"]);
   const ctxA = { cwd: process.cwd(), sessionManager: scopeA, mode: "print", hasUI: false, ui: {} };
   const ctxB = { ...ctxA, sessionManager: scopeB };
   await emit(unity, "session_start", ctxA);
   await emit(unity, "session_start", ctxB);
   assert.equal(resolveArtifactProfilesV1(scopeA).outcome, "available");
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available");
-  assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "available");
-  assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available");
+  assert.equal(resolveFileDiscoveryFiltersV1(scopeA).outcome, "available");
+  assert.equal(resolveFileDiscoveryFiltersV1(scopeB).outcome, "available");
   await emit(unity, "session_shutdown", ctxA);
   assert.equal(resolveArtifactProfilesV1(scopeA).outcome, "missing");
-  assert.equal(resolveRepositoryPoliciesV1(scopeA).outcome, "missing");
+  assert.equal(resolveFileDiscoveryFiltersV1(scopeA).outcome, "missing");
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
-  assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
+  assert.equal(resolveFileDiscoveryFiltersV1(scopeB).outcome, "available", "delayed old-session shutdown must preserve newer active scope");
   await emit(unity, "session_shutdown", ctxB);
   assert.equal(resolveArtifactProfilesV1(scopeB).outcome, "missing");
-  assert.equal(resolveRepositoryPoliciesV1(scopeB).outcome, "missing");
+  assert.equal(resolveFileDiscoveryFiltersV1(scopeB).outcome, "missing");
 }
 {
   const root = await mkdtemp(join(tmpdir(), "pi-unity-plan-tool-"));

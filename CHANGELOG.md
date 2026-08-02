@@ -15,7 +15,9 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
-- Optional artifact-profile and repository-policy integration uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
+- Updated the optional integration to `@aefree/pi-file-discovery` and its `discover_candidate_files` filter contract.
+- Unity generated-directory filtering is advisory: broad roots receive recommended exclusions with an explicit `applied` decision, while exact generated roots (including `Library/PackageCache/...`) report a structured `bypassed` decision instead of a compatibility sentinel; filter-provider failures do not authorize or block discovery.
+- Optional artifact-profile and file-discovery filter integration uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
 
 ### Fixed
 

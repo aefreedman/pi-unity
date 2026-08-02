@@ -2,33 +2,33 @@ import { access, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type {
-  RepoSearchExecutionContextV1,
-  RepositoryPolicyRequestV1,
-  RepositoryPolicyResultV1,
-  RepositoryPolicyV1,
-} from "@aefree/pi-repo-search/contracts/v1";
+  FileDiscoveryExecutionContextV1,
+  FileDiscoveryFilterRequestV1,
+  FileDiscoveryFilterResultV1,
+  FileDiscoveryFilterV1,
+} from "@aefree/pi-file-discovery/contracts/v1";
 
-export const UNITY_REPOSITORY_POLICY_ID_V1 = "unity.generated-directories.v1" as const;
+export const UNITY_FILE_DISCOVERY_FILTER_ID_V1 = "unity.generated-directories-filter.v1" as const;
+export const UNITY_BROAD_GENERATED_DIRECTORIES_APPLIED_CODE = "unity_broad_generated_directories_applied" as const;
+export const UNITY_EXACT_GENERATED_ROOT_BYPASSED_CODE = "unity_exact_generated_root_bypassed" as const;
 export const UNITY_GENERATED_DIRECTORIES = Object.freeze(["Library", "Temp", "Logs", "obj", "Build", "Builds", "UserSettings", ".vs"] as const);
-export type UnityRepositoryPolicyOptionsV1 = Readonly<{ includeGenerated?: boolean }>;
 
-export function createUnityRepositoryPolicyV1(): RepositoryPolicyV1 {
+export function createUnityFileDiscoveryFilterV1(): FileDiscoveryFilterV1 {
   return Object.freeze({
     contractVersion: 1,
-    id: UNITY_REPOSITORY_POLICY_ID_V1,
-    kind: "repository-search-policy",
+    id: UNITY_FILE_DISCOVERY_FILTER_ID_V1,
+    kind: "file-discovery-filter",
     owner: Object.freeze({ packageName: "@aefree/pi-unity", packageVersion: "0.8.3", packageRoot: path.resolve(fileURLToPath(new URL("..", import.meta.url))), registeredBy: "index.ts" }),
-    async evaluate(context, request) { return await evaluateUnityRepositoryPolicyV1(context, request); },
+    async evaluate(context, request) { return await evaluateUnityFileDiscoveryFilterV1(context, request); },
   });
 }
 
-export async function evaluateUnityRepositoryPolicyV1(
-  context: RepoSearchExecutionContextV1,
-  request: RepositoryPolicyRequestV1,
-): Promise<RepositoryPolicyResultV1> {
+export async function evaluateUnityFileDiscoveryFilterV1(
+  context: FileDiscoveryExecutionContextV1,
+  request: FileDiscoveryFilterRequestV1,
+): Promise<FileDiscoveryFilterResultV1> {
   if (context.signal !== request.signal) return { outcome: "error", code: "unity_signal_mismatch", retryable: false };
   if (request.signal.aborted) return { outcome: "unavailable", code: "aborted", retryable: true };
-  const options: UnityRepositoryPolicyOptionsV1 = isUnityOptions(request.options) ? request.options ?? {} : {};
   const unityRoots = await discoverUnityRoots(request.workspaceRoot, request.roots, request.signal);
   if (unityRoots.length === 0) return { outcome: "not_applicable" };
   const roots = request.roots.map((searchRoot) => {
@@ -44,25 +44,20 @@ export async function evaluateUnityRepositoryPolicyV1(
       const prefix = normalize(path.relative(absoluteSearchRoot, unityRoot));
       for (const directory of UNITY_GENERATED_DIRECTORIES) globs.add(`!${prefix ? `${prefix}/` : ""}${directory}/**`);
     }
-    if (generatedRoot) globs.add("!**");
+    // An exact root inside a generated directory is deliberate research intent.
     return Object.freeze({
       root: searchRoot,
-      ...(options.includeGenerated === true ? {} : { excludeGlobs: Object.freeze([...globs].sort()) }),
-      disclosures: Object.freeze([options.includeGenerated === true
-        ? "Unity generated/cache/output directories explicitly included by unity.generated-directories.v1."
-        : generatedRoot
-          ? "Search root is inside a Unity generated/cache/output directory and is excluded by unity.generated-directories.v1."
-          : "Unity generated/cache/output directories excluded: Library, Temp, Logs, obj, Build, Builds, UserSettings, .vs."]),
+      filterDecision: generatedRoot ? "bypassed" : "applied",
+      decisionCode: generatedRoot ? UNITY_EXACT_GENERATED_ROOT_BYPASSED_CODE : UNITY_BROAD_GENERATED_DIRECTORIES_APPLIED_CODE,
+      ...(generatedRoot ? {} : { excludeGlobs: Object.freeze([...globs].sort()) }),
+      disclosures: Object.freeze([generatedRoot
+        ? "Unity generated/cache/output root filter bypassed for the explicit root; it is searched."
+        : "Unity broad-root generated-directory filter applied; excludes Library, Temp, Logs, obj, Build, Builds, UserSettings, .vs."]),
     });
   });
   return Object.freeze({ outcome: "applied", roots: Object.freeze(roots) });
 }
 
-function isUnityOptions(value: unknown): value is UnityRepositoryPolicyOptionsV1 {
-  if (value === undefined) return true;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.keys(value).every((key) => key === "includeGenerated") && ((value as { includeGenerated?: unknown }).includeGenerated === undefined || typeof (value as { includeGenerated?: unknown }).includeGenerated === "boolean");
-}
 async function discoverUnityRoots(workspaceRoot: string, searchRoots: readonly string[], signal: AbortSignal): Promise<string[]> {
   const workspace = path.resolve(workspaceRoot);
   const found = new Set<string>();
