@@ -57,9 +57,9 @@ pi install -l <path-to-pi-unity>
 
 - Pi discovers packaged skills from `skills/` and extensions from `index.ts`.
 - `unity-debugging` provides general-purpose, evidence-first Unity diagnosis. For inactive features it routes agents through exact-version documentation, documented feature gates, and observable activation signals before project code, reflection, assembly searches, or Unity internals. Its UI Toolkit example checks the Game View Live Reload setting before callback diagnosis.
-- `@aefree/pi-project-artifacts` and `@aefree/pi-file-discovery` are independent optional peer integrations. When their Pi tools are active, pi-unity uses the capability contracts' global registry rendezvous to register a Unity solution-artifact profile candidate and/or generated-directory file-discovery filter. It never resolves optional peers from pi-unity's own module root, so separately installed Git/local packages compose correctly. Core Unity tools load without them; an advertised malformed registry contract fails visibly. Registrations are scoped, reverse-load-order safe, transactional across active integrations, and a delayed old-session shutdown cannot remove another scope's current records.
+- `@aefree/pi-project-artifacts` and `@aefree/pi-file-discovery` are independent optional peer integrations. When their Pi tools are active, pi-unity uses the capability contracts' global registry rendezvous to register a Unity solution-artifact profile candidate and/or generated-directory file-discovery filter. It never resolves optional peers from pi-unity's own module root, so separately installed Git/local packages compose correctly. Core Unity tools load without them; an advertised malformed registry contract fails visibly. Registrations are scoped, reverse-load-order safe, transactional across active integrations, and a delayed old-session shutdown cannot remove another scope's current records. Project artifacts remains schema-open: the Unity profile contributes applicability, definitions, validation, and confidence only; Unity metadata remains raw-filterable when this provider is absent. Provider development follows the [project-artifacts profile-provider contract](https://github.com/aefreedman/pi-project-artifacts/blob/main/docs/artifact-profile-providers.md).
 - The Unity filter recommends excluding `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs` from broad project-root discovery. Broad exclusions declare `filterDecision: "applied"` with decision code `unity_broad_generated_directories_applied`; an exact generated or `Library/PackageCache/...` root is searched with the explicit `filterDecision: "bypassed"` code `unity_exact_generated_root_bypassed`, rather than a compatibility sentinel glob. File-discovery filter failures degrade discovery filtering rather than authorizing or blocking inspection; the canonical file-discovery package remains Unity-neutral.
-- The optional artifact profile defines legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` as independent fields. Complete valid v2 is authoritative; partial v2 plus legacy fields is a conflict. It contributes only when the workspace has Unity `ProjectVersion.txt` evidence, so a generic `docs/solutions` path never selects it by itself.
+- The optional artifact profile describes `engine`, `unity_version`, `unity_packages`, `render_pipeline`, and `platforms` for solution and memory artifacts. Every field is optional; present fields receive type/enum validation while undeclared project metadata remains open. Artifact paths already distinguish solutions from memories, and evolving project vocabulary belongs in generic `tags`, `module`, or `component` fields rather than a Unity-owned document taxonomy. The profile contributes only when the workspace has Unity `ProjectVersion.txt` evidence, so a conventional artifact path never selects it by itself.
 - `unity_guidance_audit` performs a bounded, read-only scan of AGENTS.md, CLAUDE.md, Copilot, and Cursor guidance for outdated Unity CLI/Pipeline, batchmode, test, lifecycle, and exact-project-copy instructions. The `auditing-unity-agent-guidance` skill owns contextual migration and user-authorized edits.
 - `unity_open_editor` launches the full Unity Editor GUI.
 - `unity_open_editor` prefers the installed `unity open` CLI when available, falling back to direct editor executable launch.
@@ -159,6 +159,25 @@ pi-unity/
       SKILL.md
   tests/
 ```
+
+## Optional artifact metadata
+
+When `@aefree/pi-project-artifacts` is also active in a Unity workspace, solution and memory Markdown may use the following profile-enriched fields:
+
+```yaml
+---
+engine: unity
+unity_version: "6000.0"
+unity_packages:
+  - com.unity.inputsystem
+render_pipeline: urp
+platforms:
+  - windows
+  - android
+---
+```
+
+Supported `render_pipeline` values are `builtin`, `urp`, `hdrp`, `custom`, and `agnostic`. Keep `unity_version` quoted because Unity versions are identifiers rather than numeric values. Omit inapplicable fields instead of adding placeholders. These fields improve exact retrieval and diagnostics but are not required for indexing or raw filtering.
 
 ## Testing
 

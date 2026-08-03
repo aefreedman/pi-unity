@@ -7,14 +7,20 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Added
+
+- Added an optional schema-open Unity artifact profile for solution and memory Markdown with optional `engine`, `unity_version`, `unity_packages`, `render_pipeline`, and `platforms` metadata.
+
 ### Removed
 
+- Removed the legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` profile taxonomy; undeclared legacy or project-specific fields remain available as raw open metadata.
 - Removed the Unity solution-document migration and capture surface; pi-unity now contributes schema metadata without selecting schemas or rewriting project documents.
 - Removed `package-lock.json` until the optional development packages are publicly resolvable and a standalone lockfile can be generated.
 - Retired the Unity workflow-guidance contributor and its workflow-only references; Unity procedures remain in their owning skills and tool safety remains enforced by the package runtime.
 
 ### Changed
 
+- The optional project-artifacts provider now enriches schema-open solution and memory metadata with Unity applicability, definitions, validation, and confidence without gating raw filters; all declared Unity fields remain optional.
 - Updated the optional integration to `@aefree/pi-file-discovery` and its `discover_candidate_files` filter contract.
 - Unity generated-directory filtering is advisory: broad roots receive recommended exclusions with an explicit `applied` decision, while exact generated roots (including `Library/PackageCache/...`) report a structured `bypassed` decision instead of a compatibility sentinel; filter-provider failures do not authorize or block discovery.
 - Optional artifact-profile and file-discovery filter integration uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
