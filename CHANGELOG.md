@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.9.1] - 2026-08-05
+
+### Added
+
+- Added a manual-dispatch GitHub Actions workflow for npm OIDC trusted publishing with exact version/commit reconciliation and provenance.
+
+### Fixed
+
+- Canonicalized Pipeline registration test fixture paths so Windows validation uses the same exact project identity as the runtime.
+
 ## [0.9.0] - 2026-08-04
 
 ### Added
