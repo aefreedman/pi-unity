@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import registerProjectArtifacts from "@aefree/pi-project-artifacts/pi";
@@ -151,10 +151,11 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await mkdir(join(project, "Packages"), { recursive: true });
     await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
     await writeFile(join(project, "Packages", "manifest.json"), "{\"dependencies\":{}}\n");
+    const canonicalProject = await realpath(project);
     const pi = fakePi(async (_command, args) => {
       calls.push(args);
       if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
-      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
       if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["get_authoring_root", "eval"] } }), stderr: "" };
       const connectedCommand = args[args.indexOf("--timeout") + 2];
       return connectedCommand === "eval"
@@ -167,7 +168,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     const pipelineInspection = pi.tools.find((item) => item.name === "unity_pipeline_inspect");
     const pipelineEval = pi.tools.find((item) => item.name === "unity_pipeline_eval");
     const result = await pipelineInspection.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
-    assert.equal(result.details.pipelineInspection.outcome, "dispatched");
+    assert.equal(result.details.pipelineInspection.outcome, "dispatched", JSON.stringify(result.details.pipelineInspection));
     assert.match(result.content[0].text, /token= \[redacted\]/);
     const evalResult = await pipelineEval.execute("eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;" }, undefined, undefined, ctx);
     assert.equal(evalResult.details.pipelineEval.outcome, "dispatched", "The primary Pipeline eval tool must expose advertised arbitrary C# eval.");
@@ -187,10 +188,11 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await mkdir(join(project, "Packages"), { recursive: true });
     await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
     await writeFile(join(project, "Packages", "manifest.json"), "{\"dependencies\":{\"com.unity.pipeline\":\"0.3.0-exp.1\"}}\n");
+    const canonicalProject = await realpath(project);
     let playMode = true;
     const pi = fakePi(async (_command, args) => {
       if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
-      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
       if (args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "editor_stop", "recompile", "recompile_status", "run_tests", "test_status"] } }), stderr: "" };
       const command = args[args.indexOf("--timeout") + 2];
       dispatched.push(command);
