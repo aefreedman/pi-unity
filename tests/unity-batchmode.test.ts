@@ -104,7 +104,7 @@ assert.equal(deriveUnityArtifactInspectionStatus(true, headlessInvocation, null)
 const excerpt = summarizeTextForAgent(["a", "b", "c", "d"].join("\n"), 2, 100);
 assert.equal(excerpt, "[showing last 2 of 4 lines]\nc\nd");
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "free-unity-pi-batchmode-"));
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-unity-batchmode-"));
 try {
   const cwd = path.join(tempRoot, "cwd");
   const projectRoot = path.join(tempRoot, "project");
@@ -188,4 +188,4 @@ try {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 
-console.log("free-unity-pi unity-batchmode tests passed");
+console.log("pi-unity unity-batchmode tests passed");

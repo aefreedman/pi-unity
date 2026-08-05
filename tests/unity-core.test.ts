@@ -62,4 +62,4 @@ assert(commandTargetsProject('/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.a
 assert(!commandTargetsProject('/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.app/Contents/MacOS/Unity -projectPath /Users/test/Other', "/Users/test/Game", "darwin"));
 assert(!projectPathsMatch("/tmp/__pi_unity_case_match__/game", "/tmp/__pi_unity_case_match__/Game", "darwin"), "Darwin project paths must remain case-sensitive.");
 
-console.log("free-unity-pi unity-core tests passed");
+console.log("pi-unity unity-core tests passed");

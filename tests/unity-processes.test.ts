@@ -137,4 +137,4 @@ assert.deepEqual(abortedTerminationPids, [101], "Cancellation after one closure 
 assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "Reason: This process can only be terminated forcefully (with /F option)." }), true);
 assert.equal(shouldRetryWindowsTaskkillWithForce({ stderr: "ERROR: The process could not be found." }), false);
 
-console.log("free-unity-pi unity-process tests passed");
+console.log("pi-unity unity-process tests passed");

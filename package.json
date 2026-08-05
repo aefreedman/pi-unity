@@ -19,17 +19,21 @@
     ]
   },
   "scripts": {
-    "test": "npx --yes tsx tests/unity-core.test.ts && npx --yes tsx tests/unity-pipeline.test.ts && npx --yes tsx tests/unity-processes.test.ts && npx --yes tsx tests/pi-unity-settings.test.ts && npx --yes tsx tests/unity-projects.test.ts && npx --yes tsx tests/unity-guidance-audit.test.ts && npx --yes tsx tests/unity-batchmode.test.ts && npx --yes tsx tests/unity-test-batch.test.ts && npx --yes tsx tests/unity-cli.test.ts && npx --yes tsx tests/unity-project-lock.test.ts && npx --yes tsx tests/unity-artifact-profile.test.ts && npx --yes tsx tests/unity-file-discovery-filter.test.ts && npx --yes tsx tests/unity-registration.test.ts && npx --yes tsx tests/unity-optional-integrations.test.ts && npx --yes tsx tests/unity-package-validation.test.ts",
-    "eval:guidance-skill": "npx --yes tsx evals/auditing-unity-agent-guidance/run-eval.ts"
+    "test": "tsx tests/unity-core.test.ts && tsx tests/unity-pipeline.test.ts && tsx tests/unity-processes.test.ts && tsx tests/pi-unity-settings.test.ts && tsx tests/unity-projects.test.ts && tsx tests/unity-guidance-audit.test.ts && tsx tests/unity-batchmode.test.ts && tsx tests/unity-test-batch.test.ts && tsx tests/unity-cli.test.ts && tsx tests/unity-project-lock.test.ts && tsx tests/unity-artifact-profile.test.ts && tsx tests/unity-file-discovery-filter.test.ts && tsx tests/unity-registration.test.ts && tsx tests/unity-optional-integrations.test.ts && tsx tests/unity-package-validation.test.ts",
+    "eval:guidance-skill": "tsx evals/auditing-unity-agent-guidance/run-eval.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "typebox": "1.3.8"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "@aefree/pi-project-artifacts": "^0.1.0",
-    "@aefree/pi-file-discovery": "^0.1.0",
-    "typebox": "*"
+    "@aefree/pi-file-discovery": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   },
   "description": "Pi tools and skills for Unity workflows, with optional artifact and file-discovery integrations.",
   "license": "MIT",
@@ -47,7 +51,7 @@
     "@earendil-works/pi-tui": "0.83.0",
     "@aefree/pi-project-artifacts": "^0.1.0",
     "@aefree/pi-file-discovery": "^0.1.0",
-    "typebox": "1.3.8"
+    "tsx": "^4.23.5"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {
@@ -63,9 +67,6 @@
       "optional": true
     },
     "@aefree/pi-file-discovery": {
-      "optional": true
-    },
-    "typebox": {
       "optional": true
     }
   }

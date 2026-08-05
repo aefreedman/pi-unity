@@ -190,7 +190,7 @@ The package declares optional peer integrations for `@aefree/pi-project-artifact
 
 ## Release status
 
-No `package-lock.json` is committed while the optional development packages remain unpublished. Publishing remains blocked until those development dependencies can resolve from a public registry (or another authorized distribution source), after which a standalone lockfile must be generated and validated.
+A registry-clean `package-lock.json` is committed and the optional development packages now resolve from the public registry. Release remains intentionally pending: this package is still marked `private: true`, and its version/changelog finalization and publication require separate authorization.
 
 ## License
 

@@ -1,13 +1,12 @@
 import { strict as assert } from "node:assert";
 import { cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveArtifactProfilesV1 } from "@aefree/pi-project-artifacts/contracts/v1";
 import { resolveFileDiscoveryFiltersV1 } from "@aefree/pi-file-discovery/contracts/v1";
 
 const packagePath = fileURLToPath(new URL("../", import.meta.url));
-const workspacePath = dirname(packagePath);
 const keys = {
   artifacts: "@aefree/pi-project-artifacts/profiles/v1",
   fileDiscovery: "@aefree/pi-file-discovery/filters/v1",
@@ -51,10 +50,11 @@ async function loadIsolatedUnity(root: string): Promise<(pi: any) => void> {
   const module = await import(`${pathToFileURL(join(root, "index.ts")).href}?${encodeURIComponent(root)}`);
   return module.default;
 }
-async function externalRegister(relativeModule: string): Promise<(pi: any) => void> {
-  // This is deliberately imported from the peer package's own root, never from
-  // the isolated pi-unity copy's node_modules.
-  return (await import(pathToFileURL(join(workspacePath, relativeModule)).href)).default;
+async function installedPeerRegister(name: "artifacts" | "file-discovery"): Promise<(pi: any) => void> {
+  // Register peers from their installed public Pi entry point or declared Pi
+  // extension path, never from a sibling source checkout.
+  if (name === "artifacts") return (await import("@aefree/pi-project-artifacts/pi")).default;
+  return (await import(pathToFileURL(join(packagePath, "node_modules/@aefree/pi-file-discovery/extensions/index.ts")).href)).default;
 }
 
 {
@@ -76,13 +76,13 @@ async function externalRegister(relativeModule: string): Promise<(pi: any) => vo
 }
 
 for (const fixture of [
-  { name: "artifacts", module: "pi-project-artifacts/src/pi/index.ts", resolve: (scope: object) => resolveArtifactProfilesV1(scope).outcome },
-  { name: "file-discovery", module: "pi-file-discovery/extensions/index.ts", resolve: (scope: object) => resolveFileDiscoveryFiltersV1(scope).outcome },
+  { name: "artifacts", resolve: (scope: object) => resolveArtifactProfilesV1(scope).outcome },
+  { name: "file-discovery", resolve: (scope: object) => resolveFileDiscoveryFiltersV1(scope).outcome },
 ] as const) {
   clearRendezvous();
   const root = await createIsolatedUnityCopy(fixture.name);
   try {
-    const [registerUnity, registerPeer] = await Promise.all([loadIsolatedUnity(root), externalRegister(fixture.module)]);
+    const [registerUnity, registerPeer] = await Promise.all([loadIsolatedUnity(root), installedPeerRegister(fixture.name)]);
     const pi = fakePi();
     registerPeer(pi as any);
     registerUnity(pi as any);

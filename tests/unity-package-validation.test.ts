@@ -8,6 +8,7 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  engines?: { node?: string };
   bundledDependencies?: string[];
   exports?: Record<string, string>;
 };
@@ -38,6 +39,11 @@ for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-file-disc
   assert.equal(packageJson.dependencies?.[integration], undefined, `${integration} must not be a required runtime dependency.`);
 }
 assert.equal(packageJson.dependencies?.["@aefree/pi-capability-registry"], undefined, "No remaining Unity runtime contract requires the capability registry.");
+assert.equal(packageJson.dependencies?.typebox, "1.3.8", "typebox is statically imported at runtime.");
+assert.equal(packageJson.peerDependencies?.typebox, undefined, "typebox is not a host-provided framework dependency.");
+assert.equal(packageJson.devDependencies?.tsx, "^4.23.5", "Tests must declare their local TypeScript runner.");
+assert(!packageJson.scripts?.test?.includes("npx --yes tsx"), "Tests must use the locally installed tsx.");
+assert.equal(packageJson.engines?.node, ">=22.19.0", "Node support must satisfy the declared framework and development packages.");
 assert.equal(packageJson.bundledDependencies, undefined);
 assert(!JSON.stringify(packageJson).includes("file:../"));
 
@@ -67,12 +73,13 @@ for (const skillName of ["unity-debugging", "unity-pipeline-workflows", "unity-b
 }
 assert(!readmeText.includes("unity-docs") && !readmeText.includes("unity_migrate_solution_docs"));
 assert(readmeText.includes("global registry rendezvous") && readmeText.includes("optional peer integrations"));
-assert(readmeText.includes("No `package-lock.json` is committed"));
+assert(readmeText.includes("registry-clean `package-lock.json` is committed"));
 assert(changelogText.includes("without selecting schemas or rewriting project documents"));
 assert(!changelogText.includes("archive/unpublished-pi-unity-docs-migration"));
 assert(changelogText.includes("transactional"));
 
 const lockPath = new URL("../package-lock.json", import.meta.url);
+assert(existsSync(lockPath), "A registry-clean lockfile is required for reproducible validation.");
 if (existsSync(lockPath)) {
   const lockText = readFileSync(lockPath, "utf8");
   const lock = JSON.parse(lockText) as { packages?: Record<string, { resolved?: unknown; link?: unknown }> };
@@ -81,8 +88,6 @@ if (existsSync(lockPath)) {
     assert(typeof entry.resolved !== "string" || !entry.resolved.startsWith("../"), `Lockfile must not resolve a parent-sibling package: ${path}`);
     assert.notEqual(entry.link, true, `Lockfile must not contain a workspace link: ${path}`);
   }
-} else {
-  assert(readmeText.includes("No `package-lock.json` is committed"), "A missing lockfile must retain its documented release blocker.");
 }
 assert(skillText.includes("unity_project_status") && skillText.includes("one process per project folder"));
 assert(guidanceSkillText.includes("unity_guidance_audit") && guidanceSkillText.includes("untrusted evidence"));
@@ -91,6 +96,10 @@ assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.in
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
 assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
 
-assert(existsSync(new URL("../.github/workflows/macos.yml", import.meta.url)) && existsSync(new URL("../.github/workflows/windows.yml", import.meta.url)));
+for (const workflow of ["macos.yml", "windows.yml"]) {
+  const workflowText = readFileSync(new URL(`../.github/workflows/${workflow}`, import.meta.url), "utf8");
+  assert(workflowText.includes("npm ci --ignore-scripts --no-audit --no-fund"), `${workflow} must validate the committed lockfile.`);
+}
+assert(readFileSync(new URL("../.npmignore", import.meta.url), "utf8").includes(".gitattributes"), "Git attributes must not ship in the npm artifact.");
 
 console.log("pi-unity package validation tests passed");

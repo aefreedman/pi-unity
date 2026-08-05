@@ -21,7 +21,7 @@ function createUnityProject(root: string, version: string): void {
   fs.writeFileSync(path.join(root, "Packages", "manifest.json"), "{}\n");
 }
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "free-unity-pi-projects-"));
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-unity-projects-"));
 
 try {
   const projectRoot = path.join(tempRoot, "workspace", "game-copy");
@@ -55,7 +55,7 @@ try {
   const emptyResolved = await resolveUnityProjectCandidates(path.join(tempRoot, "not-a-project"));
   assert.equal(emptyResolved.candidates.length, 0);
 
-  console.log("free-unity-pi unity-project tests passed");
+  console.log("pi-unity unity-project tests passed");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

@@ -158,7 +158,7 @@ try {
   const normalizedRoot = await __unityProjectLockInternals.canonicalizeUnityProjectRoot(`${projectA}${path.sep}`);
   assert.equal(normalizedRoot, await __unityProjectLockInternals.canonicalizeUnityProjectRoot(projectA));
 
-  console.log("free-unity-pi unity-project-lock tests passed");
+  console.log("pi-unity unity-project-lock tests passed");
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

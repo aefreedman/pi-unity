@@ -294,4 +294,4 @@ try {
   await rm(planningProject, { recursive: true, force: true });
 }
 
-console.log("free-unity-pi unity-cli tests passed");
+console.log("pi-unity unity-cli tests passed");
