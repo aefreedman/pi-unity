@@ -2,6 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { strict as assert } from "node:assert";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+  private?: boolean;
+  version?: string;
+  publishConfig?: { access?: string };
   pi?: { extensions?: string[]; skills?: string[] };
   scripts?: Record<string, string>;
   peerDependencies?: Record<string, string>;
@@ -22,6 +25,9 @@ const debuggingSkillText = readFileSync(new URL("../skills/unity-debugging/SKILL
 const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
 const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
 
+assert.equal(packageJson.private, undefined, "The prepared public release must not retain npm's private publication guard.");
+assert.equal(packageJson.version, "0.9.0", "The prepared release version must match the finalized changelog.");
+assert.equal(packageJson.publishConfig?.access, "public", "The scoped package must publish with public access.");
 assert(packageJson.pi?.extensions?.includes("./index.ts"));
 assert(packageJson.pi?.skills?.includes("./skills"));
 assert(!packageJson.exports?.["./contracts/v1"], "The removed migration service must not retain a public contract export.");

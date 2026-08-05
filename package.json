@@ -1,6 +1,5 @@
 {
   "name": "@aefree/pi-unity",
-  "private": true,
   "version": "0.9.0",
   "type": "module",
   "exports": {
@@ -37,6 +36,9 @@
   },
   "description": "Pi tools and skills for Unity workflows, with optional artifact and file-discovery integrations.",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/aefreedman/pi-unity.git"
