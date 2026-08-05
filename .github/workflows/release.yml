@@ -1,0 +1,57 @@
+name: npm release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Use an npm version that supports trusted publishing
+        run: npm install --global npm@11.6.2
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: npm pack --dry-run
+      - name: Reconcile npm release identity
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Trusted publication must be dispatched from main, not $GITHUB_REF."
+            exit 1
+          fi
+
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          package_spec="${package_name}@${package_version}"
+          existing_version="$(npm view "$package_spec" version --json 2>/dev/null || true)"
+
+          if [[ -z "$existing_version" ]]; then
+            echo "$package_spec is not published; continuing."
+            exit 0
+          fi
+
+          existing_git_head="$(npm view "$package_spec" gitHead --json 2>/dev/null | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.parse(s) ?? ''))")"
+          if [[ "$existing_git_head" == "$GITHUB_SHA" ]]; then
+            echo "$package_spec already matches $GITHUB_SHA; nothing to publish."
+            echo "SKIP_NPM_PUBLISH=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "::error::$package_spec already exists with gitHead ${existing_git_head:-unknown}, expected $GITHUB_SHA."
+          exit 1
+      - name: Publish to npm with trusted publishing
+        if: env.SKIP_NPM_PUBLISH != 'true'
+        run: npm publish --access public --provenance

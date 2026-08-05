@@ -106,6 +106,12 @@ for (const workflow of ["macos.yml", "windows.yml"]) {
   const workflowText = readFileSync(new URL(`../.github/workflows/${workflow}`, import.meta.url), "utf8");
   assert(workflowText.includes("npm ci --ignore-scripts --no-audit --no-fund"), `${workflow} must validate the committed lockfile.`);
 }
+const releaseWorkflowText = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+assert(releaseWorkflowText.includes("id-token: write"), "Trusted npm publishing requires GitHub OIDC permission.");
+assert(releaseWorkflowText.includes("npm@11.6.2") && releaseWorkflowText.includes("node-version: 22.19.0"), "Trusted publishing must use supported Node and npm versions.");
+assert(releaseWorkflowText.includes("npm publish --access public --provenance"), "The release workflow must publish the public scoped package with provenance.");
+assert(releaseWorkflowText.includes("existing_git_head") && releaseWorkflowText.includes("GITHUB_SHA"), "Release retries must reconcile npm gitHead with the exact workflow commit.");
+assert(!releaseWorkflowText.includes("NODE_AUTH_TOKEN"), "OIDC publishing must not supply a long-lived npm token.");
 assert(readFileSync(new URL("../.npmignore", import.meta.url), "utf8").includes(".gitattributes"), "Git attributes must not ship in the npm artifact.");
 
 console.log("pi-unity package validation tests passed");
