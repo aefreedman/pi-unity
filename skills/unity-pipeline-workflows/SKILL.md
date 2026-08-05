@@ -37,6 +37,7 @@ Call `unity_pipeline_run_tests` with:
 - required `testPlatform`: `EditMode` or `PlayMode`;
 - optional `testFilter`: one test-name filter only;
 - optional `path` and `timeoutSeconds` (default 600, maximum 3600).
+- before running PlayMode tests, check the Game View focus setting. Set it to Play Unfocused for the test run, then restore the previous setting afterward.
 
 The tool treats `no_tests`, idle, and not-started statuses as safe inactivity, detects a pre-existing active connected test before dispatch, and stops rather than claiming or replacing active work. It captures returned mode/filter/run identity fields when available and stops as uncertain if status is clearly displaced by another run.
 

@@ -5,29 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
-## Unreleased
+## [0.9.0] - 2026-08-04
 
 ### Added
 
+- Added `unity_pipeline_recompile` and `unity_pipeline_run_tests` for exact-copy connected compilation and focused tests with lifecycle guards, bounded polling, identity checks, and compact terminal evidence.
+- Added `unity_pipeline_eval` for bounded project-specific C# evaluation and `unity_pipeline_inspect` for package-owned structured Pipeline inspections.
+- Added the `unity-interactive-playmode-authoring` skill for temporary live runtime tuning followed by deliberate persistence of accepted values.
+- Added the `unity-debugging` skill for evidence-first diagnosis of Unity Editor, runtime, package, asset, lifecycle, callback, and feature-activation problems.
 - Added an optional schema-open Unity artifact profile for solution and memory Markdown with optional `engine`, `unity_version`, `unity_packages`, `render_pipeline`, and `platforms` metadata.
-
-### Removed
-
-- Removed the legacy `problem_type` and v2 `schema_version`/`doc_type`/`category`/`failure_mode` profile taxonomy; undeclared legacy or project-specific fields remain available as raw open metadata.
-- Removed the Unity solution-document migration and capture surface; pi-unity now contributes schema metadata without selecting schemas or rewriting project documents.
-- Removed `package-lock.json` until the optional development packages are publicly resolvable and a standalone lockfile can be generated.
-- Retired the Unity workflow-guidance contributor and its workflow-only references; Unity procedures remain in their owning skills and tool safety remains enforced by the package runtime.
+- Added an optional Unity file-discovery filter that recommends excluding generated directories for broad roots while preserving explicit searches inside generated roots.
 
 ### Changed
 
-- The optional project-artifacts provider now enriches schema-open solution and memory metadata with Unity applicability, definitions, validation, and confidence without gating raw filters; all declared Unity fields remain optional.
-- Updated the optional integration to `@aefree/pi-file-discovery` and its `discover_candidate_files` filter contract.
-- Unity generated-directory filtering is advisory: broad roots receive recommended exclusions with an explicit `applied` decision, while exact generated roots (including `Library/PackageCache/...`) report a structured `bypassed` decision instead of a compatibility sentinel; filter-provider failures do not authorize or block discovery.
-- Optional artifact-profile and file-discovery filter integration uses the capability contracts' global registry rendezvous rather than resolving optional peer modules from pi-unity's module root. Independently installed Pi Git/local packages compose through their own module roots.
+- Replaced `unity-connected-workflows` with `unity-pipeline-workflows`, routing connected operations through typed tools and documenting safe PlayMode lifecycle, cancellation, timeout, test-evidence, and Game View focus behavior.
+- Tightened Unity test evidence so zero-test, unknown-total, malformed, missing-result, and failing runs are never reported as passing.
+- Made project-artifacts and file-discovery composition optional through their public capability contracts and global registry rendezvous, allowing independently installed Pi packages to compose without sibling paths or shared module roots.
+- Updated optional integration metadata to use `@aefree/pi-project-artifacts` and `@aefree/pi-file-discovery` as optional peers, while classifying the statically imported `typebox` as a runtime dependency.
+- Updated package validation to Node.js 22.19 or later with a registry-clean lockfile, local `tsx`, reproducible `npm ci` workflows, and a consumer-focused npm archive.
+
+### Removed
+
+- Removed the `capturing-screenshots-unity` skill and its bundled capture assets; graphics-required launches remain available through the explicit `useGraphics` controls.
+- Retired the workflow-guidance contributor and intermediate migration/capture surfaces; reusable procedures now remain in their owning skills, and optional integrations contribute metadata without selecting schemas or rewriting project documents.
 
 ### Fixed
 
-- Made multi-integration registration transactional: failures while registering a second or third optional integration roll back every earlier record for that session scope.
+- Made multi-integration registration transactional so failures roll back every earlier registration for that session scope.
+- Fixed clean-install tests to exercise optional integrations through installed package contracts rather than sibling repository source paths.
+- Fixed macOS guidance-audit path handling, cross-platform line-ending assertions, and cancellation propagation through connected capability and process operations.
 
 ## [0.8.2] - 2026-07-24
 
