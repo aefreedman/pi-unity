@@ -14,6 +14,7 @@ and this project follows semantic versioning for public package releases.
 ### Fixed
 
 - Canonicalized Pipeline registration test fixture paths so Windows validation uses the same exact project identity as the runtime.
+- Made npm release preflight distinguish an unpublished version's nonzero registry response from published version metadata before reconciling `gitHead`.
 
 ## [0.9.0] - 2026-08-04
 

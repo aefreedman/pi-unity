@@ -36,14 +36,12 @@ jobs:
           package_name="$(node -p "require('./package.json').name")"
           package_version="$(node -p "require('./package.json').version")"
           package_spec="${package_name}@${package_version}"
-          existing_version="$(npm view "$package_spec" version --json 2>/dev/null || true)"
-
-          if [[ -z "$existing_version" ]]; then
+          if ! existing_metadata="$(npm view "$package_spec" version gitHead --json 2>/dev/null)"; then
             echo "$package_spec is not published; continuing."
             exit 0
           fi
 
-          existing_git_head="$(npm view "$package_spec" gitHead --json 2>/dev/null | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => process.stdout.write(JSON.parse(s) ?? ''))")"
+          existing_git_head="$(printf '%s' "$existing_metadata" | node -e "let s=''; process.stdin.on('data', d => s += d).on('end', () => { const value = JSON.parse(s); process.stdout.write(typeof value === 'string' ? value : value.gitHead ?? ''); })")"
           if [[ "$existing_git_head" == "$GITHUB_SHA" ]]; then
             echo "$package_spec already matches $GITHUB_SHA; nothing to publish."
             echo "SKIP_NPM_PUBLISH=true" >> "$GITHUB_ENV"
