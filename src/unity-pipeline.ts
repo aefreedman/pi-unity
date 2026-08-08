@@ -316,7 +316,7 @@ async function executeCommand(deps: PipelineDependencies, projectRoot: string, c
   if (deadline !== undefined) ensureBeforeDeadline(deadline, now, command);
   return result;
 }
-async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = false): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
+async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = true): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
   const capabilities = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   const error = capabilityError(capabilities, commands); if (error) throw new Error(error);
   let editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
@@ -335,13 +335,13 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
       const policyDescription = policy === "stop_and_recompile"
         ? "Unity's Script Changes While Playing policy may stop Play Mode to recompile"
         : "Pipeline editor_status does not expose Unity's Script Changes While Playing policy, so recompilation may continue, defer, or stop Play Mode";
-      if (!allowAutonomousExitPlayMode) throw new Error(`${policyDescription}; autonomous Play Mode exit is disallowed for this session, so recompile was not started.`);
+      if (!allowAutonomousExitPlayMode) throw new Error(`${policyDescription}; Play Mode exit is disabled for this session, so recompile was not started.`);
       // RecompileCommand owns AssetDatabase.Refresh. Do not preempt it with editor_stop or override Unity's policy.
       playModeHandling = policy === "stop_and_recompile" ? "unity_policy_may_exit" : "policy_unknown";
     }
   } else if (status.lifecycle !== "compatible") {
-    // Test execution has separate lifecycle semantics: stop explicitly only with session authorization.
-    if (!allowAutonomousExitPlayMode) throw new Error("Unity Editor is in Play Mode or paused; autonomous Play Mode exit is disallowed for this session, so tests were not started.");
+    // Test execution has separate lifecycle semantics: stop explicitly, then verify Edit Mode.
+    if (!allowAutonomousExitPlayMode) throw new Error("Unity Editor is in Play Mode or paused; Play Mode exit is disabled for this session, so tests were not started.");
     const stopError = capabilityError(capabilities, ["editor_stop"]); if (stopError) throw new Error(stopError);
     const stopped = await executeCommand(deps, projectRoot, "editor_stop", [], signal, deadline, now);
     if (stopped.error) throw new Error("Unity Pipeline editor_stop failed; tests were not started and Play Mode state is uncertain.");

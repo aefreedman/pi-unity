@@ -149,17 +149,17 @@ try {
   }), /timed out/);
 
   let lifecycleDispatch = false;
-  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
+  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: false }, {
     execute: async (_command, args) => {
       if (args.includes("editor_status")) return { stdout: envelope({ status: "playing" }), stderr: "" };
       lifecycleDispatch = true; return { stdout: envelope({ status: "up_to_date" }), stderr: "" };
     },
     inspect: async () => capabilities(root), canonicalize: async value => value,
-  }), /autonomous Play Mode exit is disallowed/);
-  assert.equal(lifecycleDispatch, false, "Incompatible lifecycle state must reject before dispatch.");
+  }), /Play Mode exit is disabled/);
+  assert.equal(lifecycleDispatch, false, "An explicit lifecycle restriction must reject before dispatch.");
 
   const lifecycleCommands: string[] = []; clock = 0;
-  const unknownPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: true }, {
+  const unknownPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
     execute: async (_command, args) => {
       const command = args[args.indexOf("--timeout") + 2]!; lifecycleCommands.push(command);
       if (command === "editor_status") return { stdout: envelope({ status: "ready", playMode: "playing" }), stderr: "" };
@@ -185,12 +185,12 @@ try {
   assert.equal(policyRecompile.details.playModeHandling, "unity_policy_continue");
   assert.match(policyRecompile.text, /did not send editor_stop/);
 
-  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
+  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: false }, {
     execute: async (_command, args) => args.includes("editor_status")
       ? { stdout: envelope({ status: "playing", scriptChangesWhilePlaying: "StopPlayingAndRecompile" }), stderr: "" }
       : { stdout: envelope({ status: "up_to_date" }), stderr: "" },
     inspect: async () => capabilities(root), canonicalize: async value => value,
-  }), /policy may stop Play Mode.*disallowed/);
+  }), /policy may stop Play Mode.*disabled/);
 
   const stopPolicyCommands: string[] = [];
   const stopPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: true }, {

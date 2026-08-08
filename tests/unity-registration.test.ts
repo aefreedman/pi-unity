@@ -212,15 +212,19 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await emit(pi, "session_start", ctxB);
     const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
     const tests = pi.tools.find((item) => item.name === "unity_pipeline_run_tests");
-    await assert.rejects(() => tests.execute("unauthorized-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /autonomous Play Mode exit is disallowed/, "The package-owned typed test lifecycle operation enforces the default session authorization.");
-    assert.equal(dispatched.includes("editor_stop"), false);
+    const defaultTestResult = await tests.execute("default-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA);
+    assert.match(defaultTestResult.content[0].text, /21 executed, 21 passed, 0 failed/);
+    assert.equal(dispatched.includes("editor_stop"), true, "Play Mode exit is allowed by default.");
     const playModeCommand = pi.commands.find((item) => item.name === "unity-playmode-exit");
+    await playModeCommand.handler("disallow", ctxA);
+    assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: false } });
+    assert.match(notifications.at(-1) ?? "", /disabled/);
+    playMode = true;
     await playModeCommand.handler("allow", ctxB);
     assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: true } });
-    assert.match(notifications.at(-1) ?? "", /allowed/);
-    await assert.rejects(() => tests.execute("isolated-session-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /autonomous Play Mode exit is disallowed/, "Authorization from session B must not leak into session A.");
+    await assert.rejects(() => tests.execute("isolated-session-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /Play Mode exit is disabled/, "An explicit session restriction must not be changed by another session.");
     await emit(pi, "session_shutdown", ctxA);
-    await emit(pi, "session_start", ctxB); // Session reload/resume reconstructs only B's toggle from its branch entries.
+    await emit(pi, "session_start", ctxB); // Session reload/resume reconstructs B's explicit toggle from its branch entries.
     const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctxB);
     const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxB);
     assert.match(compileResult.content[0].text, /up to date/);
@@ -228,12 +232,12 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(compileResult.details.pipeline.playModeHandling, "policy_unknown");
     assert.match(compileResult.content[0].text, /did not send editor_stop/);
     assert.match(testResult.content[0].text, /21 executed, 21 passed, 0 failed/);
-    assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their separate explicit lifecycle guard.");
+    assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their verified Play Mode exit path.");
     assert.equal(testResult.details.pipeline.playModeHandling, "agent_exited");
     assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");
-    assert.equal(dispatched.filter((command) => command === "editor_stop").length, 1);
+    assert.equal(dispatched.filter((command) => command === "editor_stop").length, 2);
     assert.equal(dispatched.filter((command) => command === "recompile").length, 1);
-    assert.equal(dispatched.filter((command) => command === "run_tests").length, 1);
+    assert.equal(dispatched.filter((command) => command === "run_tests").length, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

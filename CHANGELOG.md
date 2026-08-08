@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.9.2] - 2026-08-08
+
+### Changed
+
+- Allow connected Pipeline tools to exit Play Mode by default when required, while retaining session-scoped opt-out control and verified lifecycle transitions.
+
 ## [0.9.1] - 2026-08-05
 
 ### Added

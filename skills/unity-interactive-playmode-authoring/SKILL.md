@@ -71,7 +71,7 @@ A request to persist authorizes the durable source/asset edit, but lifecycle cha
 1. Capture the final runtime values and the owning coordinate space, dimensions, scale, or other context needed to convert them into authored values.
 2. Identify the authoritative source or serialized field and trace how it becomes the runtime value. Do not write a visual coordinate into a guessed representation.
 3. Determine whether persistence triggers asset import, script compilation, domain reload, or runtime reconstruction, and whether the current instance can consume the change.
-4. Inspect `editor_status`. If Play Mode must stop, obtain lifecycle authorization unless already explicit (including the current session's `/unity-playmode-exit allow` toggle), dispatch the advertised `editor_stop`, and verify Play Mode exited.
+4. Inspect `editor_status`. If Play Mode must stop, dispatch the advertised `editor_stop` and verify Play Mode exited.
 5. Apply the durable edit with the owning file/asset tool.
 6. Use the `unity-pipeline-workflows` skill for any required connected compilation and terminal status validation.
 7. Re-enter Play Mode only when requested. Report temporary live confirmation and durable verification as separate evidence.

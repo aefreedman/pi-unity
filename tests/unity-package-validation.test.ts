@@ -26,7 +26,7 @@ const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.
 const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
 
 assert.equal(packageJson.private, undefined, "The prepared public release must not retain npm's private publication guard.");
-assert.equal(packageJson.version, "0.9.1", "The prepared release version must match the finalized changelog.");
+assert.equal(packageJson.version, "0.9.2", "The prepared release version must match the finalized changelog.");
 assert.equal(packageJson.publishConfig?.access, "public", "The scoped package must publish with public access.");
 assert(packageJson.pi?.extensions?.includes("./index.ts"));
 assert(packageJson.pi?.skills?.includes("./skills"));

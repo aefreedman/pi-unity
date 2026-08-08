@@ -571,7 +571,7 @@ async function buildProjectStatusReport(
   ctx: ExtensionContext,
   candidate: UnityProjectCandidate,
   signal?: AbortSignal,
-  allowAutonomousPlayModeExit = false,
+  allowAutonomousPlayModeExit = true,
 ): Promise<{ text: string; details: UnityToolDetails }> {
   const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
   const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot);
@@ -597,7 +597,7 @@ async function buildProjectStatusReport(
     `- Pipeline command discovery: ${cliCapabilities.commandDiscoverySucceeded ? `${cliCapabilities.advertisedCommands.length}/${cliCapabilities.advertisedCommandCount} command(s) reported${cliCapabilities.advertisedCommandsTruncated ? " (bounded/truncated)" : ""}` : cliCapabilities.commandDiscovery}`,
     `- piUnity.allowCloseRunningUnityProcess: ${piUnitySettings.allowCloseRunningUnityProcess ? "enabled" : "disabled"}`,
     `- piUnity.closeRunningUnityProcessOnlyForTests: ${piUnitySettings.closeRunningUnityProcessOnlyForTests ? "enabled" : "disabled"}`,
-    `- Session autonomous Play Mode exit: ${allowAutonomousPlayModeExit ? "allowed" : "disallowed (default)"}`,
+    `- Session Play Mode exit: ${allowAutonomousPlayModeExit ? "allowed" : "disabled"}`,
   ];
 
   if (runningProcesses.length > 0) {
@@ -1192,9 +1192,9 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   // Lifecycle handles are session-scoped.
   const registrations = new WeakMap<object, ScopeRegistrations>();
   const playModeExitAuthorization = new WeakMap<object, boolean>();
-  const sessionAllowsAutonomousPlayModeExit = (ctx: ExtensionContext): boolean => playModeExitAuthorization.get(ctx.sessionManager) ?? false;
+  const sessionAllowsAutonomousPlayModeExit = (ctx: ExtensionContext): boolean => playModeExitAuthorization.get(ctx.sessionManager) ?? true;
   const restoreSessionSettings = (ctx: ExtensionContext): void => {
-    let allowed = false;
+    let allowed = true;
     const getBranch = (ctx.sessionManager as { getBranch?: () => Array<{ type: string; customType?: string; data?: unknown }> }).getBranch;
     for (const entry of getBranch?.call(ctx.sessionManager) ?? []) {
       if (entry.type !== "custom" || entry.customType !== "pi-unity-session-settings-v1") continue;
@@ -1202,7 +1202,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       if (typeof data?.allowAutonomousPlayModeExit === "boolean") allowed = data.allowAutonomousPlayModeExit;
     }
     playModeExitAuthorization.set(ctx.sessionManager, allowed);
-    ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? "Unity Play Mode exit: allowed" : undefined);
+    ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? undefined : "Unity Play Mode exit: disabled");
   };
   const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
     if (current === undefined) return false;
@@ -1264,7 +1264,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     if (changed) pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "unregistered" });
   });
   pi.registerCommand("unity-playmode-exit", {
-    description: "Allow, disallow, or show autonomous Play Mode exit for this Pi session (default: disallowed).",
+    description: "Allow, disable, or show Play Mode exit behavior for this Pi session (default: allowed).",
     getArgumentCompletions: (prefix: string) => ["allow", "disallow", "status"]
       .filter((value) => value.startsWith(prefix.trim().toLowerCase()))
       .map((value) => ({ value, label: value })),
@@ -1278,8 +1278,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       }
       const allowed = sessionAllowsAutonomousPlayModeExit(ctx);
       if (action !== "status") pi.appendEntry("pi-unity-session-settings-v1", { allowAutonomousPlayModeExit: allowed });
-      ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? "Unity Play Mode exit: allowed" : undefined);
-      ctx.ui.notify(`Autonomous Unity Play Mode exit is ${allowed ? "allowed" : "disallowed"} for this session.`, allowed ? "warning" : "info");
+      ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? undefined : "Unity Play Mode exit: disabled");
+      ctx.ui.notify(`Unity Play Mode exit is ${allowed ? "allowed" : "disabled"} for this session.`, allowed ? "info" : "warning");
     },
   });
 
@@ -1397,7 +1397,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     promptSnippet: "Recompile an already-open Unity Pipeline project in one bounded connected call without shell polling.",
     promptGuidelines: [
       "Use unity_pipeline_recompile for connected recompilation of an already-open exact Unity project copy instead of raw Unity CLI status loops.",
-      "unity_pipeline_recompile never sends editor_stop. In Play Mode it honors Unity's Script Changes While Playing policy; /unity-playmode-exit allow is required only when that policy may exit Play Mode or Pipeline does not expose it.",
+      "unity_pipeline_recompile never sends editor_stop. In Play Mode it honors Unity's Script Changes While Playing policy, including policies that may exit Play Mode.",
       "unity_pipeline_recompile never launches, closes, saves, retries, cancels Unity, or overrides Unity's script-change policy; its timeout means the operation may still be running.",
     ],
     parameters: PIPELINE_RECOMPILE_PARAMS,
@@ -1424,7 +1424,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     promptSnippet: "Run focused connected Unity EditMode or PlayMode tests in one bounded call without shell polling; aggregate passing results stay compact.",
     promptGuidelines: [
       "Use unity_pipeline_run_tests for one focused connected Unity test platform when the exact Editor is already open and reachable.",
-      "unity_pipeline_run_tests retains a separate lifecycle guard: it exits Play Mode only when the user enabled /unity-playmode-exit allow for the current session; autonomous exit is disallowed by default.",
+      "unity_pipeline_run_tests may exit Play Mode through advertised editor_stop when needed, then verifies Edit Mode before dispatching tests.",
       "Use unity_run_test_batch instead of unity_pipeline_run_tests for closed projects, isolation, complex filters/categories, or required NUnit XML/log evidence.",
       "unity_pipeline_run_tests does not cancel uncertain work or switch to batchmode after timeout; report that the connected run may still be running.",
     ],
