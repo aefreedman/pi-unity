@@ -46,6 +46,10 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "available", order);
   assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "available", order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 0);
+  const openEditorTool = unity.tools.find((tool) => tool.name === "unity_open_editor");
+  assert(openEditorTool, "pi-unity must register the Unity Editor launcher tool");
+  assert.equal(openEditorTool.parameters.properties.automated.default, false);
+  assert.match(openEditorTool.parameters.properties.automated.description, /Unity Editor's -automated flag/);
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
   const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_pipeline_run_tests");
   assert(recompileTool && pipelineTestTool, "pi-unity must register both bounded connected Pipeline execution tools");

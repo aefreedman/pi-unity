@@ -7,6 +7,7 @@ import {
   buildUnityOpenEditorArgs,
   normalizeUnityEditorOverride,
   type SupportedPlatform,
+  type UnityOpenEditorArgsOptions,
 } from "./unity-core";
 import { createUnityCliOpenCommand, type UnityCliLaunchOptions } from "./unity-cli";
 
@@ -47,8 +48,12 @@ export async function resolveUnityEditorPath(
   );
 }
 
-export function launchUnityEditorDetached(editorPath: string, projectRoot: string): { pid: number | undefined; args: string[]; command: string } {
-  const args = buildUnityOpenEditorArgs(projectRoot);
+export function launchUnityEditorDetached(
+  editorPath: string,
+  projectRoot: string,
+  options: UnityOpenEditorArgsOptions = {},
+): { pid: number | undefined; args: string[]; command: string } {
+  const args = buildUnityOpenEditorArgs(projectRoot, options);
   const child = spawn(editorPath, args, {
     detached: true,
     stdio: "ignore",

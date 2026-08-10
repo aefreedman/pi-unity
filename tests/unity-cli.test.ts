@@ -26,7 +26,19 @@ import {
 const open = createUnityCliOpenCommand("/workspace/My Game", { editorVersion: "6000.1.13f1" });
 assert.equal(resolveUnityCliCommand({ env: { UNITY_CLI_PATH: "unity-custom" } as NodeJS.ProcessEnv }), "unity-custom");
 assert.equal(open.command, "unity");
-assert.deepEqual(open.args, ["--no-banner", "--non-interactive", "open", "/workspace/My Game", "--editor-version", "6000.1.13f1"]);
+assert.deepEqual(open.args, ["--no-banner", "--non-interactive", "open", "/workspace/My Game", "--editor-version", "6000.1.13f1"], "Unity CLI open omits Editor -automated by default.");
+
+const automatedOpen = createUnityCliOpenCommand("/workspace/My Game", { editorVersion: "6000.1.13f1", automated: true });
+assert.deepEqual(automatedOpen.args, [
+  "--no-banner",
+  "--non-interactive",
+  "open",
+  "/workspace/My Game",
+  "--editor-version",
+  "6000.1.13f1",
+  "--args",
+  "-automated",
+], "Unity CLI forwards the Editor -automated flag with unity open --args.");
 
 const openWithPath = createUnityCliOpenCommand("C:/Projects/Game", { editorPath: "C:/Unity/Editor/Unity.exe", cliCommand: "unity-beta" });
 assert.equal(openWithPath.command, "unity-beta");

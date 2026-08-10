@@ -18,6 +18,8 @@ export type UnityCliLaunchOptions = {
   timeoutSeconds?: number;
   cliCommand?: string;
   useGraphics?: boolean;
+  /** Forward Unity Editor's -automated flag through `unity open --args`. */
+  automated?: boolean;
 };
 
 export type UnityCliPipelineInstance = {
@@ -80,6 +82,7 @@ function appendUnityCliEditorOptions(args: string[], options: UnityCliLaunchOpti
 export function createUnityCliOpenCommand(projectRoot: string, options: UnityCliLaunchOptions = {}): UnityCliCommand {
   const args = [...unityCliBaseArgs(), "open", projectRoot];
   appendUnityCliEditorOptions(args, options);
+  if (options.automated) args.push("--args", "-automated");
   return {
     command: resolveUnityCliCommand(options),
     args,

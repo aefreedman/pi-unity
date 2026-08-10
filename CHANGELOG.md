@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.9.3] - 2026-08-10
+
+### Added
+
+- Added an optional `automated` parameter to `unity_open_editor`, forwarding Unity Editor's `-automated` flag through both Unity CLI and direct Editor launch paths.
+
 ## [0.9.2] - 2026-08-08
 
 ### Changed

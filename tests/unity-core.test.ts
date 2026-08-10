@@ -16,7 +16,8 @@ import {
 assert.equal(parseUnityVersionText("m_EditorVersion: 2022.3.18f1\n"), "2022.3.18f1");
 assert.equal(parseUnityVersionText("foo\nbar\n"), null);
 
-assert.deepEqual(buildUnityOpenEditorArgs("/repo/game"), ["-projectPath", "/repo/game"]);
+assert.deepEqual(buildUnityOpenEditorArgs("/repo/game"), ["-projectPath", "/repo/game"], "Direct Editor launch omits -automated by default.");
+assert.deepEqual(buildUnityOpenEditorArgs("/repo/game", { automated: true }), ["-projectPath", "/repo/game", "-automated"], "Direct Editor launch includes -automated when requested.");
 assert.deepEqual(buildUnityBatchmodeArgs("/repo/game", ["-quit", "-logFile", "-"]), ["-batchmode", "-projectPath", "/repo/game", "-nographics", "-quit", "-logFile", "-"]);
 assert.deepEqual(buildUnityBatchmodeArgs("/repo/game", ["-quit"], { useGraphics: true }), ["-batchmode", "-projectPath", "/repo/game", "-quit"]);
 assert.deepEqual(applyDefaultUnityBatchmodeArgs(["-nographics", "-runTests"]), ["-nographics", "-runTests"]);

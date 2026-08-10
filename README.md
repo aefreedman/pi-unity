@@ -43,7 +43,7 @@ A timeout is uncertain: work may still be running. The tools do not silently can
 
 ### Editor and batchmode
 
-- `unity_open_editor` — open the Unity Editor GUI.
+- `unity_open_editor` — open the Unity Editor GUI. Pass `automated: true` to add the Unity Editor `-automated` flag; this is distinct from the Unity CLI's own `--non-interactive` option.
 - `unity_launch_batchmode` — run a bounded batchmode command through Unity CLI or the direct Editor executable.
 - `unity_run_test_batch` — run one isolated or report-producing Unity Test Framework platform with generated XML and log paths.
 - `unity_inspect_artifacts` — summarize existing Unity Test Framework XML and Unity logs without launching Unity.

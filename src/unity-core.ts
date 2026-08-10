@@ -64,8 +64,13 @@ export function buildUnityEditorCandidates(
   ];
 }
 
-export function buildUnityOpenEditorArgs(projectRoot: string): string[] {
-  return ["-projectPath", projectRoot];
+export type UnityOpenEditorArgsOptions = {
+  /** Pass Unity Editor's -automated flag. */
+  automated?: boolean;
+};
+
+export function buildUnityOpenEditorArgs(projectRoot: string, options: UnityOpenEditorArgsOptions = {}): string[] {
+  return ["-projectPath", projectRoot, ...(options.automated ? ["-automated"] : [])];
 }
 
 export type UnityBatchmodeArgsOptions = {

@@ -103,6 +103,7 @@ type UnityLauncherPreference = "auto" | "unity-cli" | "editor-executable";
 const OPEN_EDITOR_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
   unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
+  automated: Type.Optional(Type.Boolean({ default: false, description: "Pass Unity Editor's -automated flag when opening the project. Defaults to false." })),
   launcher: LAUNCHER_SCHEMA,
 });
 
@@ -1578,7 +1579,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   pi.registerTool({
     name: "unity_open_editor",
     label: "Unity Open Editor",
-    description: "Open the Unity Editor GUI for a Unity project copy.",
+    description: "Open the Unity Editor GUI for a Unity project copy, optionally passing Unity Editor's -automated flag.",
     promptSnippet: "Open the Unity Editor GUI for a resolved Unity project when the user explicitly asks for the editor to open.",
     promptGuidelines: [
       "Use this tool only when the user explicitly wants the Unity Editor GUI opened.",
@@ -1605,11 +1606,12 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         launch = launchUnityCliOpenDetached(candidate.projectRoot, {
           editorVersion: candidate.unityVersion,
           editorPath: params.unityEditorPath,
+          automated: params.automated,
         });
       } else {
         await assertUnityProjectNotBusy(candidate.projectRoot);
         editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
-        launch = launchUnityEditorDetached(editorPath, candidate.projectRoot);
+        launch = launchUnityEditorDetached(editorPath, candidate.projectRoot, { automated: params.automated });
       }
       const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
 
