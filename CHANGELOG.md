@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## [0.10.0] - 2026-08-14
+
+### Changed
+
+- Added a configurable 1–86,400-second timeout to `unity_pipeline_eval`, forwarding it to both Unity CLI and the host process.
+- Handle Pipeline 0.5's explicitly rejected initial-settling `Server Busy` envelopes with bounded retries for connected recompiles and tests, while preserving no-retry handling for ambiguous responses.
+
 ## [0.9.3] - 2026-08-10
 
 ### Added

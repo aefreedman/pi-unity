@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   UNITY_PIPELINE_BACKOFF_SECONDS,
   createUnityPipelineCommand,
+  isUnityPipelineInitialSettlingBusy,
   normalizeUnityPipelineCompile,
   normalizeUnityPipelineTest,
   normalizeUnityScriptChangesWhilePlaying,
@@ -33,6 +34,14 @@ assert.equal(failedCompile.state, "failed");
 assert.deepEqual(failedCompile.diagnostics, ["CS1001"], "Compiler diagnostics must dedupe.");
 assert.equal(normalizeUnityPipelineCompile(envelope({ status: "completed", compilerErrors: [{ message: "CS2001" }] })).state, "failed", "Compiler diagnostics contradict compile success even without a failure flag.");
 assert.equal(normalizeUnityPipelineCompile(envelope("{not json")).state, "uncertain", "Malformed nested JSON is never success.");
+const settlingBusy = JSON.stringify({ success: false, data: { error: "Server Busy", status: "busy", retryable: true } });
+assert.equal(isUnityPipelineInitialSettlingBusy(settlingBusy), true);
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: true, data: { error: "Server Busy", status: "busy", retryable: true } })), false, "A successful outer envelope is never a safe redispatch signal.");
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: false, data: { result: { error: "Server Busy", status: "busy", retryable: true } } })), false, "A nested busy result is ambiguous and must not be redispatched.");
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: false, data: { error: "Server Busy", status: "busy", retryable: false } })), false);
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: false, data: { error: "Server Busy", retryable: true } })), false);
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: false, data: { status: "busy", retryable: true } })), false);
+assert.equal(isUnityPipelineInitialSettlingBusy(JSON.stringify({ success: false, data: { error: "Server Busy", status: "busy" } })), false);
 assert.equal(parseUnityPipelineEnvelope(envelope(JSON.stringify({ status: "running" }))).result.status, "running");
 assert.equal(normalizeUnityPipelineTest(envelope({ result: "running", Summary: { Total: 0 } })).state, "running", "Starting zero tests is nonterminal.");
 assert.equal(normalizeUnityPipelineTest(envelope({ status: "no_tests", message: "No test run in progress" })).state, "inactive", "Pipeline 0.4 no_tests is a safe inactive preflight state.");
@@ -86,6 +95,44 @@ try {
   });
   assert.match(recovered.text, /completed/);
 
+  // Pipeline 0.5's explicit initial-settling rejection is safe to retry only before dispatch.
+  let busyRecompileDispatches = 0; let busyStatusPolls = 0; clock = 0;
+  const busyRecovered = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000.1.0f1" }, {
+    execute: async (_command, args) => {
+      const command = args[args.indexOf("--timeout") + 2]!;
+      if (command === "editor_status") return { stdout: envelope({ status: "idle" }), stderr: "" };
+      if (command === "recompile") return { stdout: ++busyRecompileDispatches === 1 ? settlingBusy : envelope({ status: "triggered" }), stderr: "", ...(busyRecompileDispatches === 1 ? { error: new Error("503") } : {}) };
+      return { stdout: ++busyStatusPolls === 1 ? settlingBusy : envelope({ status: "completed" }), stderr: "" };
+    },
+    inspect: async () => capabilities(root), canonicalize: async value => value, now: () => clock, sleep: async ms => { clock += ms; },
+  });
+  assert.match(busyRecovered.text, /completed/);
+  assert.equal(busyRecompileDispatches, 2, "Only the explicit rejected dispatch is retried once.");
+  assert.equal(busyStatusPolls, 2, "Transient busy status responses continue polling without redispatch.");
+
+  let busyExpiryDispatches = 0; clock = 0;
+  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", timeoutSeconds: 1 }, {
+    execute: async (_command, args) => {
+      const command = args[args.indexOf("--timeout") + 2]!;
+      return { stdout: command === "editor_status" ? envelope({ status: "idle" }) : settlingBusy, stderr: "", ...(command === "recompile" ? { error: new Error("503") } : {}) };
+    },
+    inspect: async () => capabilities(root), canonicalize: async value => value, now: () => clock, sleep: async ms => { clock += ms; busyExpiryDispatches += 1; },
+  }), /server remained busy while settling; recompile was not started before the deadline/);
+  assert.equal(busyExpiryDispatches, 1, "Settling retries stop at the absolute deadline.");
+
+  // A successful or nested busy triple is ambiguous and must never cause a redispatch.
+  let ambiguousBusyDispatches = 0;
+  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
+    execute: async (_command, args) => {
+      const command = args[args.indexOf("--timeout") + 2]!;
+      if (command === "editor_status") return { stdout: envelope({ status: "idle" }), stderr: "" };
+      ambiguousBusyDispatches += 1;
+      return { stdout: JSON.stringify({ success: true, data: { result: { error: "Server Busy", status: "busy", retryable: true } } }), stderr: "", error: new Error("ambiguous response") };
+    },
+    inspect: async () => capabilities(root), canonicalize: async value => value,
+  }), /dispatch failed/);
+  assert.equal(ambiguousBusyDispatches, 1, "An ambiguous busy response must not duplicate a main-thread dispatch.");
+
   clock = 0;
   const testResponses = new Map<string, string[]>([
     ["editor_status", [envelope({ status: "idle" })]],
@@ -98,6 +145,19 @@ try {
   });
   assert.match(testResult.text, /21 executed, 21 passed, 0 failed/);
   assert.equal(JSON.stringify(testResult.details).includes("Passing."), false);
+
+  let busyTestDispatches = 0; clock = 0;
+  const busyTestResult = await runUnityPipelineTests({ projectRoot: root, unityVersion: "6000.1.0f1", testPlatform: "EditMode" }, {
+    execute: async (_command, args) => {
+      const command = args[args.indexOf("--timeout") + 2]!;
+      if (command === "editor_status") return { stdout: envelope({ status: "idle" }), stderr: "" };
+      if (command === "test_status") return { stdout: envelope({ status: "no_tests" }), stderr: "" };
+      return { stdout: ++busyTestDispatches === 1 ? settlingBusy : envelope({ status: "completed", summary: { total: 1, passed: 1, failed: 0 } }), stderr: "", ...(busyTestDispatches === 1 ? { error: new Error("503") } : {}) };
+    },
+    inspect: async () => capabilities(root), canonicalize: async value => value, now: () => clock, sleep: async ms => { clock += ms; },
+  });
+  assert.match(busyTestResult.text, /1 executed, 1 passed, 0 failed/);
+  assert.equal(busyTestDispatches, 2, "Tests retry only the explicit rejected initial-settling dispatch.");
 
   await assert.rejects(() => runUnityPipelineTests({ projectRoot: root, unityVersion: "6000", testPlatform: "EditMode" }, {
     execute: async (_command, args) => ({ stdout: args.includes("editor_status") ? envelope({ status: "idle" }) : envelope({ status: "running", Summary: { Total: 0 } }), stderr: "" }),

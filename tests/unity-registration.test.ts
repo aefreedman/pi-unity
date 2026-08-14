@@ -174,8 +174,10 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     const result = await pipelineInspection.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
     assert.equal(result.details.pipelineInspection.outcome, "dispatched", JSON.stringify(result.details.pipelineInspection));
     assert.match(result.content[0].text, /token= \[redacted\]/);
-    const evalResult = await pipelineEval.execute("eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;" }, undefined, undefined, ctx);
+    const evalResult = await pipelineEval.execute("eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;", timeoutSeconds: 86400 }, undefined, undefined, ctx);
     assert.equal(evalResult.details.pipelineEval.outcome, "dispatched", "The primary Pipeline eval tool must expose advertised arbitrary C# eval.");
+    const evalCall = calls.find((args) => args.includes("var s = UnityEngine.Application.dataPath; return s.Length;"));
+    assert.equal(evalCall?.[evalCall.indexOf("--timeout") + 1], "86400", "Eval forwards its selected deadline to Unity CLI.");
     assert(calls.some((args) => args.includes("get_authoring_root")), "The guarded handler must dispatch only after discovery.");
     assert(calls.some((args) => args.includes("var s = UnityEngine.Application.dataPath; return s.Length;")), "The primary eval tool must preserve a local-variable C# snippet.");
     assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Connected inspection must not launch or close Unity.");

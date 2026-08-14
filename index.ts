@@ -148,6 +148,7 @@ const PIPELINE_TEST_PARAMS = Type.Object({
 const PIPELINE_EVAL_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ maxLength: 1000, description: "Unity project path, workspace copy root, or folder containing project copies." })),
   code: Type.String({ minLength: 1, maxLength: 4000, description: "Bounded C# source for advertised Pipeline eval. Roslyn compiles it on the connected Editor main thread; include an explicit return value when evidence is needed." }),
+  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86400, default: 12, description: "Connected eval deadline in seconds (maximum 24 hours). A timeout is uncertain and does not retry or cancel Unity work." })),
 }, { additionalProperties: false });
 
 const PIPELINE_INSPECTION_PARAMS = Type.Object({
@@ -1470,7 +1471,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       }, {
         execute: createPlanningUnityCliExecutor(pi),
         signal,
-        timeout: 12_000,
+        timeout: (params.timeoutSeconds ?? 12) * 1000,
       });
       throwIfAborted(signal);
       const text = result.outcome === "dispatched"

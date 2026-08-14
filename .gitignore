@@ -1,4 +1,5 @@
 node_modules/
+.pi/
 *.tgz
 evals/**/latest-results.json
 evals/**/results/

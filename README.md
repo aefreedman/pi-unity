@@ -34,12 +34,12 @@ Use these tools with an already-open exact Unity project copy that has a reachab
 - `unity_project_status` — inspect lockfiles, matching Unity processes, Pipeline reachability, package version, and advertised commands without launching Unity.
 - `unity_pipeline_recompile` — recompile through Pipeline with exact-copy preflight, bounded polling, and compact compiler evidence.
 - `unity_pipeline_run_tests` — run one focused EditMode or PlayMode selection with bounded polling and aggregate results.
-- `unity_pipeline_eval` — execute bounded project-specific C# through Pipeline's Roslyn REPL.
+- `unity_pipeline_eval` — execute bounded project-specific C# through Pipeline's Roslyn REPL. It accepts `timeoutSeconds` from 1–86,400 seconds; a timeout is uncertain and does not cancel or retry Editor work.
 - `unity_pipeline_inspect` — dispatch supported package-owned inspection commands and return structured evidence.
 
 Connected recompilation follows Unity's Script Changes While Playing policy and never preemptively sends `editor_stop`. Connected tests may exit Play Mode through advertised `editor_stop` when necessary, then verify Edit Mode before dispatch. Play Mode exit is allowed by default; `/unity-playmode-exit allow|disallow|status` controls the current session.
 
-A timeout is uncertain: work may still be running. The tools do not silently cancel, retry, launch another Editor, or switch to batchmode.
+A timeout is uncertain: work may still be running. The tools do not silently cancel, retry, launch another Editor, or switch to batchmode. The sole exception is Pipeline 0.5's explicit initial-settling `Server Busy` rejection for `unity_pipeline_recompile` and `unity_pipeline_run_tests`, which is known not to have dispatched a main-thread command and is retried only within the configured deadline.
 
 ### Editor and batchmode
 

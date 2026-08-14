@@ -4,3 +4,4 @@ archive/
 tests/
 evals/
 .pi-subagents/
+.pi/

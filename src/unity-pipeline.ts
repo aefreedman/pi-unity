@@ -145,6 +145,17 @@ function diagnostics(result: RecordValue): string[] {
   });
   return [...new Set(values)].slice(0, UNITY_PIPELINE_MAX_DIAGNOSTICS);
 }
+/** True only for Pipeline 0.5's explicit rejected outer envelope, before a main-thread command is dispatched. */
+export function isUnityPipelineInitialSettlingBusy(output: string): boolean {
+  let outer: RecordValue | undefined;
+  try { outer = record(JSON.parse(output)); } catch { return false; }
+  const data = record(outer?.data);
+  return outer?.success === false
+    && string(field(data ?? {}, "error"))?.toLowerCase() === "server busy"
+    && statusOf(data ?? {}) === "busy"
+    && field(data ?? {}, "retryable") === true;
+}
+
 export function normalizeUnityPipelineCompile(output: string): NormalizedCompile {
   const parsed = parseUnityPipelineEnvelope(output);
   if (parsed.malformed) return { state: "uncertain", diagnostics: [], failed: false };
@@ -316,6 +327,19 @@ async function executeCommand(deps: PipelineDependencies, projectRoot: string, c
   if (deadline !== undefined) ensureBeforeDeadline(deadline, now, command);
   return result;
 }
+async function dispatchMainThreadCommand(deps: PipelineDependencies, projectRoot: string, command: "recompile" | "run_tests", args: string[], operation: string, signal: AbortSignal | undefined, deadline: number, now: () => number, sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>): Promise<UnityCliExecResult> {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await executeCommand(deps, projectRoot, command, args, signal, deadline, now);
+    if (!isUnityPipelineInitialSettlingBusy(response.stdout)) return response;
+    const remaining = deadline - now();
+    if (remaining <= 0) throw new Error(`Unity Pipeline server remained busy while settling; ${operation} was not started before the deadline.`);
+    const delay = Math.min(UNITY_PIPELINE_BACKOFF_SECONDS[Math.min(attempt, UNITY_PIPELINE_BACKOFF_SECONDS.length - 1)]! * 1000, remaining);
+    await sleep(delay, signal);
+    throwIfAborted(signal);
+    if (now() >= deadline) throw new Error(`Unity Pipeline server remained busy while settling; ${operation} was not started before the deadline.`);
+  }
+}
+
 async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = true): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
   const capabilities = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   const error = capabilityError(capabilities, commands); if (error) throw new Error(error);
@@ -404,7 +428,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
   const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "recompile before dispatch");
   throwIfAborted(signal);
-  const dispatched = await executeCommand(deps, projectRoot, "recompile", [], signal, deadline, now);
+  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "recompile", [], "recompile", signal, deadline, now, sleep);
   if (dispatched.error) throw new Error("Unity Pipeline recompile dispatch failed; operation may not have started.");
   let state = normalizeUnityPipelineCompile(dispatched.stdout);
   if (state.state === "uncertain") throw new Error("Unity Pipeline recompile dispatch returned malformed or uncertain evidence; operation may have started.");
@@ -421,6 +445,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
     if (identityState === "temporary_disconnect") continue;
     const response = await executeCommand(deps, projectRoot, "recompile_status", [], signal, deadline, now);
     if (response.error) continue; // Domain reload can briefly disconnect the same exact copy.
+    if (isUnityPipelineInitialSettlingBusy(response.stdout)) continue;
     state = normalizeUnityPipelineCompile(response.stdout);
     if (state.state === "failed") throw new Error(`Unity recompile failed: ${state.diagnostics.join("; ") || "compiler failure reported"}`);
     if (state.state === "completed" || state.state === "up_to_date") return { text: `${lifecyclePrefix}Unity recompile completed for ${projectRoot} in ${elapsed(start, now).toFixed(1)}s; 0 compiler errors.`,  details: { projectRoot, operation: "recompile", terminalState: state.state, elapsedSeconds: elapsed(start, now), compilationTriggered: true, ...playModeDetails(preflight) } };
@@ -448,7 +473,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   }
   const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...(request.testFilter ? ["--filter", request.testFilter, "--filter_type", "testName"] : []), "--async_tests", "true"];
   ensureBeforeDeadline(deadline, now, "tests before dispatch"); throwIfAborted(signal);
-  const dispatched = await executeCommand(deps, projectRoot, "run_tests", args, signal, deadline, now);
+  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "run_tests", args, "tests", signal, deadline, now, sleep);
   if (dispatched.error) throw new Error("Unity Pipeline test dispatch failed; test run may not have started.");
   let state = normalizeUnityPipelineTest(dispatched.stdout);
   if (state.state === "uncertain" || state.state === "inactive") throw new Error("Unity Pipeline test dispatch returned inactive, malformed, or uncertain evidence; test run may not have started.");
@@ -473,6 +498,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     if (identityState === "temporary_disconnect") continue;
     const response = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now);
     if (response.error) continue;
+    if (isUnityPipelineInitialSettlingBusy(response.stdout)) continue;
     state = normalizeUnityPipelineTest(response.stdout);
     if (!checkCorrelation(expected, state.correlation)) throw new Error("Unity Pipeline test status was displaced by a different run; operation state is uncertain.");
     if (state.state === "failed" || state.state === "cancelled") throw new Error(`Unity ${request.testPlatform} tests failed: ${state.failures.join("; ") || state.state}.`);
