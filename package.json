@@ -18,7 +18,7 @@
     ]
   },
   "scripts": {
-    "test": "tsx tests/unity-core.test.ts && tsx tests/unity-pipeline.test.ts && tsx tests/unity-processes.test.ts && tsx tests/pi-unity-settings.test.ts && tsx tests/unity-projects.test.ts && tsx tests/unity-guidance-audit.test.ts && tsx tests/unity-batchmode.test.ts && tsx tests/unity-test-batch.test.ts && tsx tests/unity-cli.test.ts && tsx tests/unity-project-lock.test.ts && tsx tests/unity-artifact-profile.test.ts && tsx tests/unity-file-discovery-filter.test.ts && tsx tests/unity-registration.test.ts && tsx tests/unity-optional-integrations.test.ts && tsx tests/unity-package-validation.test.ts",
+    "test": "tsx tests/unity-core.test.ts && tsx tests/unity-pipeline.test.ts && tsx tests/unity-processes.test.ts && tsx tests/pi-unity-settings.test.ts && tsx tests/unity-projects.test.ts && tsx tests/unity-guidance-audit.test.ts && tsx tests/unity-batchmode.test.ts && tsx tests/unity-test-batch.test.ts && tsx tests/unity-tests.test.ts && tsx tests/unity-cli.test.ts && tsx tests/unity-project-lock.test.ts && tsx tests/unity-artifact-profile.test.ts && tsx tests/unity-file-discovery-filter.test.ts && tsx tests/unity-registration.test.ts && tsx tests/unity-optional-integrations.test.ts && tsx tests/unity-package-validation.test.ts",
     "eval:guidance-skill": "tsx evals/auditing-unity-agent-guidance/run-eval.ts"
   },
   "dependencies": {

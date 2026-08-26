@@ -1,0 +1,1 @@
+{"success":true,"data":{"result":{"status":"completed","summary":{"total":1,"passed":0,"failed":1},"tests":[{"name":"Safe.Tests.Failure","status":"Failed","message":"Expected true but was false","stackTrace":"at Safe.Tests.Failure"}]}}}

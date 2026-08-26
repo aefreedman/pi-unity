@@ -1,0 +1,1 @@
+{"success":true,"data":{"result":{"status":"completed","summary":{"total":2,"passed":2,"failed":0},"tests":[{"name":"Safe.Tests.One","status":"Passed"},{"name":"Safe.Tests.Two","status":"Passed"}]}}}
