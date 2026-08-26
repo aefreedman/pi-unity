@@ -40,12 +40,12 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly:
 - `unity_project_status` to inspect lockfile/process state without launching Unity
 - `unity_inspect_artifacts` to summarize existing Unity logs/test XML without launching Unity
-- `unity_run_test_batch` for isolated/report-producing Unity Test Framework runs with one platform and bundled filters/categories
+- `unity_run_tests` for isolated/report-producing Unity Test Framework runs with one platform and bundled filters/categories
 - `unity_launch_batchmode` for custom headless Unity execution that needs raw Editor arguments
 - `unity_open_editor` only when the user explicitly wants the GUI Editor
 - `/unity-open` as the user-facing GUI launcher helper
 
-`unity_run_test_batch` should be the default for isolated or report-producing Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`. For an already-open reachable exact-copy Pipeline Editor, use the `unity-pipeline-workflows` skill instead.
+`unity_run_tests` should be the default for isolated or report-producing Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`. For an already-open reachable exact-copy Pipeline Editor, use the `unity-pipeline-workflows` skill instead.
 
 `unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder
@@ -98,8 +98,8 @@ If not found, ask the user for their Unity install path.
 
 Route before planning a batch:
 1. Call `unity_project_status` for the exact project copy.
-2. If that copy is already open, Pipeline is reachable, and `run_tests` plus `test_status` are advertised, use `unity-pipeline-workflows`; do not close the Editor or invoke `unity_run_test_batch` merely because the test tool is more convenient.
-3. Choose isolated `unity_run_test_batch` only when the Editor is closed, connected testing is unavailable, CI/isolation is intentional, required filters are unsupported, or NUnit XML/log artifacts are required. State the reason.
+2. If that copy is already open, Pipeline is reachable, and `run_tests` plus `test_status` are advertised, use `unity-pipeline-workflows`; do not close the Editor or invoke `unity_run_tests` merely because the test tool is more convenient.
+3. Choose isolated `unity_run_tests` only when the Editor is closed, connected testing is unavailable, CI/isolation is intentional, required filters are unsupported, or NUnit XML/log artifacts are required. State the reason.
 4. If project state is uncertain, stop rather than closing the Editor or starting batchmode.
 
 After choosing the isolated route:
@@ -108,7 +108,7 @@ After choosing the isolated route:
 - when several specific tests are relevant, prefer a broader class/namespace/suite/category filter, or no `-testFilter` for the affected platform, over separate Unity launches
 - use a single-test launch only for a quick smoke check or to isolate/rerun a known failure; do not use one-test launches as the default validation strategy
 - do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
-- call `unity_run_test_batch` for isolated/report-producing tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
+- call `unity_run_tests` for isolated/report-producing tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
 - pass one `testPlatform` (`EditMode` or `PlayMode`) and bundle applicable `testFilters`/`testCategories`; empty arrays mean all tests on that platform
 - use the generated exact result/log paths from the tool report for any follow-up artifact inspection
 - pass `closeBlockingUnityProcess: true` only after connected testing was ruled out or isolated evidence was explicitly required, a same-project Unity process is blocking the chosen run, and Pi settings enable `piUnity.allowCloseRunningUnityProcess`

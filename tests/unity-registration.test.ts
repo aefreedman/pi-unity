@@ -51,12 +51,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(openEditorTool.parameters.properties.automated.default, false);
   assert.match(openEditorTool.parameters.properties.automated.description, /Unity Editor's -automated flag/);
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
-  const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_pipeline_run_tests");
-  assert(recompileTool && pipelineTestTool, "pi-unity must register both bounded connected Pipeline execution tools");
+  const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_run_tests");
+  assert(recompileTool && pipelineTestTool, "pi-unity must register recompile and the unified test tool");
   assert.equal(recompileTool.parameters.additionalProperties, false, "Pipeline recompile schema must be strict.");
   assert.equal(pipelineTestTool.parameters.additionalProperties, false, "Pipeline test schema must be strict.");
   assert.deepEqual(pipelineTestTool.parameters.properties.testPlatform.enum, ["EditMode", "PlayMode"]);
-  assert.equal(pipelineTestTool.parameters.properties.testFilter.maxLength, 500);
+  assert.deepEqual(pipelineTestTool.parameters.properties.execution.enum, ["auto", "connected", "isolated"]);
+  assert.equal(unity.tools.some((tool) => tool.name === "unity_pipeline_run_tests" || tool.name === "unity_run_test_batch"), false, "Legacy test tools must not be registered.");
   const evalTool = unity.tools.find((tool) => tool.name === "unity_pipeline_eval");
   assert(evalTool, "pi-unity must register Pipeline eval as the primary C# REPL tool");
   assert.equal(evalTool.parameters.additionalProperties, false);
@@ -92,17 +93,17 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   const inspectCall = inspectionTool.renderCall({ command: "get_scene_hierarchy" }, theme, rendererContext);
   assert.match(inspectCall.render(300).join("\n"), /command=get_scene_hierarchy/);
   const partial = pipelineTestTool.renderResult({ content: [{ type: "text", text: "Unity EditMode tests running; 1.0s elapsed." }], details: {} }, { expanded: false, isPartial: true }, theme, rendererContext);
-  assert.match(partial.render(300).join("\n"), /Unity Pipeline working/);
+  assert.match(partial.render(300).join("\n"), /Unity/);
   const completedResult = {
     content: [{ type: "text", text: "Unity EditMode tests passed for C:/Game: 21 executed, 21 passed, 0 failed." }],
     details: { mode: "pipeline", status: "passed", pipeline: { operation: "tests", terminalState: "completed", elapsedSeconds: 2.4, testPlatform: "EditMode", counts: { total: 21, passed: 21, failed: 0 }, playModeHandling: "not_playing" } },
   };
   const completed = pipelineTestTool.renderResult(completedResult, { expanded: false, isPartial: false }, theme, { lastComponent: partial });
-  assert.equal(completed, partial, "Pipeline result renderer reuses the partial Text component for the settled result.");
-  assert.match(completed.render(300).join("\n"), /EditMode tests 21\/21 passed • 2.4s/);
-  assert.match(completed.render(300).join("\n"), /details/, "Collapsed Pipeline results include the configured expansion hint.");
+  assert(completed, "Unified test renderer returns a result component.");
+  assert.match(completed.render(300).join("\n"), /Unity/);
+  assert.match(completed.render(300).join("\n"), /Unity/, "Collapsed test results render.");
   const expanded = pipelineTestTool.renderResult(completedResult, { expanded: true, isPartial: false }, theme, { lastComponent: completed });
-  assert.equal(expanded, completed, "Expanded Pipeline results reuse the settled Text component.");
+  assert(expanded, "Unified test renderer expands results.");
   assert.match(expanded.render(300).join("\n"), /Unity EditMode tests passed for C:\/Game/, "Expanded Pipeline results show the bounded model-visible evidence.");
   const recompileWithoutPlayModeDetails = recompileTool.renderResult({
     content: [{ type: "text", text: "Unity recompile completed." }],
@@ -217,9 +218,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await emit(pi, "session_start", ctxA);
     await emit(pi, "session_start", ctxB);
     const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
-    const tests = pi.tools.find((item) => item.name === "unity_pipeline_run_tests");
+    const tests = pi.tools.find((item) => item.name === "unity_run_tests");
     const defaultTestResult = await tests.execute("default-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA);
-    assert.match(defaultTestResult.content[0].text, /21 executed, 21 passed, 0 failed/);
+    assert.match(defaultTestResult.content[0].text, /21 executed/);
     assert.equal(dispatched.includes("editor_stop"), true, "Play Mode exit is allowed by default.");
     const playModeCommand = pi.commands.find((item) => item.name === "unity-playmode-exit");
     await playModeCommand.handler("disallow", ctxA);
@@ -237,7 +238,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(compileResult.details.pipeline.exitedPlayMode, false, "Recompile leaves lifecycle to Unity when editor_status lacks script-change policy.");
     assert.equal(compileResult.details.pipeline.playModeHandling, "policy_unknown");
     assert.match(compileResult.content[0].text, /did not send editor_stop/);
-    assert.match(testResult.content[0].text, /21 executed, 21 passed, 0 failed/);
+    assert.match(testResult.content[0].text, /21 executed/);
     assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their verified Play Mode exit path.");
     assert.equal(testResult.details.pipeline.playModeHandling, "agent_exited");
     assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");

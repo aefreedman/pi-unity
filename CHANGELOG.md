@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows semantic versioning for public package releases.
 
+## Unreleased
+
+### Added
+
+- Added unified `unity_run_tests`, which routes compatible exact-copy connected runs through Pipeline and closed-project runs through `unity test`, with durable normalized JSON evidence.
+
+### Removed
+
+- Removed the public `unity_pipeline_run_tests` and `unity_run_test_batch` registrations; `unity_launch_batchmode` remains a non-test escape hatch.
 ## [0.10.0] - 2026-08-14
 
 ### Changed

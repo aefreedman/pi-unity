@@ -18,7 +18,7 @@
 
 - Connected EditMode: `run_tests --mode editor`; asynchronous execution plus `test_status` is safest for uniform wrappers.
 - Connected PlayMode: require `--async_tests true`, then poll `test_status` because domain reload can drop the initiating request.
-- Isolated/report-producing: use `unity test` or the packaged `unity_run_test_batch` when NUnit XML/log artifacts are required.
+- Isolated/report-producing: use `unity test` or the packaged `unity_run_tests` when NUnit XML/log artifacts are required.
 - Preserve graphics requirements and reject zero-test, malformed, incomplete, or nested `success:false` results.
 
 ## Build and ExecuteMethod

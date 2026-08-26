@@ -1,7 +1,7 @@
 import { keyHint, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { mkdir, readdir, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { getKeybindings, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -20,13 +20,14 @@ import {
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
-import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities } from "./src/unity-cli";
+import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities } from "./src/unity-cli";
 import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
 import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, redactUnityProcessCommandLine, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
 import { assertUnityProjectNotBusy, evaluateUnityLaunchSafety, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
+import { compactUnityTestSummary, defaultUnityTestReportFormats, determineUnityTestOutcome, getUnityTestRouteRequirements, normalizeUnityRunTestsRequest, writeNormalizedUnityTestArtifact, type NormalizedUnityTestResult, type UnityRunTestsRequest } from "./src/unity-tests";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
 import { runUnityPipelineRecompile, runUnityPipelineTests, type UnityPipelineOperationDetails } from "./src/unity-pipeline";
 import {
@@ -66,7 +67,7 @@ const GUI_WARNING = "This launches the full Unity Editor GUI and is not the same
 const SINGLE_PROCESS_WARNING = "Unity allows only one process per project folder. GUI Editor and batchmode/headless both count as that one process.";
 
 type UnityToolDetails = {
-  mode: "gui" | "batchmode" | "status" | "artifacts" | "pipeline_inspection" | "pipeline_eval" | "pipeline";
+  mode: "gui" | "batchmode" | "status" | "artifacts" | "pipeline_inspection" | "pipeline_eval" | "pipeline" | "tests";
   projectRoot: string;
   unityVersion: string;
   editorPath: string;
@@ -116,6 +117,25 @@ const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   launcher: LAUNCHER_SCHEMA,
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false, description: "When true, pi-unity may close a running Unity process for the resolved project before launch, but only if piUnity.allowCloseRunningUnityProcess is enabled in Pi settings. The process is selected by project matching, not by model-supplied PID." })),
 });
+
+const RUN_TESTS_PARAMS = Type.Object({
+  path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
+  testPlatform: StringEnum(["EditMode", "PlayMode"] as const),
+  testFilters: Type.Optional(Type.Array(Type.String(), { maxItems: 50 })),
+  testCategories: Type.Optional(Type.Array(Type.String(), { maxItems: 50 })),
+  execution: Type.Optional(StringEnum(["auto", "connected", "isolated"] as const, { default: "auto" })),
+  isolatedLauncher: Type.Optional(StringEnum(["auto", "unity-cli", "editor-executable"] as const, { default: "auto" })),
+  retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 20, default: 0 })),
+  rerunFailed: Type.Optional(Type.Boolean({ default: false })),
+  shard: Type.Optional(Type.String({ maxLength: 500 })),
+  shardInventoryPath: Type.Optional(Type.String({ maxLength: 1000 })),
+  reportFormats: Type.Optional(Type.Array(StringEnum(["json", "nunit", "junit"] as const), { maxItems: 3 })),
+  coverage: Type.Optional(Type.Boolean({ default: false })),
+  coverageOptions: Type.Optional(Type.String({ maxLength: 1000 })),
+  useGraphics: Type.Optional(Type.Boolean({ default: false })),
+  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600 })),
+  closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false })),
+}, { additionalProperties: false });
 
 const RUN_TEST_BATCH_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
@@ -168,6 +188,7 @@ const GUIDANCE_AUDIT_PARAMS = Type.Object({
 const INSPECT_ARTIFACTS_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
   testResultsPath: Type.Optional(Type.String({ description: "Unity Test Framework XML results path. Relative paths are resolved against cwd and the Unity project root." })),
+  normalizedResultPath: Type.Optional(Type.String({ description: "pi-unity normalized JSON test artifact path." })),
   logFilePath: Type.Optional(Type.String({ description: "Unity log file path. Relative paths are resolved against cwd and the Unity project root." })),
   latestFromLogs: Type.Optional(Type.Boolean({ default: true, description: "When paths are omitted, inspect the newest .xml and .log files under the project's Logs folder." })),
   maxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 500, default: 60, description: "Maximum log/output lines to include." })),
@@ -685,7 +706,7 @@ function compactUnityArtifacts(artifacts: UnityBatchmodeArtifacts): UnityBatchmo
 async function buildArtifactInspectionReport(
   ctx: ExtensionContext,
   candidate: UnityProjectCandidate,
-  params: { testResultsPath?: string; logFilePath?: string; latestFromLogs?: boolean; maxLines?: number; maxChars?: number },
+  params: { testResultsPath?: string; normalizedResultPath?: string; logFilePath?: string; latestFromLogs?: boolean; maxLines?: number; maxChars?: number },
 ): Promise<{ text: string; details: UnityToolDetails }> {
   const useLatest = params.latestFromLogs !== false;
   const logsRoot = join(candidate.projectRoot, "Logs");
@@ -693,6 +714,15 @@ async function buildArtifactInspectionReport(
     ?? (useLatest ? await findNewestFile(logsRoot, [".xml"]) : undefined);
   const logFilePath = resolveArtifactPath(ctx.cwd, candidate.projectRoot, params.logFilePath)
     ?? (useLatest ? await findNewestFile(logsRoot, [".log", ".txt"]) : undefined);
+  const normalizedResultPath = resolveArtifactPath(ctx.cwd, candidate.projectRoot, params.normalizedResultPath)
+    ?? (useLatest ? await findNewestFile(logsRoot, [".json"]) : undefined);
+  let normalizedSummary: string | undefined;
+  if (normalizedResultPath) {
+    try {
+      const normalized = JSON.parse(await readFile(normalizedResultPath, "utf8")) as Partial<NormalizedUnityTestResult>;
+      if (normalized.schemaVersion === 1 && typeof normalized.outcome === "string") normalizedSummary = `Normalized test result: ${normalized.platform ?? "Unity"} ${normalized.outcome}; ${normalized.summary?.total ?? "unknown"} total.`;
+    } catch { normalizedSummary = `Normalized test result JSON could not be parsed: ${normalizedResultPath}`; }
+  }
   const invocation: UnityBatchmodeInvocation = {
     isTestRun: Boolean(testResultsPath),
     usesNoGraphics: false,
@@ -710,6 +740,8 @@ async function buildArtifactInspectionReport(
     `Unity artifacts inspected for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
     testResultsPath ? `Requested test results: ${testResultsPath}` : "Requested test results: (none found)",
     logFilePath ? `Requested log file: ${logFilePath}` : "Requested log file: (none found)",
+    normalizedResultPath ? `Requested normalized result: ${normalizedResultPath}` : "Requested normalized result: (none found)",
+    ...(normalizedSummary ? [normalizedSummary] : []),
   ];
 
   if (parsedTestResults) {
@@ -1079,6 +1111,80 @@ async function runGuardedUnityBatchmode(
   );
 }
 
+async function runUnifiedUnityTests(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  candidate: UnityProjectCandidate,
+  discoveryWarning: string | undefined,
+  raw: UnityRunTestsRequest,
+  signal: AbortSignal | undefined,
+  onUpdate?: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+  allowAutonomousExitPlayMode = true,
+): Promise<{ content: Array<{ type: "text"; text: string }>; details: UnityToolDetails & { testResult: NormalizedUnityTestResult; artifactPath: string; route: "connected" | "isolated" } }> {
+  const request = normalizeUnityRunTestsRequest(raw);
+  const requirements = getUnityTestRouteRequirements(request);
+  const capabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, candidate.unityVersion, { signal, execute: createPipelineUnityCliExecutor(pi) });
+  const reachable = capabilities.matchingInstances.some(instance => instance.reachable === true);
+  const busy = (await listBlockingUnityProcesses(candidate.projectRoot)).processes.length > 0 || capabilities.matchingInstances.length > 0;
+  let route: "connected" | "isolated";
+  if (request.execution === "connected") {
+    if (requirements.requiresIsolation) throw new Error(`Connected execution cannot honor this request: ${requirements.reasons.join("; ")}.`);
+    if (!reachable) throw new Error("Connected execution requires an already-open exact-copy reachable Pipeline Editor; no Unity was launched.");
+    route = "connected";
+  } else if (request.execution === "isolated") {
+    if (reachable && !request.closeBlockingUnityProcess) throw new Error("Isolated execution will not close a reachable Pipeline Editor automatically. Close it first or use the explicitly guarded close option.");
+    route = "isolated";
+  } else if (reachable) {
+    if (requirements.requiresIsolation) throw new Error(`This request requires isolated execution (${requirements.reasons.join("; ")}), but the exact project copy is open in reachable Pipeline. pi-unity will not close it automatically.`);
+    route = "connected";
+  } else {
+    if (busy) throw new Error("A Unity process is already open for this exact project copy without reachable Pipeline; refusing to launch a second process.");
+    route = "isolated";
+  }
+  const formats = request.reportFormats ?? defaultUnityTestReportFormats(route);
+  if (route === "connected") {
+    const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: request.testPlatform, testFilter: request.testFilters[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }) });
+    const counts = result.details.counts!;
+    const normalized: NormalizedUnityTestResult = {
+      schemaVersion: 1, source: "pipeline", platform: request.testPlatform,
+      selection: { testFilters: request.testFilters, testCategories: request.testCategories },
+      durationSeconds: result.details.elapsedSeconds, outcome: determineUnityTestOutcome(counts), summary: counts, tests: [],
+    };
+    const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
+    const text = `${compactUnityTestSummary(normalized)}\nRoute: connected Pipeline. Normalized artifact: ${artifactPath}`;
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: normalized.outcome === "passed" ? "passed" : "failed", pipeline: result.details, testResult: normalized, artifactPath, route } };
+  }
+  if (request.isolatedLauncher === "editor-executable" && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("The direct Editor fallback cannot honor CLI-only retry, rerun, shard, coverage, or JUnit options.");
+  const plan = createUnityTestBatchPlan({ projectRoot: candidate.projectRoot, testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories });
+  const cliAvailable = request.isolatedLauncher !== "editor-executable" && await canUseUnityCli(pi, signal);
+  if (!cliAvailable && request.isolatedLauncher === "unity-cli") throw new Error("Unity CLI was requested but is unavailable.");
+  if (!cliAvailable && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("Unity CLI is unavailable and the requested options have no direct Editor fallback.");
+  if (!cliAvailable) {
+    const fallback = await runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, { args: plan.args, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, launcher: "editor-executable", closeBlockingUnityProcess: request.closeBlockingUnityProcess }, signal, "unity_run_test_batch");
+    const parsed = fallback.details.parsedTestResults;
+    const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
+    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "editor-executable", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: determineUnityTestOutcome(summary), summary, tests: [] };
+    const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
+    return { content: [{ type: "text", text: `${compactUnityTestSummary(normalized)}\nRoute: isolated direct Editor. Normalized artifact: ${artifactPath}` }], details: { ...fallback.details, mode: "tests", testResult: normalized, artifactPath, route } };
+  }
+  return await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "batchmode", toolName: "unity_run_tests" }, async () => {
+    const invocation = parseUnityBatchmodeInvocation(plan.args);
+    const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
+    await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
+    await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
+    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, editorVersion: candidate.unityVersion });
+    const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
+    const artifacts = await loadUnityBatchmodeArtifacts(ctx.cwd, candidate.projectRoot, invocation);
+    const parsed = artifacts.testResultsXml ? parseUnityTestResultsXml(artifacts.testResultsXml) : null;
+    const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
+    const outcome = execution.killed ? "timed_out" : execution.code === 8 ? "tests_failed" : execution.code === 6 ? "run_error" : determineUnityTestOutcome(summary);
+    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome, summary, tests: [], backendArtifacts: { ...(formats.includes("nunit") ? { nunit: `Logs/${plan.testResultsPath.split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
+    const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
+    const text = `${compactUnityTestSummary(normalized)}\nRoute: isolated Unity CLI. Normalized artifact: ${artifactPath}`;
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: normalized, artifactPath, route } };
+  });
+}
+
 function renderUnityPipelineResult(result: any, options: { expanded: boolean; isPartial: boolean }, theme: any, context: { lastComponent?: unknown }): Text {
   const details = result.details as UnityToolDetails | undefined;
   const primaryText = getToolTextContent(result);
@@ -1393,6 +1499,27 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "unity_run_tests",
+    label: "Unity Run Tests",
+    description: "Run Unity Test Framework tests through one intent-oriented workflow. It reuses a reachable exact-copy Pipeline Editor when compatible, otherwise uses isolated `unity test` execution.",
+    promptSnippet: "Run Unity EditMode or PlayMode tests through one safe routed workflow with durable normalized evidence.",
+    promptGuidelines: [
+      "Use unity_run_tests for ordinary Unity Test Framework runs. It selects connected Pipeline only for compatible requests and isolated unity test only when the exact project copy is closed.",
+      "Do not use unity_launch_batchmode for ordinary tests; raw test flags there are an unsupported escape hatch.",
+      "A reachable Editor is never closed merely to obtain isolated-only options. Requests needing retries, sharding, reruns, coverage, multiple selectors, or XML reports are rejected before dispatch when it is open.",
+      "Timeout, malformed evidence, cancellation, or missing artifacts never cause a backend fallback or relaunch.",
+    ],
+    parameters: RUN_TESTS_PARAMS,
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      throwIfAborted(signal);
+      const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
+      return await runUnifiedUnityTests(pi, ctx, candidate, discoveryWarning, params as UnityRunTestsRequest, signal, onUpdate, sessionAllowsAutonomousPlayModeExit(ctx));
+    },
+    renderCall(args, theme, context) { return renderUnityToolCall("unity_run_tests", args, theme, "tests", `${args.testPlatform ?? "Unity"} • ${compactUnityRendererValue(args.testFilters?.[0] ?? args.testFilter ?? args.execution ?? "auto", 100)}`, context); },
+    renderResult(result, { expanded }, theme) { return renderUnityToolResult(result, expanded, theme); },
+  });
+
+  pi.registerTool({
     name: "unity_pipeline_recompile",
     label: "Unity Pipeline Recompile",
     description: "Recompile an already-open exact Unity project copy through its reachable advertised Pipeline, with internal bounded polling and compact compiler evidence.",
@@ -1416,34 +1543,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       };
     },
     renderCall(args, theme, context) { return renderUnityPipelineCall("unity_pipeline_recompile", args, theme, context); },
-    renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
-  });
-
-  pi.registerTool({
-    name: "unity_pipeline_run_tests",
-    label: "Unity Pipeline Run Tests",
-    description: "Run one focused EditMode or PlayMode test selection through an already-open exact Unity Pipeline Editor, with internal bounded polling and aggregate output.",
-    promptSnippet: "Run focused connected Unity EditMode or PlayMode tests in one bounded call without shell polling; aggregate passing results stay compact.",
-    promptGuidelines: [
-      "Use unity_pipeline_run_tests for one focused connected Unity test platform when the exact Editor is already open and reachable.",
-      "unity_pipeline_run_tests may exit Play Mode through advertised editor_stop when needed, then verifies Edit Mode before dispatching tests.",
-      "Use unity_run_test_batch instead of unity_pipeline_run_tests for closed projects, isolation, complex filters/categories, or required NUnit XML/log evidence.",
-      "unity_pipeline_run_tests does not cancel uncertain work or switch to batchmode after timeout; report that the connected run may still be running.",
-    ],
-    parameters: PIPELINE_TEST_PARAMS,
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      throwIfAborted(signal);
-      const { candidate } = await resolveProjectCandidate(ctx, params.path);
-      const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: params.testPlatform, testFilter: params.testFilter, timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
-        signal,
-        onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
-      });
-      return {
-        content: [{ type: "text", text: result.text }],
-        details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
-      };
-    },
-    renderCall(args, theme, context) { return renderUnityPipelineCall("unity_pipeline_run_tests", args, theme, context); },
     renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
   });
 
@@ -1634,52 +1733,6 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
     renderCall(args, theme) {
       return renderUnityToolCall("unity_open_editor", args, theme, "gui", "opens editor window");
-    },
-    renderResult(result, { expanded }, theme) {
-      return renderUnityToolResult(result, expanded, theme);
-    },
-  });
-
-  pi.registerTool({
-    name: "unity_run_test_batch",
-    label: "Unity Test Batch",
-    description: "Run one bundled Unity Test Framework platform with normalized filters/categories and generated absolute XML/log paths under the project Logs directory.",
-    promptSnippet: "Run a bundled Unity EditMode or PlayMode test batch with safe generated artifact paths",
-    promptGuidelines: [
-      "Before choosing a test route, call unity_project_status for the exact project copy. If it is already open with reachable Pipeline run_tests/test_status commands, use the connected workflow without closing the Editor.",
-      "Prefer unity_run_test_batch over unity_launch_batchmode only for isolated or report-producing Unity Test Framework runs: closed projects, unavailable/unsupported connected testing, intentional CI isolation, unsupported filters, or required NUnit XML/log artifacts.",
-      "Do not set closeBlockingUnityProcess merely to switch a reachable Pipeline Editor into batchmode; use it only after isolated execution is deliberately required and the guarded setting is enabled.",
-      "Pass unity_run_test_batch exactly one testPlatform. Multiple test platforms require separate user-authorized launches.",
-      "An empty unity_run_test_batch testFilters/testCategories selection runs all tests for that testPlatform; use narrow arrays when focused evidence is sufficient.",
-      "Do not call unity_run_test_batch for PlayMode when user/project guidance says to skip PlayMode tests.",
-      "Use unity_run_test_batch useGraphics=true only for graphics-dependent PlayMode tests or visual capture; ordinary EditMode and non-visual PlayMode remain headless.",
-      "After unity_run_test_batch infrastructure failure, inspect the exact generated paths reported by the failed call once and do not repeat an unchanged launch.",
-    ],
-    parameters: RUN_TEST_BATCH_PARAMS,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      throwIfAborted(signal);
-      const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
-      const plan = createUnityTestBatchPlan({
-        projectRoot: candidate.projectRoot,
-        testPlatform: params.testPlatform as UnityTestPlatform,
-        testFilters: params.testFilters,
-        testCategories: params.testCategories,
-      });
-      await mkdir(dirname(plan.testResultsPath), { recursive: true });
-      throwIfAborted(signal);
-      const result = await runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, {
-        unityEditorPath: params.unityEditorPath,
-        args: plan.args,
-        useGraphics: params.useGraphics,
-        timeoutSeconds: params.timeoutSeconds,
-        launcher: params.launcher as UnityLauncherPreference | undefined,
-        closeBlockingUnityProcess: params.closeBlockingUnityProcess,
-      }, signal, "unity_run_test_batch");
-      result.details = { ...result.details, testBatch: plan };
-      return result;
-    },
-    renderCall(args, theme) {
-      return renderUnityToolCall("unity_run_test_batch", args, theme, "batchmode", `${args.testPlatform} test batch`);
     },
     renderResult(result, { expanded }, theme) {
       return renderUnityToolResult(result, expanded, theme);

@@ -22,6 +22,19 @@ export type UnityCliLaunchOptions = {
   automated?: boolean;
 };
 
+export type UnityCliTestOptions = UnityCliLaunchOptions & {
+  testPlatform: "EditMode" | "PlayMode";
+  testFilters?: string[];
+  testCategories?: string[];
+  retries?: number;
+  rerunFailed?: boolean;
+  shard?: string;
+  shardInventoryPath?: string;
+  reportPaths?: { nunit?: string; junit?: string; log?: string };
+  coverage?: boolean;
+  coverageOptions?: string;
+};
+
 export type UnityCliPipelineInstance = {
   projectPath: string;
   pid: number | null;
@@ -114,6 +127,25 @@ export function normalizeUnityCliForwardedArgs(extraEditorArgs: string[] = []): 
     normalized.push(arg);
   }
   return normalized;
+}
+
+export function createUnityCliTestCommand(projectRoot: string, options: UnityCliTestOptions): UnityCliCommand {
+  const args = [...unityCliBaseArgs(), "test", projectRoot, "--platform", options.testPlatform];
+  appendUnityCliEditorOptions(args, options);
+  if (options.timeoutSeconds !== undefined) args.push("--timeout", String(options.timeoutSeconds));
+  if (options.testFilters?.length) args.push("--filter", options.testFilters.join(";"));
+  if (options.testCategories?.length) args.push("--category", options.testCategories.join(";"));
+  if (options.retries) args.push("--retries", String(options.retries));
+  if (options.rerunFailed) args.push("--rerun-failed");
+  if (options.shard) args.push("--shard", options.shard);
+  if (options.shardInventoryPath) args.push("--shard-inventory", options.shardInventoryPath);
+  if (options.reportPaths?.nunit) args.push("--results", options.reportPaths.nunit);
+  if (options.reportPaths?.junit) args.push("--junit-results", options.reportPaths.junit);
+  if (options.reportPaths?.log) args.push("--log-file", options.reportPaths.log);
+  if (options.coverage) args.push("--coverage");
+  if (options.coverageOptions) args.push("--coverage-options", options.coverageOptions);
+  if (options.useGraphics) args.push("--", "-batchmode");
+  return { command: resolveUnityCliCommand(options), args };
 }
 
 export function createUnityCliRunCommand(projectRoot: string, extraEditorArgs: string[] = [], options: UnityCliLaunchOptions = {}): UnityCliCommand {

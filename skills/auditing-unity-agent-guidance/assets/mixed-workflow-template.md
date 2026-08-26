@@ -11,7 +11,7 @@ Always resolve and pass the exact Unity project-copy path. Do not route by proje
 
 - Inspect: `unity_project_status`
 - Connected compile/test: use the package's typed connected tools when available
-- Isolated tests: `unity_run_test_batch`
+- Isolated tests: `unity_run_tests`
 - Custom isolated Editor arguments: `unity_launch_batchmode`
 - Existing evidence: `unity_inspect_artifacts`
 

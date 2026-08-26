@@ -33,22 +33,21 @@ Use these tools with an already-open exact Unity project copy that has a reachab
 
 - `unity_project_status` — inspect lockfiles, matching Unity processes, Pipeline reachability, package version, and advertised commands without launching Unity.
 - `unity_pipeline_recompile` — recompile through Pipeline with exact-copy preflight, bounded polling, and compact compiler evidence.
-- `unity_pipeline_run_tests` — run one focused EditMode or PlayMode selection with bounded polling and aggregate results.
+- `unity_run_tests` — one intent-oriented EditMode or PlayMode workflow. It reuses compatible connected Pipeline execution or selects isolated `unity test` when the exact project copy is closed.
 - `unity_pipeline_eval` — execute bounded project-specific C# through Pipeline's Roslyn REPL. It accepts `timeoutSeconds` from 1–86,400 seconds; a timeout is uncertain and does not cancel or retry Editor work.
 - `unity_pipeline_inspect` — dispatch supported package-owned inspection commands and return structured evidence.
 
 Connected recompilation follows Unity's Script Changes While Playing policy and never preemptively sends `editor_stop`. Connected tests may exit Play Mode through advertised `editor_stop` when necessary, then verify Edit Mode before dispatch. Play Mode exit is allowed by default; `/unity-playmode-exit allow|disallow|status` controls the current session.
 
-A timeout is uncertain: work may still be running. The tools do not silently cancel, retry, launch another Editor, or switch to batchmode. The sole exception is Pipeline 0.5's explicit initial-settling `Server Busy` rejection for `unity_pipeline_recompile` and `unity_pipeline_run_tests`, which is known not to have dispatched a main-thread command and is retried only within the configured deadline.
+A timeout is uncertain: work may still be running. The tools do not silently cancel, retry, launch another Editor, or switch to batchmode. The sole exception is Pipeline 0.5's explicit initial-settling `Server Busy` rejection for `unity_pipeline_recompile` and `unity_run_tests`, which is known not to have dispatched a main-thread command and is retried only within the configured deadline.
 
 ### Editor and batchmode
 
 - `unity_open_editor` — open the Unity Editor GUI. Pass `automated: true` to add the Unity Editor `-automated` flag; this is distinct from the Unity CLI's own `--non-interactive` option.
 - `unity_launch_batchmode` — run a bounded batchmode command through Unity CLI or the direct Editor executable.
-- `unity_run_test_batch` — run one isolated or report-producing Unity Test Framework platform with generated XML and log paths.
 - `unity_inspect_artifacts` — summarize existing Unity Test Framework XML and Unity logs without launching Unity.
 
-Use connected tests when the exact project is already open and Pipeline testing is reachable. Use `unity_run_test_batch` for closed projects, CI-style isolation, categories or multiple filters, graphics-dependent PlayMode tests, or required NUnit XML/log evidence.
+Use `unity_run_tests` for all ordinary Unity Test Framework work. It writes a durable normalized JSON result under `Logs/`; isolated `unity test` runs retain requested native reports. Connected Pipeline is selected only for compatible requests. A reachable Editor is never closed automatically to obtain isolated-only features.
 
 Batchmode runs use `-nographics` by default. Set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent tests. Unity permits only one process per project folder, so all launch routes verify the exact project and use a per-project mutex.
 
@@ -78,8 +77,8 @@ Operation-specific recovery belongs to the operational skill. `unity-debugging` 
 | Situation | Preferred route |
 | --- | --- |
 | Open exact-copy Editor with reachable Pipeline | Connected Pipeline tools |
-| Closed project or intentional CI isolation | `unity_run_test_batch` or `unity_launch_batchmode` |
-| Required NUnit XML or Unity log evidence | `unity_run_test_batch` |
+| Closed project or intentional CI isolation | `unity_run_tests` |
+| Required NUnit XML or Unity log evidence | `unity_run_tests` |
 | Existing failed-run artifacts | `unity_inspect_artifacts` |
 | Project-specific C# query or operation | `unity_pipeline_eval` |
 | Supported structured project inspection | `unity_pipeline_inspect` |

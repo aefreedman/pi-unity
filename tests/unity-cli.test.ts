@@ -7,6 +7,7 @@ import {
   createUnityCliEditorExitCommand,
   createUnityCliOpenCommand,
   createUnityCliRunCommand,
+  createUnityCliTestCommand,
   dispatchUnityPlanningInspection,
   haveSameKnownProcessIds,
   inspectUnityCliProjectCapabilities,
@@ -306,4 +307,8 @@ try {
   await rm(planningProject, { recursive: true, force: true });
 }
 
+const cliTest = createUnityCliTestCommand("/game", { testPlatform: "EditMode", testFilters: ["Game.Fast"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml" } });
+assert.deepEqual(cliTest.args.slice(0, 6), ["--no-banner", "--non-interactive", "test", "/game", "--platform", "EditMode"]);
+assert(cliTest.args.includes("--retries") && cliTest.args.includes("2") && cliTest.args.includes("--shard") && cliTest.args.includes("1/4"));
+assert(cliTest.args.includes("--coverage") && cliTest.args.includes("--results"));
 console.log("pi-unity unity-cli tests passed");
