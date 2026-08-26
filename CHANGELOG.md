@@ -7,13 +7,23 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## [0.11.0] - 2026-08-26
+
 ### Added
 
 - Added unified `unity_run_tests`, which routes compatible exact-copy connected runs through Pipeline and closed-project runs through `unity test`, with durable normalized JSON evidence.
+- Added normalized outcomes for passes, flaky passes, test failures, empty selections, run errors, timeouts, cancellation, and uncertain evidence.
+- Added isolated Unity CLI support for retries, rerunning failures, deterministic sharding, NUnit/JUnit reports, and coverage controls.
+
+### Changed
+
+- Connected Pipeline tests now preserve complete bounded result evidence in durable normalized JSON while keeping routine tool output compact.
+- Isolated tests now prefer the Unity CLI `unity test` workflow and reconcile retry sidecars and derived rerun/shard reports.
 
 ### Removed
 
 - Removed the public `unity_pipeline_run_tests` and `unity_run_test_batch` registrations; `unity_launch_batchmode` remains a non-test escape hatch.
+
 ## [0.10.0] - 2026-08-14
 
 ### Changed
