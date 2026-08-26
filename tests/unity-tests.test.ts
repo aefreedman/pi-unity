@@ -3,12 +3,15 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  applyUnityCliRetrySummary,
   compactUnityTestSummary,
   defaultUnityTestReportFormats,
+  deriveUnityCliEffectiveReportPath,
   determineUnityTestOutcome,
   getUnityTestRouteRequirements,
   normalizeUnityRunTestsRequest,
   normalizeUnityTestResult,
+  parseUnityCliRetrySummary,
   writeNormalizedUnityTestArtifact,
   type NormalizedUnityTestResult,
 } from "../src/unity-tests";
@@ -20,6 +23,10 @@ assert.deepEqual(defaultUnityTestReportFormats("connected"), ["json"]);
 assert.deepEqual(defaultUnityTestReportFormats("isolated"), ["json", "nunit"]);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", testFilters: ["bad;filter"] }), /semicolons/);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries: -1 }), /non-negative/);
+assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", shard: "1/2", rerunFailed: true }), /cannot be combined/);
+assert.equal(deriveUnityCliEffectiveReportPath("C:/Logs/results.xml", { rerunFailed: true }), "C:/Logs/results.rerun.xml");
+assert.equal(deriveUnityCliEffectiveReportPath("C:/Logs/results.xml", { shard: "1/4" }), "C:/Logs/results.shard-1-of-4.xml");
+assert.throws(() => deriveUnityCliEffectiveReportPath("results.xml", { shard: "bad" }), /N\/M/);
 
 const isolated = normalizeUnityRunTestsRequest({ testPlatform: "PlayMode", testFilters: ["A", "B"], retries: 1, coverage: true, reportFormats: ["nunit", "json", "nunit"] });
 assert.deepEqual(isolated.reportFormats, ["nunit", "json"]);
@@ -49,6 +56,15 @@ assert.equal(sanitized.tests[0]!.message!.length, 4_000);
 assert.equal(sanitized.tests[0]!.stackTrace!.length, 8_000);
 assert.deepEqual(sanitized.backendArtifacts, { log: "Logs/result.log" });
 assert.equal(compactUnityTestSummary(sanitized), "Unity EditMode tests failed: 1 failed of 1.");
+const retry = parseUnityCliRetrySummary({ requested: 1, attempts: 2, passedFirstAttempt: 1, flaky: [{ test: "Suite.Flaky", attempts: 2 }], failed: [] });
+assert(retry);
+const reconciled = applyUnityCliRetrySummary({ ...sanitized, summary: { total: 2, passed: 1, failed: 1 }, tests: [{ name: "Suite.One", status: "Passed" }, { name: "Suite.Flaky", status: "Failed", message: "first attempt" }] }, retry);
+assert.equal(reconciled.outcome, "passed_with_flakes");
+assert.deepEqual(reconciled.summary, { total: 2, passed: 2, failed: 0 });
+assert.deepEqual(reconciled.flakyTests, [{ name: "Suite.Flaky", attempts: 2 }]);
+assert.equal(reconciled.tests[1]?.status, "Passed");
+assert.equal(reconciled.tests[1]?.attempts, 2);
+assert.equal(parseUnityCliRetrySummary({ requested: 1, attempts: 2, flaky: "invalid", failed: [] }), null);
 
 const fixtureRoot = new URL("./fixtures/unity-tests/", import.meta.url);
 for (const fixture of await readdir(fixtureRoot)) {

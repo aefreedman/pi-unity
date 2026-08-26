@@ -76,6 +76,14 @@ export type UnityTestOutcomeEvidence = {
   retryResolvedAllFailures?: boolean;
 };
 
+export type UnityCliRetrySummary = {
+  requested: number;
+  attempts: number;
+  passedFirstAttempt?: number;
+  flaky: Array<{ name: string; attempts: number }>;
+  failed: Array<{ name: string; attempts: number }>;
+};
+
 function selectors(values: string[] | undefined, label: string): string[] {
   const result: string[] = []; const seen = new Set<string>();
   for (const [index, raw] of (values ?? []).entries()) {
@@ -102,6 +110,7 @@ export function normalizeUnityRunTestsRequest(input: UnityRunTestsRequest): Norm
   if (!["auto", "unity-cli", "editor-executable"].includes(isolatedLauncher)) throw new Error("isolatedLauncher must be auto, unity-cli, or editor-executable.");
   if (!Number.isInteger(input.retries ?? 0) || (input.retries ?? 0) < 0) throw new Error("retries must be a non-negative integer.");
   if (input.timeoutSeconds !== undefined && (!Number.isFinite(input.timeoutSeconds) || input.timeoutSeconds <= 0)) throw new Error("timeoutSeconds must be a positive number.");
+  if (input.rerunFailed && input.shard) throw new Error("shard and rerunFailed cannot be combined.");
   const formats = input.reportFormats?.map(value => value.toLowerCase() as UnityTestReportFormat);
   if (formats && formats.some(value => !["json", "nunit", "junit"].includes(value))) throw new Error("reportFormats may contain only json, nunit, or junit.");
   return {
@@ -113,6 +122,18 @@ export function normalizeUnityRunTestsRequest(input: UnityRunTestsRequest): Norm
     coverageOptions: optionalText(input.coverageOptions, "coverageOptions"), useGraphics: input.useGraphics ?? false,
     timeoutSeconds: input.timeoutSeconds, closeBlockingUnityProcess: input.closeBlockingUnityProcess ?? false,
   };
+}
+
+export function deriveUnityCliEffectiveReportPath(basePath: string, options: { rerunFailed?: boolean; shard?: string }): string {
+  const extension = path.extname(basePath);
+  const stem = extension ? basePath.slice(0, -extension.length) : basePath;
+  if (options.rerunFailed) return `${stem}.rerun${extension || ".xml"}`;
+  if (options.shard) {
+    const match = /^(\d+)\/(\d+)$/.exec(options.shard);
+    if (!match) throw new Error("shard must use the N/M form.");
+    return `${stem}.shard-${match[1]}-of-${match[2]}${extension || ".xml"}`;
+  }
+  return basePath;
 }
 
 export function defaultUnityTestReportFormats(route: "connected" | "isolated"): UnityTestReportFormat[] {
@@ -132,6 +153,44 @@ export function getUnityTestRouteRequirements(request: NormalizedUnityRunTestsRe
   if (request.coverage || request.coverageOptions) reasons.push("coverage requires isolated execution");
   if ((request.reportFormats ?? []).some(format => format !== "json")) reasons.push("requested XML reports require isolated execution");
   return { requiresIsolation: reasons.length > 0, reasons };
+}
+
+function retryEntries(value: unknown): Array<{ name: string; attempts: number }> | null {
+  if (!Array.isArray(value)) return null;
+  const entries: Array<{ name: string; attempts: number }> = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const record = item as Record<string, unknown>;
+    const name = typeof record.test === "string" ? record.test.trim() : "";
+    const attempts = typeof record.attempts === "number" && Number.isInteger(record.attempts) && record.attempts > 0 ? record.attempts : 0;
+    if (!name || !attempts) return null;
+    entries.push({ name, attempts });
+  }
+  return entries;
+}
+
+/** Parses the stable beta.6 retry sidecar without trusting arbitrary fields. */
+export function parseUnityCliRetrySummary(value: unknown): UnityCliRetrySummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const requested = typeof record.requested === "number" && Number.isInteger(record.requested) && record.requested >= 0 ? record.requested : -1;
+  const attempts = typeof record.attempts === "number" && Number.isInteger(record.attempts) && record.attempts >= 1 ? record.attempts : 0;
+  const flaky = retryEntries(record.flaky);
+  const failed = retryEntries(record.failed);
+  if (requested < 0 || !attempts || !flaky || !failed) return null;
+  return { requested, attempts, ...(typeof record.passedFirstAttempt === "number" && record.passedFirstAttempt >= 0 ? { passedFirstAttempt: record.passedFirstAttempt } : {}), flaky, failed };
+}
+
+export function applyUnityCliRetrySummary(result: NormalizedUnityTestResult, retry: UnityCliRetrySummary): NormalizedUnityTestResult {
+  const flaky = new Map(retry.flaky.map(item => [item.name, item.attempts]));
+  const failed = new Map(retry.failed.map(item => [item.name, item.attempts]));
+  const tests = result.tests.map(test => flaky.has(test.name)
+    ? { ...test, status: "Passed", attempts: flaky.get(test.name) }
+    : failed.has(test.name) ? { ...test, attempts: failed.get(test.name) } : test);
+  const total = result.summary.total;
+  const finalFailed = retry.failed.length;
+  const passed = total === undefined ? result.summary.passed : Math.max(0, total - finalFailed - (result.summary.skipped ?? 0) - (result.summary.inconclusive ?? 0));
+  return { ...result, summary: { ...result.summary, passed, failed: finalFailed }, tests, ...(retry.flaky.length ? { flakyTests: retry.flaky } : {}), outcome: finalFailed > 0 ? "tests_failed" : retry.flaky.length > 0 ? "passed_with_flakes" : result.outcome };
 }
 
 /** Applies strict evidence precedence; successful transport alone is deliberately insufficient. */
