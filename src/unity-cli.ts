@@ -130,21 +130,26 @@ export function normalizeUnityCliForwardedArgs(extraEditorArgs: string[] = []): 
 }
 
 export function createUnityCliTestCommand(projectRoot: string, options: UnityCliTestOptions): UnityCliCommand {
-  const args = [...unityCliBaseArgs(), "test", projectRoot, "--platform", options.testPlatform];
+  const args = [...unityCliBaseArgs(), "test", projectRoot, "--mode", options.testPlatform];
   appendUnityCliEditorOptions(args, options);
   if (options.timeoutSeconds !== undefined) args.push("--timeout", String(options.timeoutSeconds));
   if (options.testFilters?.length) args.push("--filter", options.testFilters.join(";"));
-  if (options.testCategories?.length) args.push("--category", options.testCategories.join(";"));
   if (options.retries) args.push("--retries", String(options.retries));
   if (options.rerunFailed) args.push("--rerun-failed");
   if (options.shard) args.push("--shard", options.shard);
   if (options.shardInventoryPath) args.push("--shard-inventory", options.shardInventoryPath);
-  if (options.reportPaths?.nunit) args.push("--results", options.reportPaths.nunit);
-  if (options.reportPaths?.junit) args.push("--junit-results", options.reportPaths.junit);
-  if (options.reportPaths?.log) args.push("--log-file", options.reportPaths.log);
+  const nunit = options.reportPaths?.nunit;
+  const junit = options.reportPaths?.junit;
+  if (nunit && junit) args.push("--output", nunit, "--report-format", "nunit,junit", "--junit-output", junit);
+  else if (junit) args.push("--output", junit, "--report-format", "junit");
+  else if (nunit) args.push("--output", nunit);
   if (options.coverage) args.push("--coverage");
   if (options.coverageOptions) args.push("--coverage-options", options.coverageOptions);
-  if (options.useGraphics) args.push("--", "-batchmode");
+  const editorArgs: string[] = [];
+  if (!options.useGraphics) editorArgs.push("-nographics");
+  if (options.testCategories?.length) editorArgs.push("-testCategory", options.testCategories.join(";"));
+  if (options.reportPaths?.log) editorArgs.push("-logFile", options.reportPaths.log);
+  if (editorArgs.length > 0) args.push("--", ...editorArgs);
   return { command: resolveUnityCliCommand(options), args };
 }
 
