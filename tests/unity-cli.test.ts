@@ -307,8 +307,9 @@ try {
   await rm(planningProject, { recursive: true, force: true });
 }
 
-const cliTest = createUnityCliTestCommand("/game", { testPlatform: "EditMode", testFilters: ["Game.Fast"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml" } });
+const cliTest = createUnityCliTestCommand("/game", { testPlatform: "EditMode", testFilters: ["Game.Fast"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml", junit: "/game/Logs/results.junit.xml" } });
 assert.deepEqual(cliTest.args.slice(0, 6), ["--no-banner", "--non-interactive", "test", "/game", "--platform", "EditMode"]);
 assert(cliTest.args.includes("--retries") && cliTest.args.includes("2") && cliTest.args.includes("--shard") && cliTest.args.includes("1/4"));
+assert(cliTest.args.includes("--junit-results") && cliTest.args.includes("/game/Logs/results.junit.xml"), "CLI test command preserves a separate native JUnit path.");
 assert(cliTest.args.includes("--coverage") && cliTest.args.includes("--results"));
 console.log("pi-unity unity-cli tests passed");

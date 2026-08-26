@@ -58,10 +58,12 @@ assert.equal(normalizeUnityScriptChangesWhilePlaying("future-policy"), "unknown"
 const passing33 = normalizeUnityPipelineTest(envelope(JSON.stringify({ status: "completed", summary: { total: 33, passed: 33, failed: 0 }, tests: Array.from({ length: 33 }, (_, i) => ({ name: `Passing.${i}`, result: "Passed" })) })));
 assert.equal(passing33.state, "completed");
 assert.equal(passing33.total, 33);
+assert.equal(passing33.testRecords?.length, 33, "Complete terminal records are retained only for immediate artifact persistence.");
 assert.deepEqual(passing33.failures, [], "Passing test names must not be retained.");
 const twoFailures = normalizeUnityPipelineTest(envelope({ status: "completed", summary: { total: 2, passed: 0, failed: 2 }, tests: [{ name: "A", result: "Failed", message: "nope", stackTrace: "stack" }, { name: "B", result: "Inconclusive", message: "maybe" }] }));
 assert.equal(twoFailures.state, "failed");
 assert.equal(twoFailures.failures.length, 2);
+assert.deepEqual(twoFailures.testRecords?.map(test => test.name), ["A", "B"], "Failure records retain names for normalized evidence.");
 const boundedFailures = normalizeUnityPipelineTest(envelope({ status: "completed", summary: { total: 20, passed: 0, failed: 20 }, tests: Array.from({ length: 20 }, (_, i) => ({ name: `Failure.${i}`, result: "Failed", message: "x".repeat(1000), stackTrace: "s".repeat(1000) })) }));
 assert.equal(boundedFailures.failures.length, 8, "Failed-test diagnostics must remain count-bounded.");
 assert(boundedFailures.failures.every(value => value.length <= 600), "Failed-test diagnostics must remain character-bounded.");

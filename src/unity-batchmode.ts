@@ -18,6 +18,7 @@ export type UnityFailedTest = {
   stackTrace?: string;
 };
 
+export type UnityParsedTestCase = { name: string; status: string; durationSeconds?: number; message?: string; stackTrace?: string };
 export type UnityParsedTestResults = {
   total?: number;
   passed?: number;
@@ -26,6 +27,8 @@ export type UnityParsedTestResults = {
   inconclusive?: number;
   durationSeconds?: number;
   failedTests: UnityFailedTest[];
+  /** Complete bounded per-test evidence for normalized artifacts, never routine tool output. */
+  tests: UnityParsedTestCase[];
 };
 
 export type UnityBatchmodeArtifacts = {
@@ -108,6 +111,7 @@ export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | 
 
   const rootAttributes = parseAttributes(testRunMatch[1] ?? "");
   const failedTests: UnityFailedTest[] = [];
+  const tests: UnityParsedTestCase[] = [];
 
   const testCaseRegex = /<test-case\b([^>]*)>([\s\S]*?)<\/test-case>/gi;
   for (const match of xml.matchAll(testCaseRegex)) {
@@ -116,17 +120,12 @@ export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | 
     const result = String(attributes.result ?? attributes.label ?? "").toLowerCase();
     const success = String(attributes.success ?? "").toLowerCase();
     const isFailure = result === "failed" || success === "false";
-    if (!isFailure) continue;
-
     const failureMessage = body.match(/<message[^>]*>([\s\S]*?)<\/message>/i);
     const stackTrace = body.match(/<stack-trace[^>]*>([\s\S]*?)<\/stack-trace>/i);
-    if (failedTests.length < 50) {
-      failedTests.push({
-        name: truncateEvidence(attributes.fullname ?? attributes.name ?? "(unknown test)", 500) ?? "(unknown test)",
-        message: truncateEvidence(decodeXmlText(failureMessage?.[1]), 1_000),
-        stackTrace: truncateEvidence(decodeXmlText(stackTrace?.[1]), 4_000),
-      });
-    }
+    const name = truncateEvidence(attributes.fullname ?? attributes.name ?? "(unknown test)", 1_000) ?? "(unknown test)";
+    if (tests.length < 2_000) tests.push({ name, status: attributes.result ?? attributes.label ?? "Unknown", ...(parseOptionalNumber(attributes.duration) === undefined ? {} : { durationSeconds: parseOptionalNumber(attributes.duration) }), ...(truncateEvidence(decodeXmlText(failureMessage?.[1]), 4_000) ? { message: truncateEvidence(decodeXmlText(failureMessage?.[1]), 4_000) } : {}), ...(truncateEvidence(decodeXmlText(stackTrace?.[1]), 8_000) ? { stackTrace: truncateEvidence(decodeXmlText(stackTrace?.[1]), 8_000) } : {}) });
+    if (!isFailure) continue;
+    if (failedTests.length < 50) failedTests.push({ name, message: truncateEvidence(decodeXmlText(failureMessage?.[1]), 1_000), stackTrace: truncateEvidence(decodeXmlText(stackTrace?.[1]), 4_000) });
   }
 
   const skipped = parseOptionalNumber(rootAttributes.skipped) ?? parseOptionalNumber(rootAttributes.inconclusive);
@@ -139,6 +138,7 @@ export function parseUnityTestResultsXml(xml: string): UnityParsedTestResults | 
     inconclusive: parseOptionalNumber(rootAttributes.inconclusive),
     durationSeconds: parseOptionalNumber(rootAttributes.duration),
     failedTests,
+    tests,
   };
   if (parsed.total === undefined && parsed.passed === undefined && parsed.failed === undefined && parsed.failedTests.length === 0) {
     return null;

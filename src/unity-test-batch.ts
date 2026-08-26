@@ -18,6 +18,7 @@ export type UnityTestBatchPlan = {
   testFilters: string[];
   testCategories: string[];
   testResultsPath: string;
+  junitResultsPath: string;
   logFilePath: string;
   args: string[];
 };
@@ -59,6 +60,7 @@ export function createUnityTestBatchPlan(input: UnityTestBatchPlanInput): UnityT
   const platformSlug = input.testPlatform.toLowerCase();
   const basename = `unity-tests-${platformSlug}-${safeTimestamp(input.now ?? new Date())}-${token}`;
   const testResultsPath = pathApi.join(logsRoot, `${basename}.xml`);
+  const junitResultsPath = pathApi.join(logsRoot, `${basename}.junit.xml`);
   const logFilePath = pathApi.join(logsRoot, `${basename}.log`);
   const args = ["-runTests", "-testPlatform", input.testPlatform];
   if (testFilters.length > 0) args.push("-testFilter", testFilters.join(";"));
@@ -78,5 +80,5 @@ export function createUnityTestBatchPlan(input: UnityTestBatchPlanInput): UnityT
     throw new Error("Unity test batch arguments must not contain -quit.");
   }
 
-  return { testPlatform: input.testPlatform, testFilters, testCategories, testResultsPath, logFilePath, args };
+  return { testPlatform: input.testPlatform, testFilters, testCategories, testResultsPath, junitResultsPath, logFilePath, args };
 }

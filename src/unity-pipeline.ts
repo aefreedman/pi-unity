@@ -11,7 +11,7 @@ export const UNITY_PIPELINE_MAX_DIAGNOSTICS = 8;
 export const UNITY_PIPELINE_MAX_STACK_CHARS = 600;
 
 export type UnityPipelineCompileRequest = { projectRoot: string; unityVersion: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
-export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
+export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; testCategory?: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
 export type UnityPipelineProgress = (message: string) => void;
 /** Unity's EditorSettings.ScriptChangesWhilePlaying values when a future editor_status payload supplies one. */
 export type UnityScriptChangesWhilePlayingPolicy = "recompile_and_continue" | "stop_and_recompile" | "defer" | "unknown";
@@ -32,7 +32,9 @@ export type UnityPipelineOperationDetails = {
   testFilter?: string;
   counts?: { total: number; passed?: number; failed: number; inconclusive?: number };
 };
-export type UnityPipelineOperationResult = { text: string; details: UnityPipelineOperationDetails };
+export type UnityPipelineTestRecord = { name: string; status: string; durationSeconds?: number; message?: string; stackTrace?: string };
+/** testRecords are terminal evidence for the caller's durable artifact only; do not expose them in tool details. */
+export type UnityPipelineOperationResult = { text: string; details: UnityPipelineOperationDetails; testRecords?: UnityPipelineTestRecord[] };
 
 type RecordValue = Record<string, unknown>;
 type ParsedEnvelope = { result: RecordValue; outerSuccess: boolean; malformed?: string };
@@ -41,6 +43,7 @@ type NormalizedTest = {
   state: "inactive" | "starting" | "running" | "completed" | "failed" | "cancelled" | "uncertain";
   total?: number; passed?: number; failed?: number; inconclusive?: number; failures: string[];
   correlation: Record<string, string>;
+  testRecords?: UnityPipelineTestRecord[];
 };
 
 type PipelineDependencies = {
@@ -172,6 +175,24 @@ function summary(result: RecordValue): RecordValue | undefined {
   walk(result, item => { if (!found && record(field(item, "summary"))) found = record(field(item, "summary")); });
   return found;
 }
+function testRecords(result: RecordValue): UnityPipelineTestRecord[] {
+  const values: UnityPipelineTestRecord[] = [];
+  walk(result, item => {
+    for (const key of ["tests", "results", "testresults"]) {
+      const entries = field(item, key);
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries.slice(0, 2_000)) {
+        const test = record(entry); if (!test) continue;
+        const name = string(field(test, "name", "fullname", "testname"));
+        const status = string(field(test, "result", "status", "outcome"));
+        if (!name || !status) continue;
+        const durationSeconds = number(field(test, "duration", "durationseconds", "time"));
+        values.push({ name: bounded(name, 1_000), status: bounded(status, 100), ...(durationSeconds === undefined ? {} : { durationSeconds }), ...(string(field(test, "message", "error", "failuremessage")) ? { message: bounded(string(field(test, "message", "error", "failuremessage"))!, 4_000) } : {}), ...(string(field(test, "stacktrace", "stack", "trace")) ? { stackTrace: bounded(string(field(test, "stacktrace", "stack", "trace"))!, 8_000) } : {}) });
+      }
+    }
+  });
+  return values.slice(0, 2_000);
+}
 function testFailures(result: RecordValue): string[] {
   const values: string[] = [];
   walk(result, item => {
@@ -223,7 +244,7 @@ export function normalizeUnityPipelineTest(output: string): NormalizedTest {
     : raw === "no_tests" || raw === "idle" || raw === "not_started" || raw === "not_running" ? "inactive"
       : raw === "running" ? "running" : raw === "starting" || raw === "queued" ? "starting"
         : raw === "completed" || raw === "complete" || raw === "success" ? "completed" : "uncertain";
-  return { state, total, passed, failed: failedCount, inconclusive, failures: testFailures(parsed.result), correlation: correlation(parsed.result) };
+  return { state, total, passed, failed: failedCount, inconclusive, failures: testFailures(parsed.result), correlation: correlation(parsed.result), testRecords: testRecords(parsed.result) };
 }
 
 function editorStopSucceeded(output: string): boolean {
@@ -471,7 +492,10 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     const observed = statusOf(parseUnityPipelineEnvelope(before.stdout).result) ?? "unknown";
     throw new Error(`Unity Pipeline returned unsupported preflight test status '${bounded(observed, 80)}'; test run not started.`);
   }
-  const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...(request.testFilter ? ["--filter", request.testFilter, "--filter_type", "testName"] : []), "--async_tests", "true"];
+  if (request.testFilter && request.testCategory) throw new Error("Connected Pipeline cannot combine a test-name filter and category in one run; operation not started.");
+  const selectorArgs = request.testFilter ? ["--filter", request.testFilter, "--filter_type", "testName"]
+    : request.testCategory ? ["--filter", request.testCategory, "--filter_type", "category"] : [];
+  const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...selectorArgs, "--async_tests", "true"];
   ensureBeforeDeadline(deadline, now, "tests before dispatch"); throwIfAborted(signal);
   const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "run_tests", args, "tests", signal, deadline, now, sleep);
   if (dispatched.error) throw new Error("Unity Pipeline test dispatch failed; test run may not have started.");
@@ -485,7 +509,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   if (state.state === "completed") {
     const counts = passingCounts(state);
     if (!counts) throw new Error("Unity test result is terminal but lacks passing evidence (consistent positive total, passed count, and reported zero failures).");
-    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
+    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter ?? request.testCategory, counts }, testRecords: state.testRecords };
   }
   for (let poll = 0; now() < deadline; poll += 1) {
     options.onUpdate?.(`Unity ${request.testPlatform} tests ${state.state}; ${elapsed(start, now).toFixed(1)}s elapsed.`);
@@ -507,7 +531,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     if (state.state !== "completed") continue;
     const counts = passingCounts(state);
     if (!counts) throw new Error("Unity test result is terminal but lacks passing evidence (consistent positive total, passed count, and reported zero failures).");
-    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter, counts } };
+    return { text: `${lifecyclePrefix}Unity ${request.testPlatform} tests passed for ${projectRoot}: ${counts.total} executed, ${counts.passed} passed, 0 failed in ${elapsed(start, now).toFixed(2)}s.`, details: { projectRoot, operation: "tests", terminalState: "completed", elapsedSeconds: elapsed(start, now), ...playModeDetails(preflight), testPlatform: request.testPlatform, testFilter: request.testFilter ?? request.testCategory, counts }, testRecords: state.testRecords };
   }
   throw timeoutMessage("tests");
 }

@@ -14,7 +14,7 @@ Run Unity Test Framework tests from the command line without opening the Editor 
 - **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find.
 - **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
 - **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
-- **Do not close a reachable Pipeline Editor merely to run tests** - an already-open exact copy can run supported tests through `run_tests` plus `test_status`; use the `unity-pipeline-workflows` skill.
+- **Do not close a reachable Pipeline Editor merely to run tests** - call `unity_run_tests`; it selects connected Pipeline for supported requests and rejects isolated-only options rather than closing the Editor.
 - **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards after deliberately choosing isolated execution** - this is limited to cases such as required NUnit XML, unsupported connected filters/commands, or explicit isolation. Use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
 - **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
 - **Bundle tests into one Unity batchmode turn whenever practical** - starting/stopping Unity, importing assets, and domain reloads dominate runtime. A broader single run is usually faster than many sequential one-test Unity launches, and same-project runs cannot use useful parallelism.
@@ -45,7 +45,7 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - `unity_open_editor` only when the user explicitly wants the GUI Editor
 - `/unity-open` as the user-facing GUI launcher helper
 
-`unity_run_tests` should be the default for isolated or report-producing Unity Test Framework work. It generates unique absolute XML/log paths under the project `Logs` directory, normalizes filter/category arrays into one launch, omits `-quit`, and uses the same guarded executor as `unity_launch_batchmode`. For an already-open reachable exact-copy Pipeline Editor, use the `unity-pipeline-workflows` skill instead.
+`unity_run_tests` is the one ordinary Unity Test Framework tool. It routes supported requests to a reachable exact-copy Pipeline Editor or a closed-project isolated `unity test` run, writes a durable normalized JSON artifact, and retains native NUnit/JUnit reports when requested. It never silently switches after uncertain dispatch.
 
 `unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder

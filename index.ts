@@ -1138,21 +1138,22 @@ async function runUnifiedUnityTests(
     if (requirements.requiresIsolation) throw new Error(`This request requires isolated execution (${requirements.reasons.join("; ")}), but the exact project copy is open in reachable Pipeline. pi-unity will not close it automatically.`);
     route = "connected";
   } else {
+    if (capabilities.pipelineDiscovery === "timeout" || (capabilities.projectSupportsPipeline && capabilities.pipelineDiscovery !== "absent" && capabilities.pipelineDiscovery !== "available")) throw new Error("Pipeline discovery is uncertain for this exact project copy; refusing to start an isolated Editor until project state is known.");
     if (busy) throw new Error("A Unity process is already open for this exact project copy without reachable Pipeline; refusing to launch a second process.");
     route = "isolated";
   }
   const formats = request.reportFormats ?? defaultUnityTestReportFormats(route);
   if (route === "connected") {
-    const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: request.testPlatform, testFilter: request.testFilters[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }) });
+    const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: request.testPlatform, testFilter: request.testFilters[0], testCategory: request.testCategories[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }) });
     const counts = result.details.counts!;
     const normalized: NormalizedUnityTestResult = {
       schemaVersion: 1, source: "pipeline", platform: request.testPlatform,
       selection: { testFilters: request.testFilters, testCategories: request.testCategories },
-      durationSeconds: result.details.elapsedSeconds, outcome: determineUnityTestOutcome(counts), summary: counts, tests: [],
+      durationSeconds: result.details.elapsedSeconds, outcome: determineUnityTestOutcome(counts), summary: counts, tests: result.testRecords ?? [],
     };
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
     const text = `${compactUnityTestSummary(normalized)}\nRoute: connected Pipeline. Normalized artifact: ${artifactPath}`;
-    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: normalized.outcome === "passed" ? "passed" : "failed", pipeline: result.details, testResult: normalized, artifactPath, route } };
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: normalized.outcome === "passed" ? "passed" : "failed", pipeline: result.details, testResult: { ...normalized, tests: [] }, artifactPath, route } };
   }
   if (request.isolatedLauncher === "editor-executable" && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("The direct Editor fallback cannot honor CLI-only retry, rerun, shard, coverage, or JUnit options.");
   const plan = createUnityTestBatchPlan({ projectRoot: candidate.projectRoot, testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories });
@@ -1163,25 +1164,25 @@ async function runUnifiedUnityTests(
     const fallback = await runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, { args: plan.args, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, launcher: "editor-executable", closeBlockingUnityProcess: request.closeBlockingUnityProcess }, signal, "unity_run_test_batch");
     const parsed = fallback.details.parsedTestResults;
     const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
-    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "editor-executable", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: determineUnityTestOutcome(summary), summary, tests: [] };
+    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "editor-executable", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: determineUnityTestOutcome(summary), summary, tests: parsed?.tests ?? [] };
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
-    return { content: [{ type: "text", text: `${compactUnityTestSummary(normalized)}\nRoute: isolated direct Editor. Normalized artifact: ${artifactPath}` }], details: { ...fallback.details, mode: "tests", testResult: normalized, artifactPath, route } };
+    return { content: [{ type: "text", text: `${compactUnityTestSummary(normalized)}\nRoute: isolated direct Editor. Normalized artifact: ${artifactPath}` }], details: { ...fallback.details, mode: "tests", testResult: { ...normalized, tests: [] }, artifactPath, route } };
   }
   return await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "batchmode", toolName: "unity_run_tests" }, async () => {
     const invocation = parseUnityBatchmodeInvocation(plan.args);
     const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
     await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
     await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
-    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, editorVersion: candidate.unityVersion });
+    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, junit: formats.includes("junit") ? plan.junitResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, editorVersion: candidate.unityVersion });
     const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
     const artifacts = await loadUnityBatchmodeArtifacts(ctx.cwd, candidate.projectRoot, invocation);
     const parsed = artifacts.testResultsXml ? parseUnityTestResultsXml(artifacts.testResultsXml) : null;
     const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
     const outcome = execution.killed ? "timed_out" : execution.code === 8 ? "tests_failed" : execution.code === 6 ? "run_error" : determineUnityTestOutcome(summary);
-    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome, summary, tests: [], backendArtifacts: { ...(formats.includes("nunit") ? { nunit: `Logs/${plan.testResultsPath.split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
+    const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: (request.rerunFailed || request.shard) && execution.code === 0 && !parsed ? "empty_selection" : outcome, summary, tests: parsed?.tests ?? [], backendArtifacts: { ...(formats.includes("nunit") ? { nunit: `Logs/${plan.testResultsPath.split(/[\\/]/).pop()}` } : {}), ...(formats.includes("junit") ? { junit: `Logs/${plan.junitResultsPath.split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
     const text = `${compactUnityTestSummary(normalized)}\nRoute: isolated Unity CLI. Normalized artifact: ${artifactPath}`;
-    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: normalized, artifactPath, route } };
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: { ...normalized, tests: [] }, artifactPath, route } };
   });
 }
 

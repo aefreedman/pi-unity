@@ -12,7 +12,7 @@ Use this workflow only for an already-running exact project copy with `com.unity
 Use one typed tool call for each supported connected operation:
 
 - `unity_pipeline_recompile` for connected script compilation.
-- `unity_run_tests` for one focused `EditMode` or `PlayMode` test-name selection.
+- `unity_run_tests` for one compatible `EditMode` or `PlayMode` test-name or category selection.
 
 These tools resolve the exact copy, require advertised commands, inspect lifecycle state, dispatch once, validate identity, and poll internally with a fixed deadline. Do not recreate their wait loops with `bash`, `unity recompile_status`, or `unity test_status` calls.
 
@@ -24,7 +24,7 @@ A timeout or malformed response is uncertain: the Unity operation may still be r
 2. The typed tools require a reachable exact-copy Pipeline and advertised `editor_status` plus operation commands. A different connected client is not itself a project lock.
 3. `unity_pipeline_recompile` never sends `editor_stop` or overrides Unity's Script Changes While Playing preference. Known recompile-and-continue, stop-and-recompile, and defer policies proceed according to Unity's configured behavior. Pipeline 0.4 does not currently expose that preference, so the tool reports the unavailable policy while allowing recompilation to proceed. `unity_run_tests` may dispatch advertised `editor_stop` when needed, then verifies Edit Mode before running tests. The tools never enter Play Mode, pause, save, launch, or close Unity; recompilation may perform Unity's normal asset refresh/import and script-change behavior.
 4. Test success requires a well-formed terminal result, a known positive executed count, and zero failures. An asynchronous initiation with `Total: 0` and `running` is nonterminal.
-5. Passing test records are intentionally discarded. Failures retain only a bounded set of failed/inconclusive names, messages, and stack excerpts.
+5. Routine tool output remains compact. Complete bounded terminal test records are persisted immediately in the durable normalized JSON artifact before Pipeline status can be displaced.
 
 ## Compile
 
@@ -35,8 +35,8 @@ Call `unity_pipeline_recompile` with optional `path` and `timeoutSeconds` (defau
 Call `unity_run_tests` with:
 
 - required `testPlatform`: `EditMode` or `PlayMode`;
-- optional `testFilter`: one test-name filter only;
-- optional `path` and `timeoutSeconds` (default 600, maximum 3600).
+- optional `testFilters` or `testCategories`: at most one selector family and one selector for connected execution;
+- optional `execution`, `path`, and `timeoutSeconds` (default 600, maximum 3600).
 - before running PlayMode tests, check the Game View focus setting. Set it to Play Unfocused for the test run, then restore the previous setting afterward.
 
 The tool treats `no_tests`, idle, and not-started statuses as safe inactivity, detects a pre-existing active connected test before dispatch, and stops rather than claiming or replacing active work. It captures returned mode/filter/run identity fields when available and stops as uncertain if status is clearly displaced by another run.
@@ -47,6 +47,6 @@ Normally call the typed tools, not raw CLI commands. If a typed tool is unavaila
 
 ## When not to use connected tools
 
-Use `unity_run_tests` for a closed project, intentional isolation/CI, category or multiple filters, or required NUnit XML/log evidence. State the reason for that route. Do not use batchmode as an automatic fallback after an uncertain connected dispatch.
+Use `unity_run_tests` with `execution: "isolated"` for a closed project, intentional isolation/CI, multiple selectors, retries, sharding, coverage, or required NUnit/JUnit evidence. A single category is supported connected when Pipeline advertises the command; do not claim broader connected selector support. Do not use batchmode as an automatic fallback after an uncertain connected dispatch.
 
 Use the typed compile/test tools when their polling and terminal evidence fit the task. Advertised Pipeline `eval` remains available through `unity_pipeline_eval` for bounded project-specific inspection or operations outside those typed workflows; its `timeoutSeconds` range is 1–86,400 seconds, and a timeout remains uncertain without cancellation or retry. It is an assistance surface, not a forbidden fallback or a substitute for the typed tools' completion protocol. Eval compiles arbitrary C# with Roslyn on the Editor main thread, so ordinary properties and local-variable snippets are valid; it is not expression-only or reliably statically read-only. Prefer typed tools for their stronger evidence, but let user intent and project guidance govern mutations. Lifecycle, persistent-setting, destructive, asset, scene-save, package, build, and test mutations require explicit authorization.
