@@ -50,7 +50,7 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 `unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
 - resolves the Unity project from a direct project root, a coordination root, or another nearby folder
 - reads `ProjectSettings/ProjectVersion.txt`
-- prefers the installed `unity run` CLI when available, falling back to OS-aware direct editor launch
+- treats installed `unity run` as authoritative when available: it receives the project path without `--editor-version` and reads the declared version itself, falling back only when Unity CLI is unavailable
 - uses OS-aware standard install probing
 - resolves only exact project-version standard installation candidates when direct Editor fallback is required
 - strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding args in Unity CLI mode

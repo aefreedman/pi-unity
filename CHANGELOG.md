@@ -7,6 +7,9 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Changed
+- Made Unity CLI authoritative for ordinary project launches: `open`, `run`, and `test` now rely on the selected project without passing an Editor-version override; direct executable launch remains an exact-version fallback.
+
 ### Fixed
 
 - Made Unity Editor selection project-version-driven: direct fallback now probes only exact-version standard installations, and Unity CLI launch routes use the project's declared Editor version without Editor-path overrides.
