@@ -143,4 +143,3 @@ Check the project's `AGENTS.md` for:
 - Recommended log output locations
 - Common test namespaces/filters
 - Any project-specific testing notes
-
