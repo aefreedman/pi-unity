@@ -12,6 +12,7 @@ import {
   normalizeUnityRunTestsRequest,
   normalizeUnityTestResult,
   parseUnityCliRetrySummary,
+  resolveUnityCliBackendReportPaths,
   writeNormalizedUnityTestArtifact,
   type NormalizedUnityTestResult,
 } from "../src/unity-tests";
@@ -21,6 +22,15 @@ assert.deepEqual(basic.testFilters, ["Suite.One"]);
 assert.equal(basic.execution, "auto");
 assert.deepEqual(defaultUnityTestReportFormats("connected"), ["json"]);
 assert.deepEqual(defaultUnityTestReportFormats("isolated"), ["json", "nunit"]);
+assert.deepEqual(
+  resolveUnityCliBackendReportPaths({ nunit: "C:/game/Logs/results.xml", junit: "C:/game/Logs/results.junit.xml", log: "C:/game/Logs/results.log" }, ["json"]),
+  { nunit: "C:/game/Logs/results.xml", junit: undefined, log: "C:/game/Logs/results.log" },
+  "JSON-only isolated tests still require native NUnit XML as normalized-result evidence.",
+);
+assert.deepEqual(
+  resolveUnityCliBackendReportPaths({ nunit: "C:/game/Logs/results.xml", junit: "C:/game/Logs/results.junit.xml", log: "C:/game/Logs/results.log" }, ["json", "junit"]),
+  { nunit: "C:/game/Logs/results.xml", junit: "C:/game/Logs/results.junit.xml", log: "C:/game/Logs/results.log" },
+);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", testFilters: ["bad;filter"] }), /semicolons/);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries: -1 }), /non-negative/);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", shard: "1/2", rerunFailed: true }), /cannot be combined/);

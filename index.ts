@@ -28,7 +28,7 @@ import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, redac
 import { assertUnityProjectNotBusy, evaluateUnityLaunchSafety, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
 import { readUnityVersion, resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
-import { applyUnityCliRetrySummary, compactUnityTestSummary, defaultUnityTestReportFormats, deriveUnityCliEffectiveReportPath, determineUnityTestOutcome, getUnityTestRouteRequirements, normalizeUnityRunTestsRequest, parseUnityCliRetrySummary, writeNormalizedUnityTestArtifact, type NormalizedUnityTestResult, type UnityRunTestsRequest } from "./src/unity-tests";
+import { applyUnityCliRetrySummary, compactUnityTestSummary, defaultUnityTestReportFormats, deriveUnityCliEffectiveReportPath, determineUnityTestOutcome, getUnityTestRouteRequirements, normalizeUnityRunTestsRequest, parseUnityCliRetrySummary, resolveUnityCliBackendReportPaths, writeNormalizedUnityTestArtifact, type NormalizedUnityTestResult, type UnityRunTestsRequest } from "./src/unity-tests";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
 import { runUnityPipelineRecompile, runUnityPipelineTests, type UnityPipelineOperationDetails } from "./src/unity-pipeline";
 import {
@@ -1197,7 +1197,7 @@ async function runUnifiedUnityTests(
     const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
     await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
     await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
-    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, junit: formats.includes("junit") ? plan.junitResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
+    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: resolveUnityCliBackendReportPaths({ nunit: plan.testResultsPath, junit: plan.junitResultsPath, log: plan.logFilePath }, formats), coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
     const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
     const effectiveResultsPath = deriveUnityCliEffectiveReportPath(plan.testResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard });
     let effectiveResultsXml: string | undefined;

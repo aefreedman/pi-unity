@@ -12,7 +12,8 @@ and this project follows semantic versioning for public package releases.
 
 ### Fixed
 
-- Made Unity Editor selection project-version-driven: direct fallback now probes only exact-version standard installations, and Unity CLI launch routes use the project's declared Editor version without Editor-path overrides.
+- Kept isolated Unity CLI test results discoverable for JSON-only reports by always writing the native NUnit evidence to the project's `Logs` directory.
+- Made direct Unity Editor fallback selection project-version-driven by probing only exact-version standard installations without Editor-path overrides.
 
 ### Removed
 

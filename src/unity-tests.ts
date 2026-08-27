@@ -63,6 +63,19 @@ export type NormalizedUnityTestResult = {
 };
 
 export type UnityTestRouteRequirements = { requiresIsolation: boolean; reasons: string[] };
+
+export function resolveUnityCliBackendReportPaths(
+  paths: { nunit: string; junit: string; log: string },
+  formats: UnityTestReportFormat[],
+): { nunit: string; junit?: string; log: string } {
+  // Normalized JSON is derived from Unity CLI's native NUnit XML, so the
+  // backend report is required even when callers do not retain NUnit output.
+  return {
+    nunit: paths.nunit,
+    junit: formats.includes("junit") ? paths.junit : undefined,
+    log: paths.log,
+  };
+}
 export type UnityTestOutcomeEvidence = {
   cancelled?: boolean;
   timedOut?: boolean;
