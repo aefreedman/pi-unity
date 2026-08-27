@@ -256,3 +256,16 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   }
 }
 console.log("pi-unity reverse load-order and delayed-shutdown registration tests passed");
+
+{
+  const notifications: string[] = [];
+  const unity = fakePi(async () => ({ code: 1, stdout: "", stderr: "invalid configured CLI" }));
+  registerUnity(unity as any);
+  const ctx = { cwd: process.cwd(), sessionManager: {}, mode: "tui", hasUI: true, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
+  await emit(unity, "session_start", ctx);
+  await emit(unity, "session_start", { ...ctx, sessionManager: {} });
+  assert.equal(notifications.length, 1, "Unavailable Unity CLI warns once per runtime across session scopes.");
+  assert.match(notifications[0] ?? "", /Unity CLI/i);
+  assert.match(notifications[0] ?? "", /restart or reload Pi/i);
+  assert.equal(notifications[0]?.includes(process.cwd()), false, "Capability warning must not expose a configured local path.");
+}
