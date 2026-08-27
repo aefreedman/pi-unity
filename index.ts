@@ -1181,7 +1181,7 @@ async function runUnifiedUnityTests(
   }
   if (request.isolatedLauncher === "editor-executable" && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("The direct Editor fallback cannot honor CLI-only retry, rerun, shard, coverage, or JUnit options.");
   const plan = createUnityTestBatchPlan({ projectRoot: candidate.projectRoot, testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories });
-  const cliAvailable = request.isolatedLauncher !== "editor-executable" && await canUseUnityCli(pi, signal);
+  const cliAvailable = await shouldUseUnityCli(pi, request.isolatedLauncher, signal);
   if (!cliAvailable && request.isolatedLauncher === "unity-cli") throw new Error("Unity CLI was requested but is unavailable.");
   if (!cliAvailable && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("Unity CLI is unavailable and the requested options have no direct Editor fallback.");
   if (!cliAvailable) {
@@ -1442,7 +1442,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         let launcher: "unity-cli" | "editor-executable" = "editor-executable";
         let editorPath = "Unity CLI";
         let launch: { pid: number | undefined; args: string[]; command: string };
-        if (await canUseUnityCli(pi)) {
+        if (await shouldUseUnityCli(pi, undefined)) {
           launcher = "unity-cli";
           launch = launchUnityCliOpenDetached(candidate.projectRoot);
         } else {

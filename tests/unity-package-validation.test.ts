@@ -68,6 +68,7 @@ assert(indexText.includes("name: \"unity_pipeline_eval\"") && indexText.includes
 assert(indexText.includes("name: \"unity_run_tests\"") && indexText.includes("name: \"unity_launch_batchmode\""));
 assert(!indexText.includes("name: \"unity_run_test_batch\"") && !indexText.includes("name: \"unity_pipeline_run_tests\""));
 assert(indexText.includes("pi.registerCommand(\"unity-open\"") && indexText.includes("piUnity.allowCloseRunningUnityProcess"));
+assert(!indexText.includes("canUseUnityCli("), "All launch routes must use the tri-state Unity CLI availability helper.");
 
 assert(!existsSync(new URL("../contracts/v1.ts", import.meta.url)));
 assert(!existsSync(new URL("../src/unity-docs-migration.ts", import.meta.url)));
