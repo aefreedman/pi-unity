@@ -68,15 +68,15 @@ If a launch is blocked by a native Unity lockfile, call `unity_project_status` b
 
 ### 2. Get the Project's Unity Version
 
-If you are in direct CLI fallback mode, read `ProjectSettings/ProjectVersion.txt` in the Unity project root:
+Before direct Editor fallback, read `ProjectSettings/ProjectVersion.txt` in the Unity project root:
 
 ```
 m_EditorVersion: ####.#.#f#
 ```
 
-### 3. Find the Unity Executable
+### 3. Resolve the exact-version Unity Editor
 
-If you are in direct CLI fallback mode, check these locations based on platform and version:
+For direct Editor fallback, use only the standard locations constructed from the version declared in `ProjectVersion.txt`:
 
 **Windows:**
 ```
@@ -89,10 +89,9 @@ C:\UnityInstalls\<version>\Editor\Unity.exe
 ```
 /Applications/Unity/Hub/Editor/<version>/Unity.app/Contents/MacOS/Unity
 /Applications/Unity/<version>/Unity.app/Contents/MacOS/Unity
-/Applications/Unity*
 ```
 
-If not found, ask the user for their Unity install path.
+If the exact declared version is not found, do not use an arbitrary Editor path or a nearby version. Ask the user to install the declared version through their normal Unity installation workflow, or use Unity CLI after it can resolve that exact version.
 
 ### 4. Choose the execution route, then run tests
 
@@ -124,11 +123,12 @@ After choosing the isolated route:
 - exclude graphics-required screenshot/visual-capture tests from no-graphics runs
 - prefer project test categories such as `RequiresGraphics` / `VisualCapture` when the project exposes them
 
-Direct CLI fallback templates:
+Exact-version Unity CLI template:
 ```
-unity test "<ProjectPath>" --mode <EditMode|PlayMode> --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
-"<UnityEditorPath>" -batchmode -nographics -projectPath "<ProjectPath>" -runTests -testPlatform <EditMode|PlayMode> -testFilter "<Full.Test.Name>" -testResults "<ResultsPath>" -logFile "<LogPath>"
+unity test "<ProjectPath>" --mode <EditMode|PlayMode> --editor-version "<DeclaredProjectVersion>" --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
 ```
+
+For direct Editor fallback, use `unity_launch_batchmode` with its project path and test parameters; it resolves only the declared project's exact-version standard candidates.
 
 Fallback parameters:
 - `-testPlatform`: `EditMode` or `PlayMode`
