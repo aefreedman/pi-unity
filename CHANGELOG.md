@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.12.0 - 2026-08-27
+
 ### Changed
 - Made Unity CLI authoritative for ordinary project launches: `open`, `run`, and `test` now rely on the selected project without passing an Editor-version override; direct executable launch remains an exact-version fallback.
 
