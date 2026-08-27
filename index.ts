@@ -103,20 +103,19 @@ type UnityLauncherPreference = "auto" | "unity-cli" | "editor-executable";
 
 const OPEN_EDITOR_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
-  unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
   automated: Type.Optional(Type.Boolean({ default: false, description: "Pass Unity Editor's -automated flag when opening the project. Defaults to false." })),
   launcher: LAUNCHER_SCHEMA,
-});
+}, { additionalProperties: false });
 
 const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
-  unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
+
   args: Type.Optional(Type.Array(Type.String(), { description: "Additional Unity command-line arguments appended after -batchmode -projectPath <project> for direct editor launch, or forwarded after `unity run <project> --` for Unity CLI launch. pi-unity adds -nographics by default unless useGraphics=true." })),
   useGraphics: Type.Optional(Type.Boolean({ default: false, description: "Set true only when the requested Unity batchmode work requires an active graphics device, such as screenshots, rendering, or visual PlayMode tests. Defaults to false, which adds -nographics." })),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Timeout in seconds for the batchmode process." })),
   launcher: LAUNCHER_SCHEMA,
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false, description: "When true, pi-unity may close a running Unity process for the resolved project before launch, but only if piUnity.allowCloseRunningUnityProcess is enabled in Pi settings. The process is selected by project matching, not by model-supplied PID." })),
-});
+}, { additionalProperties: false });
 
 const RUN_TESTS_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
@@ -136,18 +135,6 @@ const RUN_TESTS_PARAMS = Type.Object({
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600 })),
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false })),
 }, { additionalProperties: false });
-
-const RUN_TEST_BATCH_PARAMS = Type.Object({
-  path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
-  unityEditorPath: Type.Optional(Type.String({ description: "Optional explicit Unity executable path override." })),
-  testPlatform: StringEnum(["EditMode", "PlayMode"] as const, { description: "Unity Test Framework platform. One batch runs exactly one test platform." }),
-  testFilters: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: "Full test names or regex filters. Values are normalized into one semicolon-separated -testFilter argument." })),
-  testCategories: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: "Categories or category regex/negations. Values are normalized into one semicolon-separated -testCategory argument." })),
-  useGraphics: Type.Optional(Type.Boolean({ default: false, description: "Set true only for graphics-dependent PlayMode tests or visual capture. Defaults to headless -nographics." })),
-  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600 })),
-  launcher: LAUNCHER_SCHEMA,
-  closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false, description: "Use guarded same-project Unity process closure only when piUnity.allowCloseRunningUnityProcess is enabled." })),
-});
 
 const PROJECT_STATUS_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ description: "Unity project path, workspace copy root, or folder containing project copies." })),
@@ -1004,7 +991,6 @@ async function shouldUseUnityCli(
 }
 
 type GuardedBatchmodeParams = {
-  unityEditorPath?: string;
   args?: string[];
   useGraphics?: boolean;
   timeoutSeconds?: number;
@@ -1037,12 +1023,11 @@ async function runGuardedUnityBatchmode(
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher, signal);
       throwIfAborted(signal);
       const editorPath = useUnityCli
-        ? await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor")
-        : await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
+        ? await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor")
+        : await resolveUnityEditorPath(candidate.unityVersion);
       const command = useUnityCli
         ? createUnityCliRunCommand(candidate.projectRoot, extraArgs, {
           editorVersion: candidate.unityVersion,
-          editorPath: params.unityEditorPath,
           timeoutSeconds,
           useGraphics,
         })
@@ -1715,18 +1700,17 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
       throwIfAborted(signal);
       let launcher: "unity-cli" | "editor-executable" = "editor-executable";
-      let editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath }).catch(() => "Unity CLI resolved editor");
+      let editorPath = await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor");
       let launch: { pid: number | undefined; args: string[]; command: string };
       if (useUnityCli) {
         launcher = "unity-cli";
         launch = launchUnityCliOpenDetached(candidate.projectRoot, {
           editorVersion: candidate.unityVersion,
-          editorPath: params.unityEditorPath,
           automated: params.automated,
         });
       } else {
         await assertUnityProjectNotBusy(candidate.projectRoot);
-        editorPath = await resolveUnityEditorPath(candidate.unityVersion, { overridePath: params.unityEditorPath });
+        editorPath = await resolveUnityEditorPath(candidate.unityVersion);
         launch = launchUnityEditorDetached(editorPath, candidate.projectRoot, { automated: params.automated });
       }
       const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);

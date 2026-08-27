@@ -41,16 +41,10 @@ assert.deepEqual(automatedOpen.args, [
   "-automated",
 ], "Unity CLI forwards the Editor -automated flag with unity open --args.");
 
-const openWithPath = createUnityCliOpenCommand("C:/Projects/Game", { editorPath: "C:/Unity/Editor/Unity.exe", cliCommand: "unity-beta" });
-assert.equal(openWithPath.command, "unity-beta");
-assert.deepEqual(openWithPath.args, [
-  "--no-banner",
-  "--non-interactive",
-  "open",
-  "C:/Projects/Game",
-  "--editor-path",
-  "C:/Unity/Editor/Unity.exe",
-]);
+const versionedRun = createUnityCliRunCommand("C:/Projects/Game", [], { editorVersion: "6000.1.13f1", cliCommand: "unity-beta" });
+assert.equal(versionedRun.command, "unity-beta");
+assert(versionedRun.args.includes("--editor-version"), "Unity CLI run must receive the project-derived Editor version.");
+assert(!versionedRun.args.includes("--editor-path"), "Unity CLI project launch must not accept a fixed Editor path.");
 
 assert.deepEqual(
   normalizeUnityCliForwardedArgs(["-batchmode", "-projectPath", "/workspace/Other", "-quit", "-logFile", "run.log", "-projectPath=C:/Other"]),

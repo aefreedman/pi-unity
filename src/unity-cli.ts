@@ -14,7 +14,6 @@ export type UnityCliCommand = {
 
 export type UnityCliLaunchOptions = {
   editorVersion?: string;
-  editorPath?: string;
   timeoutSeconds?: number;
   cliCommand?: string;
   useGraphics?: boolean;
@@ -86,9 +85,6 @@ function unityCliBaseArgs(): string[] {
 function appendUnityCliEditorOptions(args: string[], options: UnityCliLaunchOptions): void {
   if (options.editorVersion?.trim()) {
     args.push("--editor-version", options.editorVersion.trim());
-  }
-  if (options.editorPath?.trim()) {
-    args.push("--editor-path", options.editorPath.trim());
   }
 }
 

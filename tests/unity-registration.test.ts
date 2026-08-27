@@ -48,8 +48,14 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 0);
   const openEditorTool = unity.tools.find((tool) => tool.name === "unity_open_editor");
   assert(openEditorTool, "pi-unity must register the Unity Editor launcher tool");
+  assert.equal(openEditorTool.parameters.additionalProperties, false, "Open Editor schema must be strict.");
+  assert.equal(openEditorTool.parameters.properties.unityEditorPath, undefined, "Open Editor must not expose a version-unverified Editor-path override.");
   assert.equal(openEditorTool.parameters.properties.automated.default, false);
   assert.match(openEditorTool.parameters.properties.automated.description, /Unity Editor's -automated flag/);
+  const batchmodeTool = unity.tools.find((tool) => tool.name === "unity_launch_batchmode");
+  assert(batchmodeTool, "pi-unity must register the batchmode launcher tool");
+  assert.equal(batchmodeTool.parameters.additionalProperties, false, "Batchmode schema must be strict.");
+  assert.equal(batchmodeTool.parameters.properties.unityEditorPath, undefined, "Legacy Editor-path arguments must be schema-invalid rather than ignored.");
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
   const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_run_tests");
   assert(recompileTool && pipelineTestTool, "pi-unity must register recompile and the unified test tool");

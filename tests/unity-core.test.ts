@@ -7,7 +7,6 @@ import {
   commandTargetsProject,
   extractUnityProjectPathArguments,
   hasUnityCommandLineFlag,
-  normalizeUnityEditorOverride,
   parseCommandLineArguments,
   parseUnityVersionText,
   projectPathsMatch,
@@ -34,15 +33,6 @@ assert(macCandidates.some((candidate) => candidate.includes("Unity.app/Contents/
 const linuxCandidates = buildUnityEditorCandidates("2022.3.18f1", "linux", "/home/tester").map(normalizeSlashes);
 assert(linuxCandidates.some((candidate) => candidate.includes("/home/tester/Unity/Hub/Editor/2022.3.18f1/Editor/Unity")), "Expected Linux home-directory candidate.");
 assert(linuxCandidates.some((candidate) => candidate.includes("/opt/Unity/Hub/Editor/2022.3.18f1/Editor/Unity")), "Expected Linux /opt candidate.");
-
-assert.equal(
-  normalizeSlashes(normalizeUnityEditorOverride("/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.app", "darwin")),
-  "/Applications/Unity/Hub/Editor/2022.3.18f1/Unity.app/Contents/MacOS/Unity",
-);
-assert.equal(
-  normalizeSlashes(normalizeUnityEditorOverride("C:/Program Files/Unity/Hub/Editor/2022.3.18f1/Editor/Unity.exe", "win32")),
-  "C:/Program Files/Unity/Hub/Editor/2022.3.18f1/Editor/Unity.exe",
-);
 
 assert.deepEqual(
   parseCommandLineArguments('"C:/Program Files/Unity/Editor/Unity.exe" -projectPath "C:/Repo/My Game"'),

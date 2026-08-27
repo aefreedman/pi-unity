@@ -27,14 +27,6 @@ export function parseUnityVersionText(contents: string): string | null {
   return match ? match[1] : null;
 }
 
-export function normalizeUnityEditorOverride(editorPath: string, platform: SupportedPlatform): string {
-  const normalized = path.normalize(editorPath.trim());
-  if (platform === "darwin" && normalized.toLowerCase().endsWith(".app")) {
-    return path.join(normalized, "Contents", "MacOS", "Unity");
-  }
-  return normalized;
-}
-
 export function buildUnityEditorCandidates(
   version: string,
   platform: SupportedPlatform = process.platform,
