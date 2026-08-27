@@ -123,9 +123,9 @@ After choosing the isolated route:
 - exclude graphics-required screenshot/visual-capture tests from no-graphics runs
 - prefer project test categories such as `RequiresGraphics` / `VisualCapture` when the project exposes them
 
-Exact-version Unity CLI template:
+Unity CLI project-authoritative template:
 ```
-unity test "<ProjectPath>" --mode <EditMode|PlayMode> --editor-version "<DeclaredProjectVersion>" --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
+unity test "<ProjectPath>" --mode <EditMode|PlayMode> --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
 ```
 
 For direct Editor fallback, use `unity_launch_batchmode` with its project path and test parameters; it resolves only the declared project's exact-version standard candidates.
@@ -143,3 +143,4 @@ Check the project's `AGENTS.md` for:
 - Recommended log output locations
 - Common test namespaces/filters
 - Any project-specific testing notes
+
