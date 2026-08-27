@@ -225,6 +225,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await emit(pi, "session_start", ctxB);
     const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
     const tests = pi.tools.find((item) => item.name === "unity_run_tests");
+    const projectStatus = pi.tools.find((item) => item.name === "unity_project_status");
+    const statusResult = await projectStatus.execute("status-call", { path: project }, undefined, undefined, ctxA);
+    assert.match(statusResult.content[0].text, /declared Unity 6000\.1\.0f1/, "Project status lazily loads the declared version required for Pipeline capability checks.");
     const defaultTestResult = await tests.execute("default-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA);
     assert.match(defaultTestResult.content[0].text, /21 executed/);
     assert.equal(dispatched.includes("editor_stop"), true, "Play Mode exit is allowed by default.");
@@ -258,14 +261,79 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
 console.log("pi-unity reverse load-order and delayed-shutdown registration tests passed");
 
 {
-  const notifications: string[] = [];
-  const unity = fakePi(async () => ({ code: 1, stdout: "", stderr: "invalid configured CLI" }));
-  registerUnity(unity as any);
-  const ctx = { cwd: process.cwd(), sessionManager: {}, mode: "tui", hasUI: true, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
-  await emit(unity, "session_start", ctx);
-  await emit(unity, "session_start", { ...ctx, sessionManager: {} });
-  assert.equal(notifications.length, 1, "Unavailable Unity CLI warns once per runtime across session scopes.");
-  assert.match(notifications[0] ?? "", /Unity CLI/i);
-  assert.match(notifications[0] ?? "", /restart or reload Pi/i);
-  assert.equal(notifications[0]?.includes(process.cwd()), false, "Capability warning must not expose a configured local path.");
+  const warningSymbol = Symbol.for("@aefree/pi-unity/unity-cli-warning/v1");
+  const resetWarning = () => { delete (globalThis as Record<PropertyKey, unknown>)[warningSymbol]; };
+  const createUiContext = (hasUI = true) => {
+    const notifications: string[] = [];
+    return {
+      notifications,
+      ctx: { cwd: process.cwd(), sessionManager: {}, mode: hasUI ? "tui" : "print", hasUI, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } },
+    };
+  };
+
+  try {
+    resetWarning();
+    const unavailable = createUiContext();
+    const unity = fakePi(async () => ({ code: 1, stdout: "", stderr: "invalid configured CLI" }));
+    registerUnity(unity as any);
+    await emit(unity, "session_start", unavailable.ctx);
+    await emit(unity, "session_start", { ...unavailable.ctx, sessionManager: {} });
+    assert.equal(unavailable.notifications.length, 1, "Unavailable Unity CLI warns once per runtime across session scopes.");
+    assert.match(unavailable.notifications[0] ?? "", /Unity CLI/i);
+    assert.match(unavailable.notifications[0] ?? "", /restart or reload Pi/i);
+    assert.equal(unavailable.notifications[0]?.includes(process.cwd()), false, "Capability warning must not expose a configured local path.");
+
+    resetWarning();
+    const successful = createUiContext();
+    const successfulPi = fakePi(async () => ({ code: 0, stdout: "1.0.0", stderr: "" }));
+    registerUnity(successfulPi as any);
+    await emit(successfulPi, "session_start", successful.ctx);
+    assert.equal(successful.notifications.length, 0, "A successful Unity CLI probe must not warn.");
+
+    resetWarning();
+    const timedOut = createUiContext();
+    const timedOutPi = fakePi(async () => ({ code: null, killed: true, stdout: "", stderr: "" }));
+    registerUnity(timedOutPi as any);
+    await emit(timedOutPi, "session_start", timedOut.ctx);
+    assert.equal(timedOut.notifications.length, 0, "A timed-out Unity CLI probe must not warn.");
+
+    resetWarning();
+    const timedOutError = createUiContext();
+    const timedOutErrorPi = fakePi(async () => { throw Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }); });
+    registerUnity(timedOutErrorPi as any);
+    await emit(timedOutErrorPi, "session_start", timedOutError.ctx);
+    assert.equal(timedOutError.notifications.length, 0, "A rejected timed-out Unity CLI probe must not warn.");
+
+    resetWarning();
+    const cancelled = createUiContext();
+    const cancelledPi = fakePi(async () => { throw Object.assign(new Error("cancelled"), { name: "AbortError" }); });
+    registerUnity(cancelledPi as any);
+    await emit(cancelledPi, "session_start", cancelled.ctx);
+    assert.equal(cancelled.notifications.length, 0, "A cancelled Unity CLI probe must not warn.");
+
+    resetWarning();
+    const noUi = createUiContext(false);
+    let noUiProbeCount = 0;
+    const noUiPi = fakePi(async () => { noUiProbeCount += 1; return { code: 1, stdout: "", stderr: "" }; });
+    registerUnity(noUiPi as any);
+    await emit(noUiPi, "session_start", noUi.ctx);
+    assert.equal(noUiProbeCount, 0, "Headless sessions must not run the startup warning probe.");
+
+    resetWarning();
+    const configured = createUiContext();
+    const configuredPath = "C:/private/unity-cli";
+    const originalCliPath = process.env.UNITY_CLI_PATH;
+    process.env.UNITY_CLI_PATH = configuredPath;
+    try {
+      const configuredPi = fakePi(async () => ({ code: 1, stdout: "", stderr: "invalid configured CLI" }));
+      registerUnity(configuredPi as any);
+      await emit(configuredPi, "session_start", configured.ctx);
+      assert.equal(configured.notifications[0]?.includes(configuredPath), false, "Capability warning must not expose UNITY_CLI_PATH.");
+    } finally {
+      if (originalCliPath === undefined) delete process.env.UNITY_CLI_PATH;
+      else process.env.UNITY_CLI_PATH = originalCliPath;
+    }
+  } finally {
+    resetWarning();
+  }
 }

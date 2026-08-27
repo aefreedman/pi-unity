@@ -113,7 +113,7 @@ Use `unity_pipeline_inspect` when a purpose-built structured command fits. Use e
 
 ## Launch and process safeguards
 
-`unity_open_editor` and batchmode tools treat Unity CLI as the authoritative launcher: `unity open`, `unity run`, and `unity test` receive only the selected project and let Unity CLI read `ProjectVersion.txt`. The direct Editor executable is an exceptional compatibility fallback used only when Unity CLI is unavailable. Set `launcher` to `auto`, `unity-cli`, or `editor-executable` when explicit routing is needed.`
+`unity_open_editor` and batchmode tools treat Unity CLI as the authoritative launcher: `unity open`, `unity run`, and `unity test` receive only the selected project and let Unity CLI read `ProjectVersion.txt`. The direct Editor executable is an exceptional compatibility fallback used only when Unity CLI is unavailable. Set `launcher` to `auto`, `unity-cli`, or `editor-executable` when explicit routing is needed.
 
 Before launching, pi-unity checks:
 

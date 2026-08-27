@@ -441,11 +441,12 @@ async function closeBlockingUnityProcessesForBatchmode(
     );
   }
 
-  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, candidate.unityVersion, { signal });
+  const unityVersion = await requireManualUnityVersion(candidate);
+  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
   const canRequestGracefulExit = cliCapabilities.commandDiscoverySucceeded && cliCapabilities.advertisedCommands.includes("eval");
   if (canRequestGracefulExit) {
     const refreshedRunning = await listBlockingUnityProcesses(candidate.projectRoot);
-    const refreshedCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, candidate.unityVersion, { signal });
+    const refreshedCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
     const samePids = haveSameKnownProcessIds(running.processes, refreshedRunning.processes);
     const samePipelinePids = haveSameKnownProcessIds(cliCapabilities.matchingInstances, refreshedCapabilities.matchingInstances);
     if (refreshedRunning.warning || !samePids || !samePipelinePids || !refreshedCapabilities.advertisedCommands.includes("eval")) {
@@ -594,7 +595,8 @@ async function buildProjectStatusReport(
   const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
   const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot);
   const processStatus = await listRunningUnityProcessesForProject(candidate.projectRoot);
-  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, candidate.unityVersion, { signal });
+  const unityVersion = await requireManualUnityVersion(candidate);
+  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
   const runningProcesses = dedupeRunningUnityProcesses([...cliStatus.processes, ...processStatus.processes]);
   const isBusy = runningProcesses.length > 0 || cliCapabilities.matchingInstances.length > 0;
   const staleLockSuspected = lockState.nativeLockfileExists && !isBusy && !processStatus.warning;
@@ -602,7 +604,7 @@ async function buildProjectStatusReport(
   const piUnitySettings = await loadPiUnitySettings(ctx);
 
   const lines = [
-    `Unity project status for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
+    `Unity project status for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using declared Unity ${unityVersion}.`,
     `- Native lockfile: ${lockState.nativeLockfileExists ? "present" : "absent"}`,
     `- Lockfile path: ${lockState.nativeLockfilePath}`,
     `- Running Unity processes targeting project: ${runningProcesses.length}`,
@@ -732,7 +734,7 @@ async function buildArtifactInspectionReport(
   const hasLoadedArtifacts = Boolean(artifacts.testResultsPath || artifacts.logFilePath);
   const status = deriveUnityArtifactInspectionStatus(hasLoadedArtifacts, invocation, parsedTestResults);
   const lines = [
-    `Unity artifacts inspected for ${formatPathForUser(ctx.cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
+    `Unity artifacts inspected for ${formatPathForUser(ctx.cwd, candidate.projectRoot)}; Unity CLI selects the project's declared Editor version when launching.`,
     testResultsPath ? `Requested test results: ${testResultsPath}` : "Requested test results: (none found)",
     logFilePath ? `Requested log file: ${logFilePath}` : "Requested log file: (none found)",
     normalizedResultPath ? `Requested normalized result: ${normalizedResultPath}` : "Requested normalized result: (none found)",
@@ -777,7 +779,9 @@ function buildEditorLaunchSummary(
   launcher: "unity-cli" | "editor-executable" = "editor-executable",
 ): string {
   return [
-    `Launched Unity Editor GUI for ${formatPathForUser(cwd, candidate.projectRoot)} using Unity ${candidate.unityVersion}.`,
+    launcher === "unity-cli"
+      ? `Launched Unity Editor GUI for ${formatPathForUser(cwd, candidate.projectRoot)} with the project-declared Editor version selected by Unity CLI.`
+      : `Launched Unity Editor GUI for ${formatPathForUser(cwd, candidate.projectRoot)} using the project's declared Unity version through the direct Editor fallback.`,
     launcher === "unity-cli" ? `Launcher: unity open (${editorPath})` : `Editor: ${editorPath}`,
     GUI_WARNING,
     SINGLE_PROCESS_WARNING,
@@ -943,22 +947,30 @@ async function warnWhenUnityCliUnavailable(pi: ExtensionAPI, ctx: ExtensionConte
     if (result.killed || result.code === 0 || unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
     unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
     ctx.ui.notify(UNITY_CLI_WARNING, "warning");
-  } catch {
+  } catch (error) {
+    if ((error instanceof Error && error.name === "AbortError") || isUnityCliProbeTimeout(error)) return;
     if (unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
     unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
     ctx.ui.notify(UNITY_CLI_WARNING, "warning");
   }
 }
-async function canUseUnityCli(pi: ExtensionAPI, signal?: AbortSignal): Promise<boolean> {
+type UnityCliAvailability = "available" | "unavailable" | "uncertain";
+
+function isUnityCliProbeTimeout(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ETIMEDOUT");
+}
+
+async function getUnityCliAvailability(pi: ExtensionAPI, signal?: AbortSignal): Promise<UnityCliAvailability> {
   try {
     throwIfAborted(signal);
     const command = resolveUnityCliCommand();
     const result = await pi.exec(command, ["--version"], { signal, timeout: 5000 });
     throwIfAborted(signal);
-    return !result.killed && result.code === 0;
+    if (result.killed) return "uncertain";
+    return result.code === 0 ? "available" : "unavailable";
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
-    return false;
+    return isUnityCliProbeTimeout(error) ? "uncertain" : "unavailable";
   }
 }
 
@@ -1008,12 +1020,15 @@ async function shouldUseUnityCli(
     return false;
   }
 
-  const available = await canUseUnityCli(pi, signal);
-  if (preference === "unity-cli" && !available) {
+  const availability = await getUnityCliAvailability(pi, signal);
+  if (availability === "uncertain") {
+    throw new Error("Unity CLI availability could not be confirmed because its bounded probe timed out. Retry the request; pi-unity will not select the direct Editor fallback after an uncertain Unity CLI probe.");
+  }
+  if (preference === "unity-cli" && availability === "unavailable") {
     throw new Error("Unity CLI launcher was requested, but the `unity` command is not available. Set UNITY_CLI_PATH or use launcher='editor-executable'.");
   }
 
-  return available;
+  return availability === "available";
 }
 
 type GuardedBatchmodeParams = {
