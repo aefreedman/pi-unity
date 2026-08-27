@@ -29,9 +29,13 @@ try {
   );
 
   await assert.rejects(
-    resolveUnityEditorPath("6000.1.99f1", { platform: "linux", homeDir: root }),
+    resolveUnityEditorPath("6000.1.99f1", {
+      platform: "linux",
+      homeDir: root,
+      access: async () => { throw new Error("missing"); },
+    }),
     /Could not find a Unity Editor executable for Unity 6000\.1\.99f1.*Install that exact Editor version/s,
-    "A missing exact version must fail with a safe installation action.",
+    "A missing exact version must fail without probing machine-wide installation paths.",
   );
 } finally {
   if (previousEditorPath === undefined) delete process.env.UNITY_EDITOR_PATH;

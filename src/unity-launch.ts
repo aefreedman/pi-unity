@@ -15,14 +15,16 @@ export async function resolveUnityEditorPath(
   options: {
     platform?: SupportedPlatform;
     homeDir?: string;
+    access?: (candidate: string) => Promise<void>;
   } = {},
 ): Promise<string> {
   const platform = options.platform ?? process.platform;
   const autoCandidates = buildUnityEditorCandidates(unityVersion, platform, options.homeDir);
+  const access = options.access ?? ((candidate: string) => fs.access(candidate, fs.constants.X_OK));
 
   for (const candidate of autoCandidates) {
     try {
-      await fs.access(candidate, fs.constants.X_OK);
+      await access(candidate);
       return path.normalize(candidate);
     } catch {
       // Try next candidate.
