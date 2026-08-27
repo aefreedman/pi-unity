@@ -7,6 +7,14 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Fixed
+
+- Made Unity Editor selection project-version-driven: direct fallback now probes only exact-version standard installations, and Unity CLI launch routes use the project's declared Editor version without Editor-path overrides.
+
+### Removed
+
+- Removed the `UNITY_EDITOR_PATH`, `UNITY_PATH`, and `unityEditorPath` Editor-selection overrides.
+
 ## [0.11.0] - 2026-08-26
 
 ### Added

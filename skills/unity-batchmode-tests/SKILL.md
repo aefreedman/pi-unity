@@ -52,7 +52,7 @@ Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the 
 - reads `ProjectSettings/ProjectVersion.txt`
 - prefers the installed `unity run` CLI when available, falling back to OS-aware direct editor launch
 - uses OS-aware standard install probing
-- supports explicit `UNITY_EDITOR_PATH` / `unityEditorPath` overrides
+- resolves only exact project-version standard installation candidates when direct Editor fallback is required
 - strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding args in Unity CLI mode
 - supports `launcher: "editor-executable"` when Unity CLI argument forwarding differs from direct Editor executable behavior
 - checks Unity CLI status and running Unity processes before launch
