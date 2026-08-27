@@ -21,11 +21,12 @@ import {
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
 import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities } from "./src/unity-cli";
-import { createUnityBatchmodeCommand, launchUnityCliOpenDetached, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-launch";
+import { launchUnityCliOpenDetached } from "./src/unity-launch";
+import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-editor-fallback";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
 import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, redactUnityProcessCommandLine, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
 import { assertUnityProjectNotBusy, evaluateUnityLaunchSafety, getUnityNativeLockfilePath, inspectUnityProjectBusyState, withUnityProjectLaunchMutex } from "./src/unity-project-lock";
-import { resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
+import { readUnityVersion, resolveUnityProjectCandidates, type UnityProjectCandidate } from "./src/unity-projects";
 import { createUnityTestBatchPlan, type UnityTestBatchPlan, type UnityTestPlatform } from "./src/unity-test-batch";
 import { applyUnityCliRetrySummary, compactUnityTestSummary, defaultUnityTestReportFormats, deriveUnityCliEffectiveReportPath, determineUnityTestOutcome, getUnityTestRouteRequirements, normalizeUnityRunTestsRequest, parseUnityCliRetrySummary, writeNormalizedUnityTestArtifact, type NormalizedUnityTestResult, type UnityRunTestsRequest } from "./src/unity-tests";
 import { auditUnityGuidance, type UnityGuidanceAuditResult } from "./src/unity-guidance-audit";
@@ -183,7 +184,7 @@ const INSPECT_ARTIFACTS_PARAMS = Type.Object({
 });
 
 function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate): string {
-  return `${candidate.projectName} (${candidate.unityVersion}) — ${formatPathForUser(cwd, candidate.projectRoot)}`;
+  return `${candidate.projectName} — ${formatPathForUser(cwd, candidate.projectRoot)}`;
 }
 
 async function chooseProjectCandidateWithWrappingNavigation(
@@ -254,7 +255,7 @@ async function chooseProjectCandidateWithWrappingNavigation(
 
 function formatCandidateList(cwd: string, candidates: UnityProjectCandidate[]): string {
   return candidates
-    .map((candidate) => `- ${candidate.projectName} (${candidate.unityVersion}) — ${formatPathForUser(cwd, candidate.projectRoot)}`)
+    .map((candidate) => `- ${candidate.projectName} — ${formatPathForUser(cwd, candidate.projectRoot)}`)
     .join("\n");
 }
 
@@ -316,6 +317,13 @@ async function resolveProjectCandidate(
     : undefined;
 
   return { candidate, discoveryWarning };
+}
+
+async function requireManualUnityVersion(candidate: UnityProjectCandidate): Promise<string> {
+  if (candidate.unityVersion) return candidate.unityVersion;
+  const unityVersion = await readUnityVersion(candidate.projectRoot);
+  candidate.unityVersion = unityVersion;
+  return unityVersion;
 }
 
 function joinWarnings(...warnings: Array<string | undefined>): string | undefined {
@@ -643,7 +651,7 @@ async function buildProjectStatusReport(
     details: {
       mode: "status",
       projectRoot: candidate.projectRoot,
-      unityVersion: candidate.unityVersion,
+      unityVersion: await requireManualUnityVersion(candidate),
       editorPath: "",
       warning: combinedWarning,
       status: "passed",
@@ -751,7 +759,7 @@ async function buildArtifactInspectionReport(
     details: {
       mode: "artifacts",
       projectRoot: candidate.projectRoot,
-      unityVersion: candidate.unityVersion,
+      unityVersion: await requireManualUnityVersion(candidate),
       editorPath: "",
       invocation,
       artifacts: compactUnityArtifacts(artifacts),
@@ -796,7 +804,7 @@ async function buildBatchmodeReport(
   const status = deriveUnityBatchmodeStatus(result.code, Boolean(result.killed), invocation, parsedTestResults);
   const text = buildUnityBatchmodeAgentText({
     displayProjectPath: formatPathForUser(ctx.cwd, candidate.projectRoot),
-    unityVersion: candidate.unityVersion,
+    unityVersion: await requireManualUnityVersion(candidate),
     editorPath,
     exitCode: result.code,
     killed: Boolean(result.killed),
@@ -814,7 +822,7 @@ async function buildBatchmodeReport(
     details: {
       mode: "batchmode",
       projectRoot: candidate.projectRoot,
-      unityVersion: candidate.unityVersion,
+      unityVersion: await requireManualUnityVersion(candidate),
       editorPath,
       command: editorPath,
       args,
@@ -923,6 +931,24 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+const UNITY_CLI_WARNING_SYMBOL = Symbol.for("@aefree/pi-unity/unity-cli-warning/v1");
+const unityCliRuntimeState = globalThis as Record<PropertyKey, unknown>;
+const UNITY_CLI_WARNING = "pi-unity capability warning: Unity CLI is unavailable or UNITY_CLI_PATH is invalid. Install Unity CLI, then restart or reload Pi to restore pi-unity's primary project-launch workflow.";
+
+async function warnWhenUnityCliUnavailable(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
+  if (!ctx.hasUI || unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
+  try {
+    const result = await pi.exec(resolveUnityCliCommand(), ["--version"], { timeout: 5000 });
+    // Timeouts are uncertain and must neither warn nor select another backend.
+    if (result.killed || result.code === 0 || unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
+    unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
+    ctx.ui.notify(UNITY_CLI_WARNING, "warning");
+  } catch {
+    if (unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
+    unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
+    ctx.ui.notify(UNITY_CLI_WARNING, "warning");
+  }
+}
 async function canUseUnityCli(pi: ExtensionAPI, signal?: AbortSignal): Promise<boolean> {
   try {
     throwIfAborted(signal);
@@ -1022,16 +1048,14 @@ async function runGuardedUnityBatchmode(
       const invocation = parseUnityBatchmodeInvocation(createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics }));
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher, signal);
       throwIfAborted(signal);
-      const editorPath = useUnityCli
-        ? await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor")
-        : await resolveUnityEditorPath(candidate.unityVersion);
-      const command = useUnityCli
-        ? createUnityCliRunCommand(candidate.projectRoot, extraArgs, {
-          editorVersion: candidate.unityVersion,
-          timeoutSeconds,
-          useGraphics,
-        })
-        : createUnityBatchmodeCommand(editorPath, candidate.projectRoot, extraArgs, { useGraphics });
+      let editorPath = "Unity CLI";
+      let command: { command: string; args: string[] };
+      if (useUnityCli) {
+        command = createUnityCliRunCommand(candidate.projectRoot, extraArgs, { timeoutSeconds, useGraphics });
+      } else {
+        editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
+        command = createUnityBatchmodeCommand(editorPath, candidate.projectRoot, extraArgs, { useGraphics });
+      }
       const closeReport = await closeBlockingUnityProcessesForBatchmode(
         pi,
         ctx,
@@ -1108,7 +1132,7 @@ async function runUnifiedUnityTests(
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details: UnityToolDetails & { testResult: NormalizedUnityTestResult; artifactPath: string; route: "connected" | "isolated" } }> {
   const request = normalizeUnityRunTestsRequest(raw);
   const requirements = getUnityTestRouteRequirements(request);
-  const capabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, candidate.unityVersion, { signal, execute: createPipelineUnityCliExecutor(pi) });
+  const capabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, await requireManualUnityVersion(candidate), { signal, execute: createPipelineUnityCliExecutor(pi) });
   const reachable = capabilities.matchingInstances.some(instance => instance.reachable === true);
   const busy = (await listBlockingUnityProcesses(candidate.projectRoot)).processes.length > 0 || capabilities.matchingInstances.length > 0;
   let route: "connected" | "isolated";
@@ -1129,7 +1153,7 @@ async function runUnifiedUnityTests(
   }
   const formats = request.reportFormats ?? defaultUnityTestReportFormats(route);
   if (route === "connected") {
-    const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, testPlatform: request.testPlatform, testFilter: request.testFilters[0], testCategory: request.testCategories[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }) });
+    const result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), testPlatform: request.testPlatform, testFilter: request.testFilters[0], testCategory: request.testCategories[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }) });
     const counts = result.details.counts!;
     const normalized: NormalizedUnityTestResult = {
       schemaVersion: 1, source: "pipeline", platform: request.testPlatform,
@@ -1138,7 +1162,7 @@ async function runUnifiedUnityTests(
     };
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
     const text = `${compactUnityTestSummary(normalized)}\nRoute: connected Pipeline. Normalized artifact: ${artifactPath}`;
-    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: normalized.outcome === "passed" ? "passed" : "failed", pipeline: result.details, testResult: { ...normalized, tests: [] }, artifactPath, route } };
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), editorPath: "", status: normalized.outcome === "passed" ? "passed" : "failed", pipeline: result.details, testResult: { ...normalized, tests: [] }, artifactPath, route } };
   }
   if (request.isolatedLauncher === "editor-executable" && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("The direct Editor fallback cannot honor CLI-only retry, rerun, shard, coverage, or JUnit options.");
   const plan = createUnityTestBatchPlan({ projectRoot: candidate.projectRoot, testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories });
@@ -1158,7 +1182,7 @@ async function runUnifiedUnityTests(
     const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
     await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
     await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
-    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, junit: formats.includes("junit") ? plan.junitResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, editorVersion: candidate.unityVersion });
+    const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: { nunit: formats.includes("nunit") ? plan.testResultsPath : undefined, junit: formats.includes("junit") ? plan.junitResultsPath : undefined, log: plan.logFilePath }, coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
     const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
     const effectiveResultsPath = deriveUnityCliEffectiveReportPath(plan.testResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard });
     let effectiveResultsXml: string | undefined;
@@ -1182,7 +1206,7 @@ async function runUnifiedUnityTests(
     }
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
     const text = `${compactUnityTestSummary(normalized)}\nRoute: isolated Unity CLI. Normalized artifact: ${artifactPath}`;
-    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: { ...normalized, tests: [] }, artifactPath, route } };
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: { ...normalized, tests: [] }, artifactPath, route } };
   });
 }
 
@@ -1323,6 +1347,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     restoreSessionSettings(ctx);
+    await warnWhenUnityCliUnavailable(pi, ctx);
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
     // Optional package integrations resolve independently. The Unity extension and
@@ -1400,14 +1425,14 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "gui", toolName: "unity-open" }, async () => {
           await enforceSingleProcessRule(candidate.projectRoot);
         let launcher: "unity-cli" | "editor-executable" = "editor-executable";
-        let editorPath = await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor");
+        let editorPath = "Unity CLI";
         let launch: { pid: number | undefined; args: string[]; command: string };
         if (await canUseUnityCli(pi)) {
           launcher = "unity-cli";
-          launch = launchUnityCliOpenDetached(candidate.projectRoot, { editorVersion: candidate.unityVersion });
+          launch = launchUnityCliOpenDetached(candidate.projectRoot);
         } else {
           await assertUnityProjectNotBusy(candidate.projectRoot);
-          editorPath = await resolveUnityEditorPath(candidate.unityVersion);
+          editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
           launch = launchUnityEditorDetached(editorPath, candidate.projectRoot);
         }
         const summary = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
@@ -1534,13 +1559,13 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
-      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: candidate.unityVersion, timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
+      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
         signal,
         onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }] }),
       });
       return {
         content: [{ type: "text", text: result.text }],
-        details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: candidate.unityVersion, editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
+        details: { mode: "pipeline", projectRoot: result.details.projectRoot, unityVersion: await requireManualUnityVersion(candidate), editorPath: "", status: "passed", pipeline: result.details } satisfies UnityToolDetails,
       };
     },
     renderCall(args, theme, context) { return renderUnityPipelineCall("unity_pipeline_recompile", args, theme, context); },
@@ -1565,7 +1590,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const result = await dispatchUnityPlanningInspection({
         projectRoot: candidate.projectRoot,
-        unityVersion: candidate.unityVersion,
+        unityVersion: await requireManualUnityVersion(candidate),
         command: "eval",
         evalSnippet: params.code,
       }, {
@@ -1582,7 +1607,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         details: {
           mode: "pipeline_eval",
           projectRoot: candidate.projectRoot,
-          unityVersion: candidate.unityVersion,
+          unityVersion: await requireManualUnityVersion(candidate),
           editorPath: "",
           status: result.outcome === "dispatched" ? "passed" : "failed",
           pipelineEval: result,
@@ -1614,7 +1639,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const result = await dispatchUnityPlanningInspection({
         projectRoot: candidate.projectRoot,
-        unityVersion: candidate.unityVersion,
+        unityVersion: await requireManualUnityVersion(candidate),
         command: params.command,
         args: params.args,
       }, {
@@ -1631,7 +1656,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         details: {
           mode: "pipeline_inspection",
           projectRoot: candidate.projectRoot,
-          unityVersion: candidate.unityVersion,
+          unityVersion: await requireManualUnityVersion(candidate),
           editorPath: "",
           status: result.outcome === "dispatched" ? "passed" : "failed",
           pipelineInspection: result,
@@ -1700,17 +1725,14 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
       throwIfAborted(signal);
       let launcher: "unity-cli" | "editor-executable" = "editor-executable";
-      let editorPath = await resolveUnityEditorPath(candidate.unityVersion).catch(() => "Unity CLI resolved editor");
+      let editorPath = "Unity CLI";
       let launch: { pid: number | undefined; args: string[]; command: string };
       if (useUnityCli) {
         launcher = "unity-cli";
-        launch = launchUnityCliOpenDetached(candidate.projectRoot, {
-          editorVersion: candidate.unityVersion,
-          automated: params.automated,
-        });
+        launch = launchUnityCliOpenDetached(candidate.projectRoot, { automated: params.automated });
       } else {
         await assertUnityProjectNotBusy(candidate.projectRoot);
-        editorPath = await resolveUnityEditorPath(candidate.unityVersion);
+        editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
         launch = launchUnityEditorDetached(editorPath, candidate.projectRoot, { automated: params.automated });
       }
       const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
@@ -1720,7 +1742,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
         details: {
           mode: "gui",
           projectRoot: candidate.projectRoot,
-          unityVersion: candidate.unityVersion,
+          unityVersion: await requireManualUnityVersion(candidate),
           editorPath,
           pid: launch.pid,
           command: launch.command,

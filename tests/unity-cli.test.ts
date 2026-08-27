@@ -24,26 +24,26 @@ import {
   type UnityCliProjectCapabilities,
 } from "../src/unity-cli";
 
-const open = createUnityCliOpenCommand("/workspace/My Game", { editorVersion: "6000.1.13f1" });
+const open = createUnityCliOpenCommand("/workspace/My Game");
 assert.equal(resolveUnityCliCommand({ env: { UNITY_CLI_PATH: "unity-custom" } as NodeJS.ProcessEnv }), "unity-custom");
 assert.equal(open.command, "unity");
-assert.deepEqual(open.args, ["--no-banner", "--non-interactive", "open", "/workspace/My Game", "--editor-version", "6000.1.13f1"], "Unity CLI open omits Editor -automated by default.");
+assert.deepEqual(open.args, ["--no-banner", "--non-interactive", "open", "/workspace/My Game"], "Ordinary Unity CLI open relies on the project-declared version.");
 
-const automatedOpen = createUnityCliOpenCommand("/workspace/My Game", { editorVersion: "6000.1.13f1", automated: true });
+const automatedOpen = createUnityCliOpenCommand("/workspace/My Game", { automated: true });
 assert.deepEqual(automatedOpen.args, [
   "--no-banner",
   "--non-interactive",
   "open",
   "/workspace/My Game",
-  "--editor-version",
-  "6000.1.13f1",
+
+
   "--args",
   "-automated",
 ], "Unity CLI forwards the Editor -automated flag with unity open --args.");
 
-const versionedRun = createUnityCliRunCommand("C:/Projects/Game", [], { editorVersion: "6000.1.13f1", cliCommand: "unity-beta" });
+const versionedRun = createUnityCliRunCommand("C:/Projects/Game", [], { editorVersionOverride: "6000.1.13f1", cliCommand: "unity-beta" });
 assert.equal(versionedRun.command, "unity-beta");
-assert(versionedRun.args.includes("--editor-version"), "Unity CLI run must receive the project-derived Editor version.");
+assert(versionedRun.args.includes("--editor-version"), "Only an explicit low-level override emits an Editor version.");
 assert(!versionedRun.args.includes("--editor-path"), "Unity CLI project launch must not accept a fixed Editor path.");
 
 assert.deepEqual(
@@ -52,7 +52,6 @@ assert.deepEqual(
 );
 
 const run = createUnityCliRunCommand("/workspace/My Game", ["-quit", "-runTests", "-testPlatform", "EditMode"], {
-  editorVersion: "6000.1.13f1",
   timeoutSeconds: 90,
 });
 assert.deepEqual(run.args, [
@@ -60,8 +59,8 @@ assert.deepEqual(run.args, [
   "--non-interactive",
   "run",
   "/workspace/My Game",
-  "--editor-version",
-  "6000.1.13f1",
+
+
   "--timeout",
   "90",
   "--",
@@ -301,8 +300,9 @@ try {
   await rm(planningProject, { recursive: true, force: true });
 }
 
-const cliTest = createUnityCliTestCommand("/game", { editorVersion: "6000.1.13f1", testPlatform: "EditMode", testFilters: ["Game.Fast"], testCategories: ["Smoke"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml", junit: "/game/Logs/results.junit.xml", log: "/game/Logs/results.log" } });
-assert.deepEqual(cliTest.args.slice(0, 8), ["--no-banner", "--non-interactive", "test", "/game", "--mode", "EditMode", "--editor-version", "6000.1.13f1"]);
+const cliTest = createUnityCliTestCommand("/game", { testPlatform: "EditMode", testFilters: ["Game.Fast"], testCategories: ["Smoke"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml", junit: "/game/Logs/results.junit.xml", log: "/game/Logs/results.log" } });
+assert.deepEqual(cliTest.args.slice(0, 6), ["--no-banner", "--non-interactive", "test", "/game", "--mode", "EditMode"]);
+assert(!cliTest.args.includes("--editor-version"), "Ordinary Unity CLI test relies on ProjectVersion.txt.");
 assert(cliTest.args.includes("--retries") && cliTest.args.includes("2") && cliTest.args.includes("--shard") && cliTest.args.includes("1/4"));
 assert(cliTest.args.includes("--report-format") && cliTest.args.includes("nunit,junit") && cliTest.args.includes("--junit-output") && cliTest.args.includes("/game/Logs/results.junit.xml"), "CLI test command preserves separate native NUnit and JUnit paths.");
 assert(cliTest.args.includes("--coverage") && cliTest.args.includes("--output"));

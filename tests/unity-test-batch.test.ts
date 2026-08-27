@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { createUnityTestBatchPlan } from "../src/unity-test-batch";
 import { parseUnityBatchmodeInvocation } from "../src/unity-batchmode";
 import { createUnityCliRunCommand, normalizeUnityCliForwardedArgs } from "../src/unity-cli";
-import { createUnityBatchmodeCommand } from "../src/unity-launch";
+import { createUnityBatchmodeCommand } from "../src/unity-editor-fallback";
 
 const now = new Date("2026-07-10T01:02:03.123Z");
 const windowsPlan = createUnityTestBatchPlan({

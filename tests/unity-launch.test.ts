@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { buildUnityEditorCandidates } from "../src/unity-core";
-import { resolveUnityEditorPath } from "../src/unity-launch";
+import { resolveUnityEditorPath } from "../src/unity-editor-fallback";
 
 const root = await mkdtemp(`${tmpdir()}/pi-unity-launch-`);
 const version = "6000.1.13f1";

@@ -13,7 +13,7 @@ export type UnityCliCommand = {
 };
 
 export type UnityCliLaunchOptions = {
-  editorVersion?: string;
+  editorVersionOverride?: string;
   timeoutSeconds?: number;
   cliCommand?: string;
   useGraphics?: boolean;
@@ -83,8 +83,8 @@ function unityCliBaseArgs(): string[] {
 }
 
 function appendUnityCliEditorOptions(args: string[], options: UnityCliLaunchOptions): void {
-  if (options.editorVersion?.trim()) {
-    args.push("--editor-version", options.editorVersion.trim());
+  if (options.editorVersionOverride?.trim()) {
+    args.push("--editor-version", options.editorVersionOverride.trim());
   }
 }
 

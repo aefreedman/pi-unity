@@ -35,7 +35,7 @@ try {
   const ancestor = await findAncestorUnityProject(nestedDir);
   assert(ancestor, "Expected ancestor Unity project to be found.");
   assert.equal(ancestor.projectRoot, projectRoot);
-  assert.equal(ancestor.unityVersion, "2022.3.18f1");
+  assert.equal(ancestor.unityVersion, undefined, "Project identity discovery must not eagerly parse ProjectVersion.txt.");
 
   const coordinationRoot = path.join(tempRoot, "coordination-root");
   createUnityProject(path.join(coordinationRoot, "ws1", "client"), "2021.3.40f1");

@@ -5,7 +5,8 @@ import { parseUnityVersionText, resolveAbsolutePath } from "./unity-core";
 export type UnityProjectCandidate = {
   projectRoot: string;
   projectName: string;
-  unityVersion: string;
+  /** Manual ProjectVersion.txt evidence, loaded only by direct/Pipeline routes. */
+  unityVersion?: string;
 };
 
 export type UnityProjectDiscoveryResult = {
@@ -81,7 +82,6 @@ export async function findAncestorUnityProject(startDir: string): Promise<UnityP
       return {
         projectRoot: current,
         projectName: path.basename(current),
-        unityVersion: await readUnityVersion(current),
       };
     }
 
@@ -123,7 +123,6 @@ export async function discoverUnityProjects(
       candidates.push({
         projectRoot: next.dir,
         projectName: path.basename(next.dir),
-        unityVersion: await readUnityVersion(next.dir),
       });
       if (candidates.length >= maxCandidates) {
         truncated = true;
