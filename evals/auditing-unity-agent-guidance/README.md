@@ -55,7 +55,7 @@ Optional arguments:
 - `--trials 1..5` captures nondeterministic pass distributions.
 - `--output <path>` explicitly selects a report path.
 
-Every run uses a fresh OS-temporary fixture copy, disables context-file loading, explicitly controls skill/extension loading, limits available tools, and tells the agent that only its temporary working directory is writable. By default, reports go to the OS temporary directory under `pi-unity-skill-evals/`; the eval does not generate files in the package checkout. Use `--output` only when a persistent report is intentional, and do not commit generated reports.
+Every run requires the package-local Pi 0.86.1 coding-agent development dependency, uses a fresh OS-temporary fixture copy, disables context-file loading, explicitly controls skill/extension loading, limits available tools, and tells the agent that only its temporary working directory is writable. By default, reports go to the OS temporary directory under `pi-unity-skill-evals/`; the eval does not generate files in the package checkout. Use `--output` only when a persistent report is intentional, and do not commit generated reports.
 
 ## Interpreting results
 

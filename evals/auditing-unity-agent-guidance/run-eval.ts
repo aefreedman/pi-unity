@@ -31,21 +31,25 @@ type RunEvidence = {
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
+const packageRoot = resolve(here, "../..");
+const PI_VERSION = "0.86.1";
 
 function resolvePiCliPath(): string {
   const candidates = [
+    join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
     process.env.PI_CLI_PATH,
     process.env.APPDATA && join(process.env.APPDATA, "npm/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
     process.env.npm_config_prefix && join(process.env.npm_config_prefix, "lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
     join(dirname(process.execPath), "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
   ].filter((value): value is string => Boolean(value));
   const match = candidates.find(existsSync);
-  if (!match) throw new Error("Could not resolve Pi CLI. Set PI_CLI_PATH to @earendil-works/pi-coding-agent/dist/cli.js.");
+  if (!match) throw new Error("Could not resolve Pi CLI. Install @earendil-works/pi-coding-agent locally or set PI_CLI_PATH.");
   return match;
 }
 
 const piCliPath = resolvePiCliPath();
-const packageRoot = resolve(here, "../..");
+const piManifest = JSON.parse(await readFile(resolve(dirname(piCliPath), "../package.json"), "utf8")) as { version?: unknown };
+if (piManifest.version !== PI_VERSION) throw new Error(`This eval requires Pi ${PI_VERSION} exactly; found ${String(piManifest.version)}`);
 const skillPath = join(packageRoot, "skills/auditing-unity-agent-guidance/SKILL.md");
 const extensionPath = join(packageRoot, "index.ts");
 const casesPath = join(here, "cases.json");

@@ -7,6 +7,10 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Changed
+
+- Update direct Pi development dependencies to 0.86.1 and require that exact local coding-agent version for the active guidance eval. Peer compatibility remains host-managed.
+
 ## 0.15.0 - 2026-09-15
 
 ### Fixed
