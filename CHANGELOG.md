@@ -7,6 +7,16 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.15.2 - 2026-09-21
+
+### Fixed
+
+- Migrate the native registration test harness from removed `shouldStopAfterTurn` to Pi 0.87.0's `finishTurn` hook.
+
+### Changed
+
+- Update Pi development dependencies, lockfile, and the guidance skill eval baseline to 0.87.0.
+
 ## 0.15.1 - 2026-09-20
 
 ### Changed

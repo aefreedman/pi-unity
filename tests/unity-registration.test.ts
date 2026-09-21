@@ -51,7 +51,7 @@ async function nativeToolResult(pi: ReturnType<typeof fakePi>, tool: any, params
   const messages = await runAgentLoop([], { systemPrompt: "Offline deterministic tool-result test", messages: [], tools: [{ ...tool, execute: async (...args: any[]) => { executed = await tool.execute(...args, ctx); return executed; } }] }, {
     model: { id: "synthetic", provider: "synthetic", api: "openai-completions" },
     convertToLlm: (messages: any[]) => messages,
-    shouldStopAfterTurn: () => true,
+    finishTurn: () => ({ action: "end" }),
     afterToolCall: ({ toolCall, args, result, isError }: any) => runner.emitToolResult({ type: "tool_result", toolName: toolCall.name, toolCallId: toolCall.id, input: args, content: result.content, details: result.details, isError }),
   }, (event: any) => { events.push(event); }, undefined, () => {
     const stream = createAssistantMessageEventStream();
