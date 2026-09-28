@@ -25,7 +25,7 @@ import {
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
-import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities } from "./src/unity-cli";
+import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliExecutor } from "./src/unity-cli";
 import { launchUnityCliOpenDetached } from "./src/unity-launch";
 import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-editor-fallback";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
@@ -362,8 +362,8 @@ function joinWarnings(...warnings: Array<string | undefined>): string | undefine
   return present.length > 0 ? present.join("\n") : undefined;
 }
 
-async function listBlockingUnityProcesses(projectRoot: string): Promise<{ processes: RunningUnityProcess[]; warning?: string }> {
-  const cliStatus = await listRunningUnityCliEditorsForProject(projectRoot);
+async function listBlockingUnityProcesses(projectRoot: string, execute?: UnityCliExecutor): Promise<{ processes: RunningUnityProcess[]; warning?: string }> {
+  const cliStatus = await listRunningUnityCliEditorsForProject(projectRoot, { execute });
   const running = await listRunningUnityProcessesForProject(projectRoot);
   return {
     processes: dedupeRunningUnityProcesses([...cliStatus.processes, ...running.processes]),
@@ -394,9 +394,9 @@ async function enforceSingleProcessRule(projectRoot: string): Promise<void> {
 }
 
 /** Production launch preflight uses the tested route matrix rather than duplicating it. */
-async function enforceLaunchRouteSafety(projectRoot: string, route: "unity-cli" | "editor-executable") {
+async function enforceLaunchRouteSafety(projectRoot: string, route: "unity-cli" | "editor-executable", execute?: UnityCliExecutor) {
   const state = await inspectUnityProjectBusyState(projectRoot);
-  const running = await listBlockingUnityProcesses(projectRoot);
+  const running = await listBlockingUnityProcesses(projectRoot, execute);
   const decision = evaluateUnityLaunchSafety(route, state, running);
   if (decision.allowed) return { state, staleLockDelegated: Boolean(decision.staleLockDelegated) };
   if (decision.reason === "process_unknown") throw new Error(`Refusing to launch Unity because same-project process verification is incomplete: ${running.warning}`);
@@ -1245,7 +1245,7 @@ async function runUnifiedUnityTests(
     const invocation = parseUnityBatchmodeInvocation(plan.args);
     const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
     await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
-    await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
+    await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli", createPlanningUnityCliExecutor(pi));
     const cliTestDefaults: NonNullable<UnityToolDetails["cliTestDefaults"]> = {};
     for (const key of ["test.timeout", "test.coverage"] as const) {
       if (key === "test.timeout" && request.timeoutSeconds !== undefined) continue;

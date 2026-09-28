@@ -290,7 +290,7 @@ export async function listRunningUnityCliEditorsForProject(
   options: { cliCommand?: string; timeout?: number; execute?: UnityCliExecutor } = {},
 ): Promise<{ processes: RunningUnityProcess[]; warning?: string }> {
   const command = resolveUnityCliCommand(options);
-  const result = await (options.execute ?? execFileCollect)(command, ["--format", "json", "--no-banner", "--non-interactive", "status", "--project", projectRoot], {
+  const result = await (options.execute ?? execFileCollect)(command, ["--format", "json", "--no-banner", "--non-interactive", "status", "--project-path", projectRoot], {
     timeout: options.timeout ?? 5000,
   });
 

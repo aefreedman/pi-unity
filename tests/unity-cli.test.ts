@@ -196,7 +196,10 @@ try {
   await rm(packageProject, { recursive: true, force: true });
 }
 
-const warningStatus = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async () => ({ stdout: JSON.stringify({ success: true, warnings: [{ message: "partial status" }], data: { instances: [{ projectPath: "/fixture/game", pid: 4 }] } }), stderr: "" }) });
+const warningStatus = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async (_command, args) => {
+  assert.deepEqual(args, ["--format", "json", "--no-banner", "--non-interactive", "status", "--project-path", "/fixture/game"], "Use beta.11's supported project status selector.");
+  return { stdout: JSON.stringify({ success: true, warnings: [{ message: "partial status" }], data: { instances: [{ projectPath: "/fixture/game", pid: 4 }] } }), stderr: "" };
+} });
 assert.equal(warningStatus.processes.length, 1, "Known positive status instances are retained.");
 assert.match(warningStatus.warning ?? "", /absence is uncertain/, "Status warnings block launch-safe absence claims even with a positive instance.");
 

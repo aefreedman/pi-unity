@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.0 - 2026-09-28
+
 ### Fixed
 
 - Fail closed on nonzero or killed Unity CLI processes across the new information, Cloud inventory, and asset tools, and reject non-Unity documentation hosts.
