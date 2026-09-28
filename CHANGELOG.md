@@ -7,6 +7,11 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Fixed
+
+- Fail closed on nonzero or killed Unity CLI processes across the new information, Cloud inventory, and asset tools, and reject non-Unity documentation hosts.
+- Keep asset package mock tests independent of installed Unity CLI and external tar.
+
 ### Added
 
 - Add bounded CLI information/documentation URL, authenticated read-only Cloud inventory, and guarded Unity package inspection/import/export tools.

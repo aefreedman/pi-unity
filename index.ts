@@ -1328,10 +1328,11 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     }
   });
 
-  registerUnityInformationTools(pi, (command, args, options) => pi.exec(command, args, options));
-  registerUnityCloudInventoryTools(pi, (command, args, options) => pi.exec(command, args, options));
+  const auxiliaryCliExecutor = createPlanningUnityCliExecutor(pi);
+  registerUnityInformationTools(pi, auxiliaryCliExecutor);
+  registerUnityCloudInventoryTools(pi, auxiliaryCliExecutor);
   registerUnityAssetPackageTools(pi, {
-    execute: (command, args, options) => pi.exec(command, args, options),
+    execute: auxiliaryCliExecutor,
     resolveProject: async requested => {
       const canonical = await realpath(requested);
       const result = await resolveUnityProjectCandidates(canonical, canonical);

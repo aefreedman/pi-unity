@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -193,6 +194,44 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "missing");
   assert.equal(resolveArtifactSearchServiceV1(scope).outcome, "missing");
   assert.equal(resolveTodoLifecycleServiceV1(scope).outcome, "missing");
+}
+
+// Exercise actual registrations and their shared pi.exec adapter with successful-looking
+// JSON on process failure. This must not invoke an installed Unity CLI.
+{
+  const root = await mkdtemp(join(tmpdir(), "unity-adapter-offline-"));
+  const archive = join(root, "fixture.unitypackage");
+  await writeFile(archive, gzipSync(Buffer.from("offline fixture")));
+  try {
+    for (const failure of [{ code: 7, killed: false }, { code: 0, killed: true }]) {
+      let calls = 0;
+      const pi = fakePi(async (_command, args) => {
+        calls++;
+        const command = args.includes("docs") ? "docs" : args.includes("commands") ? "commands" : args.includes("assets") ? "assets inspect" : "pipeline";
+        const data = command === "docs" ? { url: "https://docs.unity3d.com/", opened: false }
+          : command === "commands" ? { commands: [] }
+          : command === "assets inspect" ? { count: 1, totalSize: 1, entries: [{ path: "Assets/A.txt", guid: "abcdef0123456789abcdef0123456789", size: 1, hasPreview: false }] }
+          : { items: [] };
+        return { ...failure, stdout: JSON.stringify({ success: true, command, data, errors: [], warnings: [] }), stderr: "" };
+      });
+      registerUnity(pi as any);
+      const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
+      for (const [name, params] of [
+        ["unity_cli_info", { include: ["commands"] }],
+        ["unity_docs_url", { topic: "GameObject" }],
+        ["unity_cloud_build_inventory", { resource: "targets", operation: "list" }],
+        ["unity_pipeline_automation_inventory", { resource: "apps", operation: "list" }],
+      ] as const) {
+        const tool = pi.tools.find(item => item.name === name);
+        await assert.rejects(tool.execute("offline", params, undefined, undefined, ctx), /failed.*uncertain/);
+      }
+      const inspect = pi.tools.find(item => item.name === "unity_inspect_unitypackage");
+      const result = await inspect.execute("offline", { file: archive }, undefined, undefined, ctx);
+      assert.equal(result.details.outcome, "rejected");
+      assert.equal(result.details.code, failure.killed ? "asset_timeout" : "asset_cli_failed");
+      assert.equal(calls, 5, "each registered tool dispatches once through the adapter");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 }
 
 {

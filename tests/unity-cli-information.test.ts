@@ -37,6 +37,9 @@ test("docs always uses --url, explicit project or override, and rejects unsafe e
     const override = await unityDocsUrl({ topic: "GameObject", kind: "search", path: root, editorVersion: "2022.3" }, async (_cmd, args) => { calls.push(args); return envelope("docs", { url: "https://docs.unity3d.com/", version: "2022.3", opened: false }); }, root);
     assert.equal(override.versionSource, "explicit"); assert.ok(calls[1].includes("--search"));
     await assert.rejects(unityDocsUrl({ topic: "X" }, async () => envelope("docs", { url: "http://example.com", opened: false }), root), /unsafe URL/);
+    for (const url of ["https://example.com/", "https://docs.unity3d.com.evil.example/", "https://docs.unity3d.com:8443/"]) {
+      await assert.rejects(unityDocsUrl({ topic: "X" }, async () => envelope("docs", { url, opened: false }), root), /unsafe URL/);
+    }
     await assert.rejects(unityDocsUrl({ topic: "X", path: join(root, "Assets") }, execute, root), /not a Unity project root/);
     await assert.rejects(unityDocsUrl({ topic: "-bad" }, execute, root), /Invalid/);
   } finally { await rm(root, { recursive: true, force: true }); }

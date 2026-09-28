@@ -106,7 +106,7 @@ export async function unityDocsUrl(params: { topic: string; path?: string; kind?
   if (typeof data?.url !== "string" || data.opened !== false || (version && data.version !== version)) throw new Error("Unity docs returned invalid URL evidence; result is uncertain.");
   let url: URL;
   try { url = new URL(data.url); } catch { throw new Error("Unity docs returned invalid URL evidence; result is uncertain."); }
-  if (url.protocol !== "https:" || url.username || url.password || url.href.length > 2048) throw new Error("Unity docs returned unsafe URL evidence; result is uncertain.");
+  if (url.protocol !== "https:" || url.hostname !== "docs.unity3d.com" || url.port || url.username || url.password || url.href.length > 2048) throw new Error("Unity docs returned unsafe URL evidence; result is uncertain.");
   return { url: url.href, topic, kind: params.kind ?? "api", editorVersion: version, versionSource };
 }
 export function registerUnityInformationTools(pi: Pick<ExtensionAPI, "registerTool">, execute: UnityCliExecutor) {
