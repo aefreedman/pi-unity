@@ -32,7 +32,9 @@ assert.deepEqual(
   { nunit: "C:/game/Logs/results.xml", junit: "C:/game/Logs/results.junit.xml", log: "C:/game/Logs/results.log" },
 );
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", testFilters: ["bad;filter"] }), /semicolons/);
-assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries: -1 }), /non-negative/);
+assert.equal(normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries: 0 }).retries, 0);
+assert.equal(normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries: 10 }).retries, 10);
+for (const retries of [-1, 11, 1.5]) assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", retries }), /0 to 10/);
 assert.throws(() => normalizeUnityRunTestsRequest({ testPlatform: "EditMode", shard: "1/2", rerunFailed: true }), /cannot be combined/);
 assert.equal(deriveUnityCliEffectiveReportPath("C:/Logs/results.xml", { rerunFailed: true }), "C:/Logs/results.rerun.xml");
 assert.equal(deriveUnityCliEffectiveReportPath("C:/Logs/results.xml", { shard: "1/4" }), "C:/Logs/results.shard-1-of-4.xml");

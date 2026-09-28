@@ -62,7 +62,20 @@ Pass `normalizedResultPath` for standalone JSON evidence. Any explicit artifact 
 
 Use `unity_run_tests` for all ordinary Unity Test Framework work. It writes a durable normalized JSON result under `Logs/`; isolated `unity test` runs retain requested native reports. Connected Pipeline is selected only for compatible requests. A reachable Editor is never closed automatically to obtain isolated-only features.
 
+Isolated tests pin NUnit reports for normalized evidence; missing/malformed reports or nonzero CLI exits cannot pass. `retries` accepts 0–10; JSON-only retry evidence is reconciled to final outcomes. An omitted `coverage` setting may inherit from Unity CLI configuration (including enabled coverage); `coverage: false` does not override an inherited CLI setting. Where available the result reports read-only resolver provenance for effective `test.coverage` and `test.timeout`; no config is written. `timeoutSeconds` is a host deadline, not a CLI configuration override. Native batchmode `logFilePath` requires a project-contained absolute destination and conflicts with forwarded `-logFile`; `tailLog: false` disables native log tailing. Native log options require Unity CLI, not direct Editor execution. Connected Pipeline recompile remains the default; native CLI replacement is deferred pending exact identity, Play Mode, and JSON parity evidence.
+
 Batchmode runs use `-nographics` by default. Set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent tests. Unity permits only one process per project folder, so all launch routes verify the exact project and use a per-project mutex.
+
+### Unity CLI information, Cloud inventory, and asset packages
+
+- `unity_cli_info` reads the bounded global CLI command manifest or installed changelog. The manifest does **not** grant connected Pipeline commands; use exact-copy capability checks for those.
+- `unity_docs_url` returns a validated official HTTPS URL without opening a browser. Supply an explicit Unity project root or Editor version for version-matched documentation; the sibling docs package owns content and caching.
+- `unity_cloud_build_inventory` and `unity_pipeline_automation_inventory` perform one authenticated **remote read** (list/get) only when called. They never log in, write, or automatically page; filters and page/limit are explicit. Without organization/project IDs, Unity CLI environment or saved defaults choose the scope. Verify the returned selection and completeness before acting.
+- `unity_inspect_unitypackage` reads an existing local archive's declared entries, not import completion. `unity_import_unitypackage` and `unity_export_unitypackage` mutate only on an explicit request and absolute exact project root; they fail closed on busy/unknown process state, native lockfile, or an existing mutex, never close an Editor, clear locks, overwrite an export, or retry. Success means the CLI reported success, **not** independently verified asset state. Import/export success JSON schemas have not been observed in a real mutation; inspect project/artifact effects separately. An external writer may race an export destination check.
+
+Unity Accelerator settings may also be inherited from CLI environment or saved configuration. Check the effective settings before attributing download/cache behavior to a project; these tools do not reconfigure Accelerator.
+
+Unity CLI telemetry is governed by its own controls: inspect `unity telemetry --help` and the CLI's current settings before choosing whether to enable or disable telemetry. Pi-unity does not change telemetry consent or persist CLI settings. Read-only Cloud calls still contact the service and may be subject to CLI telemetry; use them only when remote access is intended. Issue Tracker MCP is an external integration, **not** a pi-unity tool: consult the installed Unity CLI's Issue Tracker/MCP documentation and preview available commands explicitly before use; this package does not auto-enable MCP or infer connected permissions.
 
 ### Guidance audit
 

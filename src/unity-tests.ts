@@ -123,7 +123,7 @@ export function normalizeUnityRunTestsRequest(input: UnityRunTestsRequest): Norm
   const isolatedLauncher = input.isolatedLauncher ?? "auto";
   if (!["auto", "connected", "isolated"].includes(execution)) throw new Error("execution must be auto, connected, or isolated.");
   if (!["auto", "unity-cli", "editor-executable"].includes(isolatedLauncher)) throw new Error("isolatedLauncher must be auto, unity-cli, or editor-executable.");
-  if (!Number.isInteger(input.retries ?? 0) || (input.retries ?? 0) < 0) throw new Error("retries must be a non-negative integer.");
+  if (!Number.isInteger(input.retries ?? 0) || (input.retries ?? 0) < 0 || (input.retries ?? 0) > 10) throw new Error("retries must be an integer from 0 to 10.");
   if (input.timeoutSeconds !== undefined && (!Number.isFinite(input.timeoutSeconds) || input.timeoutSeconds <= 0)) throw new Error("timeoutSeconds must be a positive number.");
   if (input.rerunFailed && input.shard) throw new Error("shard and rerunFailed cannot be combined.");
   const formats = input.reportFormats?.map(value => value.toLowerCase() as UnityTestReportFormat);

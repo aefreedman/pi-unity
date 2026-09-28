@@ -20,7 +20,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "pretest": "npm run typecheck",
-    "test": "tsx tests/unity-core.test.ts && tsx tests/unity-launch.test.ts && tsx tests/unity-pipeline.test.ts && tsx tests/unity-processes.test.ts && tsx tests/pi-unity-settings.test.ts && tsx tests/unity-projects.test.ts && tsx tests/unity-guidance-audit.test.ts && tsx tests/unity-batchmode.test.ts && tsx tests/unity-test-batch.test.ts && tsx tests/unity-tests.test.ts && tsx tests/unity-cli.test.ts && tsx tests/unity-project-lock.test.ts && tsx tests/unity-artifact-profile.test.ts && tsx tests/unity-file-discovery-filter.test.ts && tsx tests/unity-registration.test.ts && tsx tests/unity-renderers.test.ts && tsx tests/unity-optional-integrations.test.ts && tsx tests/release-registry-preflight.test.ts && tsx tests/unity-package-validation.test.ts",
+    "test": "tsx tests/unity-core.test.ts && tsx tests/unity-launch.test.ts && tsx tests/unity-pipeline.test.ts && tsx tests/unity-processes.test.ts && tsx tests/pi-unity-settings.test.ts && tsx tests/unity-projects.test.ts && tsx tests/unity-guidance-audit.test.ts && tsx tests/unity-batchmode.test.ts && tsx tests/unity-test-batch.test.ts && tsx tests/unity-tests.test.ts && tsx tests/unity-cli.test.ts && tsx tests/unity-project-lock.test.ts && tsx tests/unity-artifact-profile.test.ts && tsx tests/unity-file-discovery-filter.test.ts && tsx tests/unity-registration.test.ts && tsx tests/unity-cli-information.test.ts && tsx tests/unity-cloud-inventory.test.ts && tsx tests/unity-asset-packages.test.ts && tsx tests/unity-renderers.test.ts && tsx tests/unity-optional-integrations.test.ts && tsx tests/release-registry-preflight.test.ts && tsx tests/unity-package-validation.test.ts",
     "preview:tools": "tsx tests/unity-renderers.test.ts --preview",
     "eval:guidance-skill": "tsx evals/auditing-unity-agent-guidance/run-eval.ts"
   },
@@ -53,9 +53,9 @@
   "devDependencies": {
     "@aefree/pi-file-discovery": "^0.1.0",
     "@aefree/pi-project-artifacts": "^0.1.0",
-    "@earendil-works/pi-ai": "0.87.0",
-    "@earendil-works/pi-coding-agent": "0.87.0",
-    "@earendil-works/pi-tui": "0.87.0",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
     "@types/node": "22.20.2",
     "tsx": "^4.23.5",
     "typescript": "7.0.2"

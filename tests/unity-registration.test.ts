@@ -87,6 +87,15 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(resolveArtifactProfilesV1(scope).outcome, "available", order);
   assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "available", order);
   assert.equal(unity.tools.filter((tool) => tool.name === "unity_migrate_solution_docs").length, 0);
+  for (const name of ["unity_cli_info", "unity_docs_url", "unity_cloud_build_inventory", "unity_pipeline_automation_inventory", "unity_inspect_unitypackage", "unity_import_unitypackage", "unity_export_unitypackage"]) {
+    assert.equal(unity.tools.filter(tool => tool.name === name).length, 1, `${name} registered exactly once`);
+  }
+  const assetImport = unity.tools.find(tool => tool.name === "unity_import_unitypackage");
+  assert.match(assetImport.description, /Explicitly requested project mutation/);
+  const assetRejected = await assetImport.execute("offline", { path: "/nonexistent-project", file: "/nonexistent-package.unitypackage" });
+  assert.equal(assetRejected.details.outcome, "rejected");
+  const assetError = await unity.handlers.get("tool_result")![0]({ toolName: assetImport.name, details: assetRejected.details, isError: false }, ctx);
+  assert.deepEqual(assetError, { isError: true }, "asset rejection must become a native Pi tool failure");
   const openEditorTool = unity.tools.find((tool) => tool.name === "unity_open_editor");
   assert(openEditorTool, "pi-unity must register the Unity Editor launcher tool");
   assert.equal(openEditorTool.parameters.additionalProperties, false, "Open Editor schema must be strict.");
@@ -97,6 +106,8 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert(batchmodeTool, "pi-unity must register the batchmode launcher tool");
   assert.equal(batchmodeTool.parameters.additionalProperties, false, "Batchmode schema must be strict.");
   assert.equal(batchmodeTool.parameters.properties.unityEditorPath, undefined, "Legacy Editor-path arguments must be schema-invalid rather than ignored.");
+  assert.equal(batchmodeTool.parameters.properties.logFilePath.type, "string");
+  assert.equal(batchmodeTool.parameters.properties.tailLog.type, "boolean");
   const recompileTool = unity.tools.find((tool) => tool.name === "unity_pipeline_recompile");
   const pipelineTestTool = unity.tools.find((tool) => tool.name === "unity_run_tests");
   assert(recompileTool && pipelineTestTool, "pi-unity must register recompile and the unified test tool");
@@ -104,6 +115,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   assert.equal(pipelineTestTool.parameters.additionalProperties, false, "Pipeline test schema must be strict.");
   assert.deepEqual(pipelineTestTool.parameters.properties.testPlatform.enum, ["EditMode", "PlayMode"]);
   assert.deepEqual(pipelineTestTool.parameters.properties.execution.enum, ["auto", "connected", "isolated"]);
+  assert.equal(pipelineTestTool.parameters.properties.retries.maximum, 10);
+  assert.match(pipelineTestTool.parameters.properties.coverage.description, /project\/global/);
+  assert.match(pipelineTestTool.parameters.properties.timeoutSeconds.description, /host.*deadline/);
   assert.equal(unity.tools.some((tool) => tool.name === "unity_pipeline_run_tests" || tool.name === "unity_run_test_batch"), false, "Legacy test tools must not be registered.");
   const evalTool = unity.tools.find((tool) => tool.name === "unity_pipeline_eval");
   assert(evalTool, "pi-unity must register Pipeline eval as the primary C# REPL tool");
@@ -801,6 +815,60 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       await assert.rejects(() => inspect(), /escapes the project root/, "Canonical symlink containment rejects escaping links.");
     } catch (error: any) { assert(["EPERM", "EACCES"].includes(error?.code) || /escapes the project root/.test(String(error)), `Only unavailable symlink privileges may skip canonical containment: ${String(error)}`); }
   } finally { await rm(root, { recursive: true, force: true }); await rm(`${root}-outside.xml`, { force: true }); }
+}
+// Offline isolated CLI simulation: fake pi.exec is the only test dispatcher.
+{
+  const root = await mkdtemp(join(tmpdir(), "pi-unity-cli-results-"));
+  const project = join(root, "Game");
+  try {
+    await mkdir(join(project, "ProjectSettings"), { recursive: true });
+    await mkdir(join(project, "Packages"));
+    await mkdir(join(project, "Logs"));
+    await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
+    await writeFile(join(project, "Packages", "manifest.json"), '{"dependencies":{}}');
+    const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: {} };
+    const xml = '<test-run total="1" passed="1" failed="0"><test-case name="Suite.Flaky" result="Passed" /></test-run>';
+    for (const scenario of [
+      { name: "missing rerun", params: { rerunFailed: true }, code: 0, outcome: "run_error" },
+      { name: "missing shard", params: { shard: "1/2" }, code: 0, outcome: "run_error" },
+      { name: "missing exit 6", params: {}, code: 6, outcome: "run_error" },
+      { name: "malformed report", params: {}, code: 0, report: "<test-run total=\"1\">broken", outcome: "run_error" },
+      { name: "invalid counts", params: {}, code: 0, report: '<test-run total="oops" passed="1" failed="0"><test-case name="Suite.Flaky" result="Passed" /></test-run>', outcome: "run_error" },
+      { name: "failed cases", params: {}, code: 8, report: '<test-run total="1" passed="0" failed="1"><test-case name="Suite.Bad" result="Failed" /></test-run>', outcome: "tests_failed" },
+      { name: "killed", params: {}, code: 0, killed: true, outcome: "timed_out" },
+      { name: "nonzero despite passing xml", params: {}, code: 2, report: xml, outcome: "run_error" },
+      { name: "json retry flakes", params: { retries: 1, reportFormats: ["json"] }, code: 0, report: xml, retry: { requested: 1, attempts: 2, passedFirstAttempt: 0, flaky: [{ test: "Suite.Flaky", attempts: 2 }], failed: [] }, outcome: "passed_with_flakes" },
+      { name: "json retry sidecar missing", params: { retries: 1, reportFormats: ["json"] }, code: 0, report: xml, outcome: "uncertain" },
+    ] as const) {
+      let dispatches = 0;
+      const pi = fakePi(async (_command, args) => {
+        if (args.includes("--version")) return { code: 0, stdout: "1.0.0-beta.11", stderr: "" };
+        if (args.includes("pipeline")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [] } }), stderr: "" };
+        if (args.includes("status")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [] } }), stderr: "" };
+        if (args.includes("config")) return { code: 0, stdout: JSON.stringify({ success: true, data: { key: args[args.indexOf("resolve") + 1], value: args.includes("test.timeout") ? "77" : true, source: "project" }, warnings: [] }), stderr: "" };
+        if (args.includes("test")) {
+          dispatches++;
+          const output = args[args.indexOf("--output") + 1];
+          assert.equal(args[args.indexOf("--report-format") + 1], "nunit", scenario.name);
+          const effective = scenario.params && "rerunFailed" in scenario.params ? output.replace(/\.xml$/, ".rerun.xml") : "shard" in scenario.params ? output.replace(/\.xml$/, ".shard-1-of-2.xml") : output;
+          if ("report" in scenario) await writeFile(effective, scenario.report);
+          if ("retry" in scenario) await writeFile(effective.replace(/\.xml$/, ".retries.json"), JSON.stringify(scenario.retry));
+          return { code: scenario.code, killed: "killed" in scenario && scenario.killed, stdout: "", stderr: "" };
+        }
+        throw new Error(`Unexpected synthetic CLI call: ${args.join(" ")}`);
+      });
+      registerUnity(pi as any);
+      const tool = pi.tools.find(item => item.name === "unity_run_tests");
+      const result = await tool.execute("synthetic-test", { path: project, testPlatform: "EditMode", execution: "isolated", isolatedLauncher: "unity-cli", ...scenario.params }, undefined, undefined, ctx);
+      assert.equal(dispatches, 1, scenario.name);
+      assert.equal(result.details.testResult.outcome, scenario.outcome, scenario.name);
+      assert.equal(result.details.status, scenario.outcome === "passed_with_flakes" ? "passed" : "failed", scenario.name);
+      assert.deepEqual(result.details.cliTestDefaults["test.timeout"], { value: 77, source: "project" });
+      assert.deepEqual(result.details.cliTestDefaults["test.coverage"], { value: true, source: "project" });
+      if (scenario.outcome === "run_error" && !("report" in scenario)) assert.match(result.content[0].text, /Required current-run NUnit XML/);
+      if (scenario.outcome === "passed_with_flakes") assert.equal(result.details.testResult.flakyTests[0].name, "Suite.Flaky");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 }
 console.log("pi-unity reverse load-order, result-contract and delayed-shutdown registration tests passed");
 

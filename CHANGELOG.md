@@ -7,6 +7,15 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Added
+
+- Add bounded CLI information/documentation URL, authenticated read-only Cloud inventory, and guarded Unity package inspection/import/export tools.
+- Report effective inherited test timeout/coverage provenance where available; normalize isolated NUnit and JSON-only retry outcomes, and support native batchmode log path/tail controls.
+
+### Changed
+
+- Align Pi development validation dependencies and guidance eval baseline with stable 0.87.1. Keep connected Pipeline recompile as the default; native replacement awaits identity, Play Mode, and JSON evidence.
+
 ## 0.15.2 - 2026-09-21
 
 ### Fixed

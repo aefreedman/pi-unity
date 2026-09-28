@@ -1,3 +1,6 @@
+import { registerUnityAssetPackageTools, type AssetResult } from "./src/unity-asset-packages";
+import { registerUnityInformationTools } from "./src/unity-cli-information";
+import { registerUnityCloudInventoryTools } from "./src/unity-cloud-inventory";
 import { renderUnityGuidanceResult, renderUnityToolCall, renderUnityPipelineCall, renderUnityToolResult, renderUnityPipelineResult } from "./src/unity-renderers";
 import { type AgentToolUpdateCallback, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -107,6 +110,7 @@ export type UnityToolDetails = {
   pipelineRunScript?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
   pipeline?: UnityPipelineOperationDetails;
   testResult?: NormalizedUnityTestResult;
+  cliTestDefaults?: Record<string, { value: number | boolean | null; source: "env" | "project" | "global" | "default" }>;
   artifactPath?: string;
   route?: "connected" | "isolated";
 };
@@ -128,6 +132,8 @@ const LAUNCH_BATCHMODE_PARAMS = Type.Object({
   useGraphics: Type.Optional(Type.Boolean({ default: false, description: "Set true only when the requested Unity batchmode work requires an active graphics device, such as screenshots, rendering, or visual PlayMode tests. Defaults to false, which adds -nographics." })),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Timeout in seconds for the batchmode process." })),
   launcher: LAUNCHER_SCHEMA,
+  logFilePath: Type.Optional(Type.String({ description: "Absolute log destination inside the resolved project. Unity CLI uses native --log-file; direct Editor launch rejects this option. Cannot combine with forwarded -logFile." })),
+  tailLog: Type.Optional(Type.Boolean({ description: "Set false with logFilePath to pass native Unity CLI --no-tail; defaults to CLI streaming behavior." })),
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false, description: "When true, pi-unity may close a running Unity process for the resolved project before launch, but only if piUnity.allowCloseRunningUnityProcess is enabled in Pi settings. The process is selected by project matching, not by model-supplied PID." })),
 }, { additionalProperties: false });
 
@@ -140,15 +146,15 @@ const RUN_TESTS_PARAMS = Type.Object({
   testCategories: Type.Optional(Type.Array(Type.String(), { maxItems: 50, description: "Connected: one category only; omit testFilters. Multiple categories require separate non-overlapping selections or deliberate isolated execution; never split a filter/category intersection into separate runs." })),
   execution: Type.Optional(StringEnum(["auto", "connected", "isolated"] as const, { default: "auto" })),
   isolatedLauncher: Type.Optional(StringEnum(["auto", "unity-cli", "editor-executable"] as const, { default: "auto" })),
-  retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 20, default: 0 })),
+  retries: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, default: 0 })),
   rerunFailed: Type.Optional(Type.Boolean({ default: false })),
   shard: Type.Optional(Type.String({ maxLength: 500 })),
   shardInventoryPath: Type.Optional(Type.String({ maxLength: 1000 })),
   reportFormats: Type.Optional(Type.Array(StringEnum(["json", "nunit", "junit"] as const), { maxItems: 3 })),
-  coverage: Type.Optional(Type.Boolean({ default: false })),
+  coverage: Type.Optional(Type.Boolean({ default: false, description: "When true, pass --coverage. False omits the flag; Unity CLI project/global test.coverage may still enable coverage." })),
   coverageOptions: Type.Optional(Type.String({ maxLength: 1000 })),
   useGraphics: Type.Optional(Type.Boolean({ default: false })),
-  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600 })),
+  timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 14400, default: 3600, description: "Optional Unity CLI --timeout override; otherwise CLI test.timeout project/global/environment defaults apply. The host deadline is separately 3600 seconds plus 30-second grace by default." })),
   closeBlockingUnityProcess: Type.Optional(Type.Boolean({ default: false })),
 }, { additionalProperties: false });
 
@@ -1044,6 +1050,8 @@ type GuardedBatchmodeParams = {
   timeoutSeconds?: number;
   launcher?: UnityLauncherPreference;
   closeBlockingUnityProcess?: boolean;
+  logFilePath?: string;
+  tailLog?: boolean;
 };
 
 async function runGuardedUnityBatchmode(
@@ -1067,13 +1075,30 @@ async function runGuardedUnityBatchmode(
       if (useGraphics && hasUnityCommandLineFlag(extraArgs, "-nographics")) {
         throw new Error("useGraphics=true conflicts with an explicit -nographics argument. Remove -nographics or leave useGraphics=false.");
       }
-      const invocation = parseUnityBatchmodeInvocation(createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics }));
+      if (params.logFilePath !== undefined) {
+        if (!isAbsolute(params.logFilePath) || /[\0\r\n]/.test(params.logFilePath)) throw new Error("logFilePath must be an absolute project-contained path without control characters.");
+        const parent = await realpath(dirname(params.logFilePath));
+        const contained = relative(candidate.projectRoot, parent);
+        if (contained === ".." || contained.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(contained)) throw new Error("logFilePath must remain inside the resolved project root.");
+        try {
+          const existing = await realpath(params.logFilePath);
+          const existingRelative = relative(candidate.projectRoot, existing);
+          if (existingRelative === ".." || existingRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(existingRelative)) throw new Error("logFilePath must not resolve outside the project root.");
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      if (params.tailLog === false && params.logFilePath === undefined) throw new Error("tailLog=false requires logFilePath.");
+      if (params.logFilePath !== undefined && extraArgs.some(arg => /^-logfile(?:$|[=:])/i.test(arg))) throw new Error("Native --log-file conflicts with forwarded -logFile.");
+      const reportArgs = createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics });
+      const invocation = parseUnityBatchmodeInvocation(params.logFilePath ? [...reportArgs, "-logFile", params.logFilePath] : reportArgs);
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher, signal);
+      if (!useUnityCli && params.logFilePath !== undefined) throw new Error("Native logFilePath requires the Unity CLI launcher; direct Editor launch was not attempted.");
       throwIfAborted(signal);
       let editorPath = "Unity CLI";
       let command: { command: string; args: string[] };
       if (useUnityCli) {
-        command = createUnityCliRunCommand(candidate.projectRoot, extraArgs, { timeoutSeconds, useGraphics });
+        command = createUnityCliRunCommand(candidate.projectRoot, extraArgs, { timeoutSeconds, useGraphics, logFilePath: params.logFilePath, tailLog: params.tailLog });
       } else {
         editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
         command = createUnityBatchmodeCommand(editorPath, candidate.projectRoot, extraArgs, { useGraphics });
@@ -1100,13 +1125,12 @@ async function runGuardedUnityBatchmode(
         throwIfAborted(signal);
         const result = await pi.exec(command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs });
         throwIfAborted(signal);
-        const reportArgs = useUnityCli ? createUnityCliBatchmodeReportArgs(candidate.projectRoot, extraArgs, { useGraphics }) : command.args;
         const report = await buildBatchmodeReport(
           ctx,
           candidate,
           editorPath,
           { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
-          reportArgs,
+          useUnityCli ? (params.logFilePath ? [...reportArgs, "-logFile", params.logFilePath] : reportArgs) : command.args,
           joinWarnings(closeReport.warning, lockfileCleanup.warning, lockWarning, discoveryWarning),
         );
         report.details.command = command.command;
@@ -1222,31 +1246,48 @@ async function runUnifiedUnityTests(
     const closeReport = await closeBlockingUnityProcessesForBatchmode(pi, ctx, candidate, invocation, request.closeBlockingUnityProcess, signal);
     await removeStaleLockfileAfterGuardedClose(candidate, closeReport);
     await enforceLaunchRouteSafety(candidate.projectRoot, "unity-cli");
+    const cliTestDefaults: NonNullable<UnityToolDetails["cliTestDefaults"]> = {};
+    for (const key of ["test.timeout", "test.coverage"] as const) {
+      if (key === "test.timeout" && request.timeoutSeconds !== undefined) continue;
+      // coverage=false omits --coverage; a CLI project/global default may still enable it.
+      if (key === "test.coverage" && request.coverage) continue;
+      try {
+        const resolved = await pi.exec(resolveUnityCliCommand(), ["--format", "json", "--no-banner", "--non-interactive", "config", "resolve", key, candidate.projectRoot], { signal, timeout: 5000 });
+        const envelope = JSON.parse(resolved.stdout) as { success?: unknown; data?: { key?: unknown; source?: unknown; value?: unknown }; warnings?: unknown[] };
+        if (resolved.code === 0 && !resolved.killed && envelope.success === true && envelope.data?.key === key && (!envelope.warnings || envelope.warnings.length === 0) && ["env", "project", "global", "default"].includes(String(envelope.data.source))) {
+          const raw = envelope.data.value;
+          const value = key === "test.timeout" && typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : raw;
+          if (value === null || (key === "test.coverage" && typeof value === "boolean") || (key === "test.timeout" && typeof value === "number" && Number.isFinite(value) && value > 0)) cliTestDefaults[key] = { value, source: envelope.data.source as "env" | "project" | "global" | "default" };
+        }
+      } catch { /* Resolver evidence is advisory; it never changes the selected test dispatch. */ }
+    }
     const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: resolveUnityCliBackendReportPaths({ nunit: plan.testResultsPath, junit: plan.junitResultsPath, log: plan.logFilePath }, formats), coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
     const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
     const effectiveResultsPath = deriveUnityCliEffectiveReportPath(plan.testResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard });
     let effectiveResultsXml: string | undefined;
     try { effectiveResultsXml = await readFile(effectiveResultsPath, "utf8"); } catch { /* Missing current-run evidence is handled below. */ }
-    const parsed = effectiveResultsXml ? parseUnityTestResultsXml(effectiveResultsXml) : null;
+    const candidateResults = effectiveResultsXml ? parseUnityTestResultsXml(effectiveResultsXml) : null;
+    const parsed = candidateResults && !hasConflictingUnityXmlTestEvidence(candidateResults) ? candidateResults : null;
     const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
-    const outcome = execution.killed ? "timed_out" : execution.code === 8 ? "tests_failed" : execution.code === 6 ? "run_error" : determineUnityTestOutcome(summary);
-    let normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: (request.rerunFailed || request.shard) && execution.code === 0 && !parsed ? "empty_selection" : outcome, summary, tests: parsed?.tests ?? [], backendArtifacts: { ...(parsed && formats.includes("nunit") ? { nunit: `Logs/${effectiveResultsPath.split(/[\\/]/).pop()}` } : {}), ...(parsed && formats.includes("junit") ? { junit: `Logs/${deriveUnityCliEffectiveReportPath(plan.junitResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard }).split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
-    if (request.retries > 0 && formats.includes("nunit")) {
+    const outcome = execution.killed ? "timed_out" : !parsed || (execution.code !== 0 && execution.code !== 8) ? "run_error" : execution.code === 8 ? "tests_failed" : determineUnityTestOutcome(summary);
+    let normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome, summary, tests: parsed?.tests ?? [], diagnostics: !parsed ? [`Required current-run NUnit XML missing or malformed: ${effectiveResultsPath}`] : execution.code !== 0 && execution.code !== 8 ? [`Unity CLI exited with code ${execution.code ?? "unknown"}; test results cannot establish success.`] : undefined, backendArtifacts: { ...(parsed && formats.includes("nunit") ? { nunit: `Logs/${effectiveResultsPath.split(/[\\/]/).pop()}` } : {}), ...(parsed && formats.includes("junit") ? { junit: `Logs/${deriveUnityCliEffectiveReportPath(plan.junitResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard }).split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
+    if (request.retries > 0 && parsed && execution.code === 0 && !execution.killed) {
       const retryPath = effectiveResultsPath.replace(/\.[^.\\/]+$/, ".retries.json");
       try {
         const retry = parseUnityCliRetrySummary(JSON.parse(await readFile(retryPath, "utf8")));
-        if (!retry) normalized = { ...normalized, outcome: "uncertain" };
+        if (!retry || retry.requested !== request.retries) normalized = { ...normalized, outcome: "uncertain", diagnostics: [`Required retry sidecar missing, malformed or mismatched: ${retryPath}`] };
         else {
           normalized = applyUnityCliRetrySummary(normalized, retry);
           normalized.backendArtifacts = { ...normalized.backendArtifacts, retrySummary: `Logs/${retryPath.split(/[\\/]/).pop()}` };
         }
       } catch {
-        normalized = { ...normalized, outcome: "uncertain" };
+        normalized = { ...normalized, outcome: "uncertain", diagnostics: [`Required retry sidecar missing or malformed: ${retryPath}`] };
       }
     }
     const artifactPath = await writeNormalizedUnityTestArtifact(candidate.projectRoot, normalized);
-    const text = `${compactUnityTestSummary(normalized)}\nRoute: isolated Unity CLI. Normalized artifact: ${artifactPath}`;
-    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), editorPath: "Unity CLI", status: outcome === "passed" || outcome === "passed_with_flakes" || outcome === "empty_selection" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: { ...normalized, tests: [] }, artifactPath, route } };
+    const defaultsText = Object.entries(cliTestDefaults).map(([key, setting]) => `${key}=${String(setting.value)} (${setting.source})`).join("; ");
+    const text = `${compactUnityTestSummary(normalized)}\nRoute: isolated Unity CLI. Normalized artifact: ${artifactPath}${defaultsText ? `\nInherited CLI defaults: ${defaultsText}` : ""}${normalized.diagnostics?.length ? `\n${normalized.diagnostics.join("; ")}` : ""}`;
+    return { content: [{ type: "text", text }], details: { mode: "tests", projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), editorPath: "Unity CLI", status: normalized.outcome === "passed" || normalized.outcome === "passed_with_flakes" ? "passed" : "failed", command: command.command, cliArgs: command.args, testBatch: plan, testResult: { ...normalized, tests: [] }, cliTestDefaults, artifactPath, route } };
   });
 }
 
@@ -1277,12 +1318,35 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   // A top-level isError property returned from execute is NOT a native error.
   pi.on("tool_result", (event) => {
     const details = event.details as UnityToolDetails | undefined;
+    if ((event.toolName === "unity_inspect_unitypackage" || event.toolName === "unity_import_unitypackage" || event.toolName === "unity_export_unitypackage")
+      && (event.details as AssetResult | undefined)?.outcome === "rejected") return { isError: true };
     if ((event.toolName === "unity_pipeline_eval" && details?.mode === "pipeline_eval" && details.pipelineEval?.outcome === "rejected")
       || (event.toolName === "unity_pipeline_inspect" && details?.mode === "pipeline_inspection" && details.pipelineInspection?.outcome === "rejected")
       || (event.toolName === "unity_pipeline_run_script" && details?.mode === "pipeline_run_script" && details.pipelineRunScript?.outcome === "rejected")
       || (event.toolName === "unity_run_tests" && details?.mode === "tests" && details.testResult?.outcome !== "passed" && details.testResult?.outcome !== "passed_with_flakes" && details.testResult?.outcome !== "empty_selection")) {
       return { isError: true };
     }
+  });
+
+  registerUnityInformationTools(pi, (command, args, options) => pi.exec(command, args, options));
+  registerUnityCloudInventoryTools(pi, (command, args, options) => pi.exec(command, args, options));
+  registerUnityAssetPackageTools(pi, {
+    execute: (command, args, options) => pi.exec(command, args, options),
+    resolveProject: async requested => {
+      const canonical = await realpath(requested);
+      const result = await resolveUnityProjectCandidates(canonical, canonical);
+      if (result.truncated || result.candidates.length !== 1 || await realpath(result.candidates[0].projectRoot) !== canonical) {
+        throw new Error("Exact Unity project root could not be resolved.");
+      }
+      return canonical;
+    },
+    withSafeProjectLaunch: (root, action) => withUnityProjectLaunchMutex(root,
+      { mode: "batchmode", toolName: "unity_asset_package", isPidAlive: () => true }, async () => {
+        const state = await inspectUnityProjectBusyState(root);
+        const running = await listBlockingUnityProcesses(root);
+        if (state.nativeLockfileExists || running.warning || running.processes.length > 0) throw new Error("Unity project busy or process state unknown.");
+        return action();
+      }),
   });
 
   type ScopeRegistrations = Readonly<{
@@ -1493,7 +1557,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       CONNECTED_TEST_SELECTOR_GUIDANCE,
       "Do not use unity_launch_batchmode for ordinary tests; raw test flags there are an unsupported escape hatch.",
       "A reachable Editor is never closed merely to obtain isolated-only options. Requests needing retries, sharding, reruns, coverage, multiple selectors, or XML reports are rejected before dispatch when it is open.",
-      "Timeout, malformed evidence, cancellation, or missing artifacts never cause a backend fallback or relaunch.",
+      "Timeout, malformed evidence, cancellation, or missing artifacts never cause a backend fallback or relaunch. Isolated CLI pins test mode and NUnit backend format; omitted timeout inherits CLI test.timeout (including project/global/env), while the host has a separate default deadline. coverage=false omits the flag but CLI test.coverage defaults may enable it.",
     ],
     parameters: RUN_TESTS_PARAMS,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -1771,7 +1835,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       "By default, pi-unity adds -nographics to batchmode launches to avoid unnecessary graphics initialization and focus stealing.",
       "Leave useGraphics=false for ordinary EditMode, non-visual PlayMode, asset import, build, and CI-style validation runs.",
       "Set useGraphics=true only when the requested work requires an active graphics device, such as screenshots, render-texture checks, visual capture, or graphics-dependent PlayMode tests.",
-      "For Unity Test Framework runs, always provide absolute -testResults and -logFile paths when practical so the tool can summarize results compactly for the agent.",
+      "For Unity Test Framework runs, always provide absolute -testResults and -logFile paths when practical so the tool can summarize results compactly for the agent. Alternatively use native logFilePath for Unity CLI; it conflicts with all forwarded -logFile forms and is rejected on direct Editor routes.",
       "Honor explicit user/project guidance to skip PlayMode tests; report them as intentionally skipped instead of launching them for extra evidence.",
       "After a timeout, hang, killed process, or missing-results infrastructure failure, inspect the exact current-run -testResults/-logFile paths once (set latestFromLogs=false) and do not relaunch without a new stated hypothesis or explicit user request.",
       "Prefer reasoning over structured test results and concise excerpts instead of dumping full Unity logs into context.",

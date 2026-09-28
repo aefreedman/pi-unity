@@ -19,6 +19,9 @@ export type UnityCliLaunchOptions = {
   useGraphics?: boolean;
   /** Forward Unity Editor's -automated flag through `unity open --args`. */
   automated?: boolean;
+  /** Native unity run log destination; never combine with forwarded -logFile. */
+  logFilePath?: string;
+  tailLog?: boolean;
 };
 
 export type UnityCliTestOptions = UnityCliLaunchOptions & {
@@ -151,7 +154,7 @@ export function createUnityCliTestCommand(projectRoot: string, options: UnityCli
   const junit = options.reportPaths?.junit;
   if (nunit && junit) args.push("--output", nunit, "--report-format", "nunit,junit", "--junit-output", junit);
   else if (junit) args.push("--output", junit, "--report-format", "junit");
-  else if (nunit) args.push("--output", nunit);
+  else if (nunit) args.push("--output", nunit, "--report-format", "nunit");
   if (options.coverage) args.push("--coverage");
   if (options.coverageOptions) args.push("--coverage-options", options.coverageOptions);
   const editorArgs: string[] = [];
@@ -166,6 +169,12 @@ export function createUnityCliRunCommand(projectRoot: string, extraEditorArgs: s
   const args = [...unityCliBaseArgs(), "run", projectRoot];
   const forwardedArgs = normalizeUnityCliForwardedArgs(applyDefaultUnityBatchmodeArgs(extraEditorArgs, { useGraphics: options.useGraphics }));
   appendUnityCliEditorOptions(args, options);
+  if (options.logFilePath !== undefined && forwardedArgs.some(arg => /^-logfile(?:$|[=:])/i.test(arg))) {
+    throw new Error("Native --log-file conflicts with forwarded -logFile; select only one log destination.");
+  }
+  if (options.tailLog === false && options.logFilePath === undefined) throw new Error("tailLog=false requires native logFilePath.");
+  if (options.logFilePath !== undefined) args.push("--log-file", options.logFilePath);
+  if (options.tailLog === false) args.push("--no-tail");
   if (options.timeoutSeconds !== undefined) {
     args.push("--timeout", String(options.timeoutSeconds));
   }
@@ -513,7 +522,7 @@ function cliEnvelopeInfo(payload: Record<string, unknown> | null): string[] {
 function cliFailureMessage(result: UnityCliExecResult): string | undefined {
   const payload = parseJsonObject(result.stdout);
   const message = envelopeMessages(payload, "errors")[0] ?? (result.stderr.trim() || result.error?.message);
-  return message ? summarizeUnityCliText(message) : undefined;
+  return message ? summarizeUnityCliText(redactUnityPlanningOutput(message)) : undefined;
 }
 
 export async function inspectUnityCliProjectCapabilities(

@@ -72,6 +72,11 @@ assert.deepEqual(run.args, [
   "EditMode",
 ]);
 
+const nativeLog = createUnityCliRunCommand("/workspace/My Game", ["-runTests"], { logFilePath: "/workspace/My Game/Logs/run.log", tailLog: false });
+assert.deepEqual(nativeLog.args.slice(4, 8), ["--log-file", "/workspace/My Game/Logs/run.log", "--no-tail", "--"]);
+for (const flag of ["-logFile", "-logFile=elsewhere.log", "-LOGFILE:elsewhere.log"]) assert.throws(() => createUnityCliRunCommand("/game", [flag, "other"], { logFilePath: "/game/Logs/run.log" }), /conflicts/);
+assert.throws(() => createUnityCliRunCommand("/game", [], { tailLog: false }), /requires/);
+assert(createUnityCliRunCommand("/game", ["-logFile", "legacy.log"]).args.includes("legacy.log"));
 assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"]), ["-batchmode", "-projectPath", "/workspace/My Game", "-nographics", "-quit"]);
 assert.deepEqual(createUnityCliBatchmodeReportArgs("/workspace/My Game", ["-quit"], { useGraphics: true }), ["-batchmode", "-projectPath", "/workspace/My Game", "-quit"]);
 
@@ -124,6 +129,9 @@ const fallbackFieldOutput = JSON.stringify({
   },
 });
 assert.equal(parseUnityCliStatusOutput(fallbackFieldOutput, "C:/Projects/Game")[0].pid, 789);
+const starting = JSON.stringify({ success: true, data: { instances: [{ projectPath: "/workspace/My Game", pid: 111, state: "starting", reachable: false }] } });
+assert.equal(parseUnityCliStatusOutput(starting, "/workspace/My Game")[0]?.pid, 111);
+assert.deepEqual(parseUnityCliPipelineListOutput(starting, "/workspace/My Game").instances.map(instance => [instance.state, instance.reachable]), [["starting", false]]);
 
 const nestedProjectOnlyOutput = JSON.stringify({
   data: {
@@ -208,6 +216,14 @@ const malformedCapabilities = await inspectUnityCliProjectCapabilities("/fixture
   execute: async (_command, args) => args.includes("--version") ? { stdout: "1.0.0", stderr: "" } : { stdout: "not-json", stderr: "" },
 });
 assert.equal(malformedCapabilities.pipelineDiscovery, "unavailable");
+let usageCalls = 0;
+const usageFailure = await inspectUnityCliProjectCapabilities("/fixture/closed", "6000.1.0f1", { execute: async (_command, args) => {
+  usageCalls++;
+  return args.includes("--version") ? { stdout: "1.0.0-beta.11", stderr: "" } : { stdout: JSON.stringify({ success: false, errors: [{ code: "INVALID_COMMAND_ARGS", message: "Invalid argument token=secret123" }] }), stderr: "", error: Object.assign(new Error("exit 2"), { code: 2 }) };
+} });
+assert.equal(usageCalls, 2, "A structured usage failure never retries or discovers commands.");
+assert.equal(usageFailure.pipelineDiscovery, "unavailable");
+assert.doesNotMatch(usageFailure.warnings.join(" "), /secret123/);
 
 const catalogProject = await mkdtemp(join(tmpdir(), "pi-unity-cli-catalog-"));
 try {
@@ -520,6 +536,9 @@ try {
   await rm(`${planningProject}Sibling`, { recursive: true, force: true });
 }
 
+const nunitOnly = createUnityCliTestCommand("/game", { testPlatform: "EditMode", retries: 10, reportPaths: { nunit: "/game/Logs/backend.xml" } });
+assert.deepEqual(nunitOnly.args.slice(nunitOnly.args.indexOf("--output"), nunitOnly.args.indexOf("--output") + 4), ["--output", "/game/Logs/backend.xml", "--report-format", "nunit"]);
+assert(nunitOnly.args.includes("10"));
 const cliTest = createUnityCliTestCommand("/game", { testPlatform: "EditMode", testFilters: ["Game.Fast"], testCategories: ["Smoke"], retries: 2, shard: "1/4", coverage: true, reportPaths: { nunit: "/game/Logs/results.xml", junit: "/game/Logs/results.junit.xml", log: "/game/Logs/results.log" } });
 assert.deepEqual(cliTest.args.slice(0, 6), ["--no-banner", "--non-interactive", "test", "/game", "--mode", "EditMode"]);
 assert(!cliTest.args.includes("--editor-version"), "Ordinary Unity CLI test relies on ProjectVersion.txt.");
