@@ -1313,9 +1313,9 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
 }
 
 export default function freeUnityPi(pi: ExtensionAPI) {
-  // Pi's documented tool_result patch marks native failure without discarding the
-  // structured rejection details (throwing from execute retains only error text).
-  // A top-level isError property returned from execute is NOT a native error.
+  // Classify existing structured outcomes through Pi's tool_result hook while
+  // preserving rejection details. Pi also supports native isError: true returned
+  // from execute; this hook retains the current outcome classification.
   pi.on("tool_result", (event) => {
     const details = event.details as UnityToolDetails | undefined;
     if ((event.toolName === "unity_inspect_unitypackage" || event.toolName === "unity_import_unitypackage" || event.toolName === "unity_export_unitypackage")

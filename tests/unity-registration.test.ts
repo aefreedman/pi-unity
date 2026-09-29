@@ -37,7 +37,7 @@ function fakePi(exec: (command: string, args: string[]) => Promise<any> = async 
 async function emit(pi: ReturnType<typeof fakePi>, name: string, ctx: any) { for (const handler of pi.handlers.get(name) ?? []) await handler({ reason: name === "session_start" ? "startup" : "quit" }, ctx); }
 
 // Exercise Pi's actual native finalizer and extension middleware, not an imitation
-// that treats execute().details.status (or a returned isError field) as failure.
+// that treats execute().details.status alone as native failure.
 // Resolve agent-core through the installed host so this works with nested npm deps.
 const hostRequire = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
 const coreManifestPath = hostRequire.resolve("@earendil-works/pi-agent-core/package.json");
