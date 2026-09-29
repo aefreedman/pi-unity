@@ -47,8 +47,14 @@ for (const integration of ["@aefree/pi-project-artifacts", "@aefree/pi-file-disc
   assert.equal(packageJson.dependencies?.[integration], undefined, `${integration} must not be a required runtime dependency.`);
 }
 assert.equal(packageJson.dependencies?.["@aefree/pi-capability-registry"], undefined, "No remaining Unity runtime contract requires the capability registry.");
-assert.equal(packageJson.dependencies?.typebox, "1.3.8", "typebox is statically imported at runtime.");
-assert.equal(packageJson.peerDependencies?.typebox, undefined, "typebox is not a host-provided framework dependency.");
+assert.equal(packageJson.dependencies?.typebox, undefined, "Pi supplies TypeBox; do not install a production copy.");
+assert.equal(packageJson.peerDependencies?.typebox, "*");
+assert.equal(packageJson.peerDependenciesMeta?.typebox?.optional, true);
+assert.equal(packageJson.devDependencies?.typebox, "1.3.8");
+for (const name of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+  assert.equal(packageJson.peerDependencies?.[name], "*");
+  assert.equal(packageJson.devDependencies?.[name], "0.99.1");
+}
 assert.equal(packageJson.devDependencies?.tsx, "^4.23.5", "Tests must declare their local TypeScript runner.");
 assert(!packageJson.scripts?.test?.includes("npx --yes tsx"), "Tests must use the locally installed tsx.");
 assert.equal(packageJson.engines?.node, ">=22.19.0", "Node support must satisfy the declared framework and development packages.");
