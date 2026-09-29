@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -7,6 +7,7 @@ import { resolveArtifactProfilesV1 } from "@aefree/pi-project-artifacts/contract
 import { resolveFileDiscoveryFiltersV1 } from "@aefree/pi-file-discovery/contracts/v1";
 
 const packagePath = fileURLToPath(new URL("../", import.meta.url));
+const packageIdentity = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8"));
 const keys = {
   artifacts: "@aefree/pi-project-artifacts/profiles/v1",
   fileDiscovery: "@aefree/pi-file-discovery/filters/v1",
@@ -76,25 +77,34 @@ async function installedPeerRegister(name: "artifacts" | "file-discovery"): Prom
 }
 
 for (const fixture of [
-  { name: "artifacts", resolve: (scope: object) => resolveArtifactProfilesV1(scope).outcome },
-  { name: "file-discovery", resolve: (scope: object) => resolveFileDiscoveryFiltersV1(scope).outcome },
+  { name: "artifacts", resolve: (scope: object) => resolveArtifactProfilesV1(scope) },
+  { name: "file-discovery", resolve: (scope: object) => resolveFileDiscoveryFiltersV1(scope) },
 ] as const) {
-  clearRendezvous();
-  const root = await createIsolatedUnityCopy(fixture.name);
-  try {
-    const [registerUnity, registerPeer] = await Promise.all([loadIsolatedUnity(root), installedPeerRegister(fixture.name)]);
-    const pi = fakePi();
-    registerPeer(pi as any);
-    registerUnity(pi as any);
-    const scope = {};
-    const ctx = { cwd: root, sessionManager: scope, mode: "print", hasUI: false, ui: {} };
-    await emit(pi, "session_start", ctx);
-    assert.equal(fixture.resolve(scope), "available", `${fixture.name} composes from its separate package root.`);
-    await emit(pi, "session_shutdown", ctx);
-    assert.equal(fixture.resolve(scope), "missing", `${fixture.name} record is removed on shutdown.`);
-  } finally {
-    await rm(root, { recursive: true, force: true });
+  for (const unityFirst of [false, true]) {
     clearRendezvous();
+    const root = await createIsolatedUnityCopy(fixture.name);
+    try {
+      const [registerUnity, registerPeer] = await Promise.all([loadIsolatedUnity(root), installedPeerRegister(fixture.name)]);
+      const pi = fakePi();
+      for (const register of unityFirst ? [registerUnity, registerPeer] : [registerPeer, registerUnity]) register(pi as any);
+      const scope = {};
+      const ctx = { cwd: root, sessionManager: scope, mode: "print", hasUI: false, ui: {} };
+      await emit(pi, "session_start", ctx);
+      const resolution = fixture.resolve(scope);
+      assert.equal(resolution.outcome, "available", `${fixture.name} composes from its separate package root.`);
+      if (resolution.outcome === "available") {
+        const record = resolution.records.find((record) => record.owner.packageName === packageIdentity.name);
+        assert(record, "Integration diagnostics must identify the Unity provider.");
+        assert.equal(record.owner.packageVersion, packageIdentity.version, "Integration diagnostics must report the final manifest version in either load order.");
+        assert.equal(record.owner.packageRoot, root);
+        assert.equal(record.owner.registeredBy, "index.ts");
+      }
+      await emit(pi, "session_shutdown", ctx);
+      assert.equal(fixture.resolve(scope).outcome, "missing", `${fixture.name} record is removed on shutdown.`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      clearRendezvous();
+    }
   }
 }
 

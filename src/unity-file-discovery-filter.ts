@@ -18,7 +18,7 @@ export function createUnityFileDiscoveryFilterV1(): FileDiscoveryFilterV1 {
     contractVersion: 1,
     id: UNITY_FILE_DISCOVERY_FILTER_ID_V1,
     kind: "file-discovery-filter",
-    owner: Object.freeze({ packageName: "@aefree/pi-unity", packageVersion: "0.8.3", packageRoot: path.resolve(fileURLToPath(new URL("..", import.meta.url))), registeredBy: "index.ts" }),
+    owner: Object.freeze({ packageName: "@aefree/pi-unity", packageVersion: "0.16.1", packageRoot: path.resolve(fileURLToPath(new URL("..", import.meta.url))), registeredBy: "index.ts" }),
     async evaluate(context, request) { return await evaluateUnityFileDiscoveryFilterV1(context, request); },
   });
 }
