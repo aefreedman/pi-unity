@@ -1,18 +1,39 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-if (process.env.GITHUB_REF !== "refs/heads/main") {
-  console.error(`::error::Trusted publication must be dispatched from main, not ${process.env.GITHUB_REF ?? "unknown"}.`);
-  process.exit(1);
-}
-
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const packageName = packageJson.name;
 const packageVersion = packageJson.version;
-const expectedGitHead = process.env.GITHUB_SHA;
-if (typeof packageName !== "string" || packageName.length === 0 || typeof packageVersion !== "string" || packageVersion.length === 0 || typeof expectedGitHead !== "string" || expectedGitHead.length === 0) {
-  console.error("::error::Package name, package version, and GITHUB_SHA are required to reconcile the npm release identity.");
+function fail(message) {
+  console.error(`::error::${message}`);
   process.exit(1);
+}
+function gitCommit(ref) {
+  const result = spawnSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { encoding: "utf8" });
+  if (result.error || result.status !== 0) fail(`Unable to resolve release source: ${ref}`);
+  return result.stdout.trim();
+}
+if (typeof packageName !== "string" || !packageName || typeof packageVersion !== "string" || !packageVersion || packageVersion.includes("-")) {
+  fail("A stable package name/version is required.");
+}
+const expectedTag = `v${packageVersion}`;
+if (process.env.RELEASE_TAG !== expectedTag) fail(`Release tag must be ${expectedTag}.`);
+if (process.env.GITHUB_EVENT_NAME === "release") {
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+  if (event.action !== "published" || event.release?.draft !== false || event.release?.prerelease !== false || event.release?.tag_name !== expectedTag) {
+    fail("Expected a published stable release with the exact version tag.");
+  }
+} else if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch") {
+  if (process.env.GITHUB_REF !== "refs/heads/main") fail("Trusted publication must be dispatched from main.");
+} else {
+  fail("Unsupported publication event.");
+}
+const expectedGitHead = gitCommit("HEAD");
+if (gitCommit(`refs/tags/${expectedTag}`) !== expectedGitHead) fail("Release tag does not match checked-out source.");
+// Dispatch retains its main-only contract; release events use the tag source,
+// never the event's potentially unrelated default-branch SHA.
+if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.GITHUB_SHA !== expectedGitHead) {
+  fail("Dispatch main commit does not match the checked-out release tag.");
 }
 
 const packageSpec = `${packageName}@${packageVersion}`;

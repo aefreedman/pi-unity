@@ -1,7 +1,14 @@
 name: npm release
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag at main to publish or reconcile
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,10 +20,16 @@ concurrency:
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0

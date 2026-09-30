@@ -16,6 +16,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Publish stable GitHub releases automatically through trusted npm publishing, with immutable tag-source checks and main-dispatch recovery.
 - Refresh tsx and Node 22 development types; clarify native error support without changing outcome classification.
 - Align development and deterministic validation with Pi 0.99.1. Use the host-provided TypeBox peer instead of a production copy.
 

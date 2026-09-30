@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const packageName = "@aefree/pi-unity";
 const packageVersion = "0.14.0";
-const expectedGitHead = "0123456789abcdef0123456789abcdef01234567";
+let expectedGitHead: string;
 const preflightScript = fileURLToPath(new URL("../.github/scripts/reconcile-npm-release.mjs", import.meta.url));
 
-function runGate(scenario: string) {
+function runGate(scenario: string, eventName = "workflow_dispatch", overrides: Record<string, string> = {}, wrongTagCommit = false, releaseOverrides: Record<string, unknown> = {}) {
   const directory = mkdtempSync(join(tmpdir(), "pi-unity-release-preflight-"));
   try {
     const binDirectory = join(directory, "bin");
@@ -18,6 +18,20 @@ function runGate(scenario: string) {
     const callsFile = join(directory, "npm-calls");
     mkdirSync(binDirectory);
     writeFileSync(join(directory, "package.json"), JSON.stringify({ name: packageName, version: packageVersion }));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: directory, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "--quiet");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "fixture");
+    expectedGitHead = git("rev-parse", "HEAD");
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "tag", "-a", `v${packageVersion}`, "-m", "fixture", expectedGitHead);
+    if (wrongTagCommit) {
+      git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "different source");
+    }
+    const eventPath = join(directory, "event.json");
+    writeFileSync(eventPath, JSON.stringify({ action: "published", release: { tag_name: `v${packageVersion}`, draft: false, prerelease: false, ...releaseOverrides } }));
     const npmFixture = [
       "#!/usr/bin/env node",
       'const { appendFileSync } = require("node:fs");',
@@ -59,8 +73,12 @@ function runGate(scenario: string) {
       encoding: "utf8",
       env: {
         ...process.env,
-        GITHUB_REF: "refs/heads/main",
-        GITHUB_SHA: expectedGitHead,
+        GITHUB_REF: eventName === "release" ? `refs/tags/v${packageVersion}` : "refs/heads/main",
+        GITHUB_SHA: eventName === "release" ? "unrelated-default-branch-sha" : expectedGitHead,
+        GITHUB_EVENT_NAME: eventName,
+        GITHUB_EVENT_PATH: eventPath,
+        RELEASE_TAG: `v${packageVersion}`,
+        ...overrides,
         GITHUB_ENV: environmentFile,
         NPM_CALLS: callsFile,
         NPM_SCENARIO: scenario,
@@ -108,4 +126,26 @@ assert(nonE404.output.includes("Unable to verify whether"));
 assert(nonE404.output.includes("npm error code E401"), "Failure diagnostics must be retained.");
 assert.equal(nonE404.environment, "");
 
+for (const scenario of ["absent", "matching", "version-mismatch", "head-mismatch", "missing-head", "malformed-json", "non-e404"]) {
+  const result = runGate(scenario, "release");
+  assert.equal(result.status, ["absent", "matching"].includes(scenario) ? 0 : scenario === "non-e404" ? 17 : 1, `release ${scenario}`);
+}
+for (const eventName of ["release", "workflow_dispatch"]) {
+  for (const overrides of [{ RELEASE_TAG: "v0.0.0" }, { RELEASE_TAG: "" }]) {
+    const result = runGate("absent", eventName, overrides);
+    assert.equal(result.status, 1);
+    assert.equal(result.calls, "", "Wrong/empty tag must fail before npm.");
+  }
+  const result = runGate("absent", eventName, {}, true);
+  assert.equal(result.status, 1);
+  assert.equal(result.calls, "", "Tag/checkout mismatch must fail before npm.");
+}
+for (const overrides of [{ GITHUB_REF: "refs/heads/other" }, { GITHUB_SHA: "wrong-main-sha" }]) {
+  assert.equal(runGate("absent", "workflow_dispatch", overrides).status, 1);
+}
+for (const releaseOverrides of [{ tag_name: "v0.0.0" }, { prerelease: true }, { draft: true }]) {
+  const result = runGate("absent", "release", {}, false, releaseOverrides);
+  assert.equal(result.status, 1);
+  assert.equal(result.calls, "");
+}
 console.log("release registry preflight tests passed");
