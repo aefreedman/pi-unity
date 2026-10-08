@@ -26,7 +26,7 @@ const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.
 const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
 
 assert.equal(packageJson.private, undefined, "The prepared public release must not retain npm's private publication guard.");
-assert.equal(packageJson.version, "0.16.1", "The prepared release version must match the finalized changelog.");
+assert.equal(packageJson.version, "0.16.2", "The prepared release version must match the finalized changelog.");
 assert(changelogText.includes(`## ${packageJson.version} - `), "The prepared release must have a changelog entry.");
 assert(changelogText.includes("## Unreleased"), "Retain the unreleased section for future work.");
 assert.equal(packageJson.publishConfig?.access, "public", "The scoped package must publish with public access.");
@@ -53,7 +53,7 @@ assert.equal(packageJson.peerDependenciesMeta?.typebox?.optional, true);
 assert.equal(packageJson.devDependencies?.typebox, "1.3.8");
 for (const name of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
   assert.equal(packageJson.peerDependencies?.[name], "*");
-  assert.equal(packageJson.devDependencies?.[name], "0.99.1");
+  assert.equal(packageJson.devDependencies?.[name], "1.1.0");
 }
 assert.equal(packageJson.devDependencies?.tsx, "4.23.15", "Tests must declare the locally validated TypeScript runner.");
 assert(!packageJson.scripts?.test?.includes("npx --yes tsx"), "Tests must use the locally installed tsx.");

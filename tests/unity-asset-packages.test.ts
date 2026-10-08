@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,7 +10,7 @@ const goodInspect = (path = "Assets/Example.txt") => JSON.stringify({ success: t
 const goodMutation = JSON.stringify({ success: true, command: "assets export", data: {}, errors: [], warnings: [] });
 
 async function fixture(run: (values: { root: string; project: string; archive: string; output: string }) => Promise<void>) {
-  const root = await mkdtemp(join(tmpdir(), "unity-assets-test-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "unity-assets-test-")));
   const project = join(root, "project");
   const archive = join(root, "package.unitypackage");
   const output = join(root, "export.unitypackage");

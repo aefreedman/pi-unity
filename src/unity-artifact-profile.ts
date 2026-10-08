@@ -12,7 +12,7 @@ export const UNITY_RENDER_PIPELINES = ["builtin", "urp", "hdrp", "custom", "agno
 
 const OWNER = Object.freeze({
   packageName: "@aefree/pi-unity",
-  packageVersion: "0.16.1",
+  packageVersion: "0.16.2",
   packageRoot: path.resolve(fileURLToPath(new URL("..", import.meta.url))),
   registeredBy: "index.ts",
 });

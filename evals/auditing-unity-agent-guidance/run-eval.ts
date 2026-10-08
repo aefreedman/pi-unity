@@ -32,7 +32,7 @@ type RunEvidence = {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "../..");
-const PI_VERSION = "0.99.1";
+const PI_VERSION = "1.1.0";
 
 function resolvePiCliPath(): string {
   const candidates = [
