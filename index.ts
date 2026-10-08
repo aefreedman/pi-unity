@@ -27,7 +27,7 @@ import {
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
 import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliBlockedDialog, type UnityCliExecutor } from "./src/unity-cli";
-import { launchUnityCliOpenDetached } from "./src/unity-launch";
+import { launchUnityCliOpenDetached, summarizeUnityGuiLaunch, type UnityGuiLaunchResult, type UnityGuiSpawn } from "./src/unity-launch";
 import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-editor-fallback";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
 import { dedupeRunningUnityProcesses, listRunningUnityProcessesForProject, redactUnityProcessCommandLine, terminateRunningUnityProcesses, verifyUnityProcessIdentity, type RunningUnityProcess } from "./src/unity-processes";
@@ -82,6 +82,7 @@ export type UnityToolDetails = {
   editorPath: string;
   warning?: string;
   pid?: number;
+  guiLaunch?: UnityGuiLaunchResult;
   command?: string;
   args?: string[];
   exitCode?: number;
@@ -380,8 +381,8 @@ function formatProcessSummary(processes: RunningUnityProcess[]): string {
     .join("\n");
 }
 
-async function enforceSingleProcessRule(projectRoot: string): Promise<void> {
-  const running = await listBlockingUnityProcesses(projectRoot);
+async function enforceSingleProcessRule(projectRoot: string, execute?: UnityCliExecutor): Promise<void> {
+  const running = await listBlockingUnityProcesses(projectRoot, execute);
   if (running.warning) {
     throw new Error(`Refusing to launch Unity because same-project process verification is incomplete: ${running.warning}`);
   }
@@ -1323,7 +1324,7 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
   return lines.join("\n");
 }
 
-export default function freeUnityPi(pi: ExtensionAPI) {
+export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?: UnityGuiSpawn; observationTimeoutMs?: number } = {}) {
   // Sanitize registered-tool output itself, including progress and thrown diagnostics;
   // renderers are only a secondary boundary and source logs are never rewritten.
   const registerTool: ExtensionAPI["registerTool"] = tool => pi.registerTool({
@@ -1486,27 +1487,29 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       try {
         const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, args.trim() || undefined);
         await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "gui", toolName: "unity-open" }, async () => {
-          await enforceSingleProcessRule(candidate.projectRoot);
+          await enforceSingleProcessRule(candidate.projectRoot, auxiliaryCliExecutor);
         let launcher: "unity-cli" | "editor-executable" = "editor-executable";
         let editorPath = "Unity CLI";
-        let launch: { pid: number | undefined; args: string[]; command: string };
+        let cliLaunch: UnityGuiLaunchResult | undefined;
+        let launch: { pid?: number; args: string[]; command: string };
         if (await shouldUseUnityCli(pi, undefined)) {
           launcher = "unity-cli";
-          launch = launchUnityCliOpenDetached(candidate.projectRoot);
+          cliLaunch = await launchUnityCliOpenDetached(candidate.projectRoot, guiDependencies);
+          launch = cliLaunch;
         } else {
           await assertUnityProjectNotBusy(candidate.projectRoot);
           editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
           launch = launchUnityEditorDetached(editorPath, candidate.projectRoot);
         }
-        const summary = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
-        ctx.ui.notify(summary, "info");
+        const summary = cliLaunch ? [`Project: ${formatPathForUser(ctx.cwd, candidate.projectRoot)}`, summarizeUnityGuiLaunch(cliLaunch), GUI_WARNING, SINGLE_PROCESS_WARNING, discoveryWarning].filter(Boolean).join("\n") : buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
+        ctx.ui.notify(summary, cliLaunch && cliLaunch.outcome !== "completed" ? cliLaunch.outcome === "failed" ? "error" : "warning" : "info");
         if (launch.pid) {
           ctx.ui.notify(`Unity process started with pid ${launch.pid}.`, "info");
         }
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-        ctx.ui.notify(message, "error");
+        ctx.ui.notify(redactUnityCredentials(message), "error");
       }
     },
   });
@@ -1810,24 +1813,27 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
       return await withUnityProjectLaunchMutex(candidate.projectRoot, { mode: "gui", toolName: "unity_open_editor" }, async () => {
-      await enforceSingleProcessRule(candidate.projectRoot);
+      await enforceSingleProcessRule(candidate.projectRoot, auxiliaryCliExecutor);
       throwIfAborted(signal);
       const useUnityCli = await shouldUseUnityCli(pi, params.launcher as UnityLauncherPreference | undefined, signal);
       throwIfAborted(signal);
       let launcher: "unity-cli" | "editor-executable" = "editor-executable";
       let editorPath = "Unity CLI";
-      let launch: { pid: number | undefined; args: string[]; command: string };
+      let cliLaunch: UnityGuiLaunchResult | undefined;
+      let launch: { pid?: number; args: string[]; command: string };
       if (useUnityCli) {
         launcher = "unity-cli";
-        launch = launchUnityCliOpenDetached(candidate.projectRoot, { automated: params.automated });
+        cliLaunch = await launchUnityCliOpenDetached(candidate.projectRoot, { ...guiDependencies, automated: params.automated, signal });
+        launch = cliLaunch;
       } else {
         await assertUnityProjectNotBusy(candidate.projectRoot);
         editorPath = await resolveUnityEditorPath(await requireManualUnityVersion(candidate));
         launch = launchUnityEditorDetached(editorPath, candidate.projectRoot, { automated: params.automated });
       }
-      const text = buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
+      const text = cliLaunch ? [`Project: ${formatPathForUser(ctx.cwd, candidate.projectRoot)}`, summarizeUnityGuiLaunch(cliLaunch), GUI_WARNING, SINGLE_PROCESS_WARNING, discoveryWarning].filter(Boolean).join("\n") : buildEditorLaunchSummary(ctx.cwd, candidate, editorPath, discoveryWarning, launcher);
 
       return {
+        isError: Boolean(cliLaunch && cliLaunch.outcome !== "completed"),
         content: [{ type: "text", text }],
         details: {
           mode: "gui",
@@ -1835,6 +1841,8 @@ export default function freeUnityPi(pi: ExtensionAPI) {
           unityVersion: await requireManualUnityVersion(candidate),
           editorPath,
           pid: launch.pid,
+          guiLaunch: cliLaunch,
+          status: cliLaunch ? cliLaunch.outcome === "completed" ? "passed" : cliLaunch.outcome === "failed" ? "failed" : undefined : undefined,
           command: launch.command,
           args: launch.args,
           warning: discoveryWarning,

@@ -1037,3 +1037,49 @@ console.log("pi-unity reverse load-order, result-contract and delayed-shutdown r
     resetWarning();
   }
 }
+
+// Offline registered GUI launch: same preflight/mutex, injected child only.
+{
+  const { syntheticGuiSpawn } = await import("./unity-gui-fixture");
+  const root = await mkdtemp(join(tmpdir(), "pi-unity-gui-observation-"));
+  try {
+    const project = join(root, "Game");
+    for (const dir of ["Assets", "Packages", "ProjectSettings"]) await mkdir(join(project, dir), { recursive: true });
+    await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
+    for (const outcome of ["completed", "failed", "timeout", "cancelled"] as const) {
+      const controller = new AbortController();
+      const fake = syntheticGuiSpawn(child => {
+        if (outcome === "cancelled") { controller.abort(); return; }
+        if (outcome === "timeout") return;
+        child.stderr.write(outcome === "failed" ? "PROJECT_UPGRADE_REQUIRED password=gui-secret" : "warning password=gui-secret");
+        child.emit("close", outcome === "failed" ? 1 : 0, null);
+      });
+      const pi = fakePi(async (_command, args) => {
+        if (args.includes("--version")) return { code: 0, stdout: "1.0.0-beta.13", stderr: "" };
+        assert(args.includes("status"), "Only preflight/status allowed through pi.exec");
+        return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [] } }), stderr: "" };
+      });
+      registerUnity(pi as any, { spawn: fake.spawn, observationTimeoutMs: 20 });
+      const notifications: Array<{ text: string; tone: string }> = [];
+      const ctx = { cwd: project, hasUI: false, sessionManager: { getBranch: () => [] }, ui: { notify(text: string, tone: string) { notifications.push({ text, tone }); } } };
+      const tool = pi.tools.find(tool => tool.name === "unity_open_editor");
+      const result = await tool.execute("gui", { path: project, automated: true }, controller.signal, undefined, ctx);
+      assert.equal(result.isError, outcome !== "completed");
+      assert.equal(result.details.guiLaunch.outcome, outcome);
+      assert.equal(result.details.pid, undefined, "CLI PID must not be exposed as Editor PID");
+      assert.equal(result.details.guiLaunch.cliPid, 987);
+      assert.equal(JSON.stringify(result).includes("gui-secret"), false);
+      assert.equal(result.content[0].text.includes("Launched Unity Editor"), false);
+      assert.deepEqual(fake.calls[0].slice(-2), ["--args", "-automated"]);
+      assert.equal(fake.calls.length, 1, "No fallback or retry");
+      if (outcome === "failed" || outcome === "completed" || outcome === "timeout") {
+        await pi.commands.find(command => command.name === "unity-open").handler(project, ctx);
+        assert.equal(fake.calls.length, 2);
+        assert.equal(notifications[0].tone, outcome === "failed" ? "error" : outcome === "timeout" ? "warning" : "info");
+        assert.equal(JSON.stringify(notifications).includes("gui-secret"), false);
+        assert.equal(notifications.some(item => /process started with pid|Launched Unity Editor/.test(item.text)), false);
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+}
+console.log("registered bounded GUI launch tests passed");

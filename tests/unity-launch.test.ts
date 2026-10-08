@@ -46,3 +46,58 @@ try {
 }
 
 console.log("pi-unity unity-launch tests passed");
+
+// Synthetic process events only: never invoke Unity or an Editor.
+const { launchUnityCliOpenDetached, summarizeUnityGuiLaunch } = await import("../src/unity-launch");
+const { syntheticGuiSpawn } = await import("./unity-gui-fixture");
+for (const code of [0, 1]) {
+  const fake = syntheticGuiSpawn(child => {
+    child.stdout.write("warning password=launch-secret");
+    child.stderr.write(code ? "PROJECT_UPGRADE_REQUIRED: manual decision required" : "opened");
+    child.emit("close", code, null);
+  });
+  const result = await launchUnityCliOpenDetached("synthetic-project", { spawn: fake.spawn, automated: true });
+  assert.equal(result.outcome, code ? "failed" : "completed");
+  assert.equal(result.cliPid, 987);
+  assert.equal("pid" in result, false);
+  assert.equal(result.diagnostics.includes("launch-secret"), false);
+  assert.deepEqual(fake.calls[0].slice(-2), ["--args", "-automated"]);
+  assert.equal(fake.calls.length, 1);
+  assert.match(summarizeUnityGuiLaunch(result), code ? /No retry, direct fallback, or project upgrade/ : /readiness.*not verified/);
+}
+{
+  const fake = syntheticGuiSpawn(child => child.emit("error", new Error("ENOENT password=spawn-secret")));
+  const result = await launchUnityCliOpenDetached("synthetic", { spawn: fake.spawn });
+  assert.equal(result.outcome, "failed");
+  assert.match(result.diagnostics, /ENOENT/);
+  assert.equal(result.diagnostics.includes("spawn-secret"), false);
+}
+for (const kind of ["timeout", "cancelled"] as const) {
+  const controller = new AbortController();
+  const fake = syntheticGuiSpawn(child => { if (kind === "cancelled") controller.abort(); });
+  const result = await launchUnityCliOpenDetached("synthetic", { spawn: fake.spawn, signal: controller.signal, observationTimeoutMs: 10 });
+  assert.equal(result.outcome, kind);
+  assert.match(summarizeUnityGuiLaunch(result), /uncertain.*already be running/);
+  fake.children[0].emit("close", 0, null); // late completion cannot reclassify uncertainty
+  assert.equal(result.outcome, kind);
+}
+{
+  const fake = syntheticGuiSpawn(child => {
+    child.stdout.write("password=" + "s".repeat(70000));
+    child.stderr.write("x".repeat(4500) + " password=tail-secret");
+    child.emit("close", null, "SIGTERM");
+  });
+  const result = await launchUnityCliOpenDetached("synthetic", { spawn: fake.spawn });
+  assert.equal(result.outcome, "failed");
+  assert.match(result.diagnostics, /capture limit exceeded/);
+  assert.match(result.diagnostics, /truncated/);
+  assert.equal(result.diagnostics.includes("tail-secret"), false);
+}
+{
+  const controller = new AbortController(); controller.abort();
+  const result = await launchUnityCliOpenDetached("synthetic", { signal: controller.signal, spawn: () => { throw new Error("Must not dispatch"); } });
+  assert.equal(result.outcome, "cancelled");
+  const result2 = await launchUnityCliOpenDetached("synthetic", { spawn: () => { throw new Error("spawn failed"); } });
+  assert.equal(result2.outcome, "failed");
+}
+console.log("bounded GUI CLI observation tests passed");

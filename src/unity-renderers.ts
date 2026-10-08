@@ -109,7 +109,7 @@ export function renderUnityToolResult(result: Result, expanded: boolean, theme: 
   const tests = details.testResult;
   const output = details.pipelineEval ?? details.pipelineInspection ?? details.pipelineRunScript;
   const outcome = tests?.outcome ?? details.testOutcome;
-  const uncertain = outcome && ["uncertain", "empty_selection", "timed_out", "cancelled", "passed_with_flakes"].includes(outcome);
+  const uncertain = details.guiLaunch?.outcome === "timeout" || details.guiLaunch?.outcome === "cancelled" || outcome && ["uncertain", "empty_selection", "timed_out", "cancelled", "passed_with_flakes"].includes(outcome);
   const failed = context?.isError || details.status === "failed" || outcome === "tests_failed" || outcome === "run_error" || output?.outcome === "rejected";
   const tone = uncertain || details.status === "killed" || details.projectState?.processVerificationIncomplete || details.projectState?.staleLockSuspected ? "warning" : failed ? "error" : details.status === "passed" || details.mode === "gui" ? "success" : "warning";
   let summary: string = details.status ?? "Completed";
