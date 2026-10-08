@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -36,7 +36,7 @@ function clearRendezvous(): void {
 
 /** pi-unity gets only Pi core modules; optional package roots remain external. */
 async function createIsolatedUnityCopy(name: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), `pi-unity-optional-${name}-`));
+  const root = await realpath(await mkdtemp(join(tmpdir(), `pi-unity-optional-${name}-`)));
   for (const entry of ["index.ts", "src", "package.json"]) {
     await cp(join(packagePath, entry), join(root, entry), { recursive: true });
   }

@@ -17,7 +17,7 @@ and this project follows semantic versioning for public package releases.
 
 - Observe bounded Unity CLI GUI launch completion/failure instead of immediate launch success, including redacted refusal diagnostics and timeout/cancellation uncertainty without killing an Editor, retrying, falling back, or upgrading. Keep CLI and Editor PIDs distinct.
 
-- Canonicalize asset-package test fixture roots so validation works with macOS temporary-directory aliases and Windows short paths.
+- Canonicalize asset-package and optional-integration test fixture roots so validation works with macOS temporary-directory aliases and Windows short paths.
 - Surface beta.13 blocked-dialog status with bounded, redacted exact-copy dialog details and manual-resolution guidance; preserve positive process evidence and fail closed on malformed or unidentified status without dismissal, retry, or launch.
 
 - Share credential redaction across tool text/details/progress, diagnostics, local log excerpts, and durable normalized test evidence before truncation, including quoted and camelCase token flags and Android signing passwords. Original logs and test outcome classification remain unchanged.
