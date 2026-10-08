@@ -26,7 +26,7 @@ import {
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
-import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliExecutor } from "./src/unity-cli";
+import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliBlockedDialog, type UnityCliExecutor } from "./src/unity-cli";
 import { launchUnityCliOpenDetached } from "./src/unity-launch";
 import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-editor-fallback";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
@@ -106,6 +106,8 @@ export type UnityToolDetails = {
   projectState?: { nativeLockfileExists: boolean; runningProcessCount: number; processVerificationIncomplete: boolean; staleLockSuspected: boolean };
   testBatch?: UnityTestBatchPlan;
   cliCapabilities?: UnityCliProjectCapabilities;
+  blockedBy?: UnityCliBlockedDialog[];
+  blockedByDialog?: boolean;
   pipelineInspection?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
   pipelineEval?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
   pipelineRunScript?: { outcome: "dispatched"; command: string; output: string; truncated: boolean } | { outcome: "rejected"; code: string; message: string };
@@ -623,15 +625,16 @@ async function buildProjectStatusReport(
   candidate: UnityProjectCandidate,
   signal?: AbortSignal,
   allowAutonomousPlayModeExit = true,
+  execute?: UnityCliExecutor,
 ): Promise<{ text: string; details: UnityToolDetails }> {
   const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
-  const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot);
+  const cliStatus = await listRunningUnityCliEditorsForProject(candidate.projectRoot, { execute });
   const processStatus = await listRunningUnityProcessesForProject(candidate.projectRoot);
   const unityVersion = await requireManualUnityVersion(candidate);
-  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
+  const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal, execute });
   const runningProcesses = dedupeRunningUnityProcesses([...cliStatus.processes, ...processStatus.processes]);
   const isBusy = runningProcesses.length > 0 || cliCapabilities.matchingInstances.length > 0;
-  const staleLockSuspected = lockState.nativeLockfileExists && !isBusy && !processStatus.warning;
+  const staleLockSuspected = lockState.nativeLockfileExists && !isBusy && !processStatus.warning && !cliStatus.warning;
   const warning = joinWarnings(cliStatus.warning, processStatus.warning);
   const piUnitySettings = await loadPiUnitySettings(ctx);
 
@@ -664,7 +667,12 @@ async function buildProjectStatusReport(
     lines.push(`- Advertised Pipeline commands: ${displayedCommands.join(", ")}${omittedCount > 0 ? `, … (${omittedCount} more bounded commands)` : ""}`);
   }
 
-  if (staleLockSuspected) {
+  if (cliStatus.blockedByDialog) {
+    lines.push("- Assessment: Unity is blocked by a dialog; resolve it manually in the existing Editor. Do not launch, dismiss automatically, or retry.");
+    lines.push(...cliStatus.blockedBy.map(dialog => `  - Dialog${dialog.level ? ` level=${dialog.level}` : ""}${dialog.title ? `: ${dialog.title}` : ""}`));
+  } else if (warning) {
+    lines.push("- Assessment: process verification is incomplete; availability for launch is unknown.");
+  } else if (staleLockSuspected) {
     lines.push("- Assessment: native lockfile may be stale; Unity CLI launches may be able to handle it, but direct Editor launches will be blocked by pi-unity safety checks.");
   } else if (cliCapabilities.matchingInstances.some((instance) => instance.reachable === true)) {
     lines.push("- Assessment: the exact project copy has a reachable Pipeline Editor. This is a positive connected inspection surface for read-only planning; do not start another Unity process.");
@@ -693,6 +701,8 @@ async function buildProjectStatusReport(
       sessionSettings: { allowAutonomousPlayModeExit },
       projectState: { nativeLockfileExists: lockState.nativeLockfileExists, runningProcessCount: runningProcesses.length, processVerificationIncomplete: Boolean(warning), staleLockSuspected },
       cliCapabilities,
+      blockedBy: cliStatus.blockedBy,
+      blockedByDialog: cliStatus.blockedByDialog,
     },
   };
 }
@@ -1554,7 +1564,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      const report = await buildProjectStatusReport(ctx, candidate, signal, sessionAllowsAutonomousPlayModeExit(ctx));
+      const report = await buildProjectStatusReport(ctx, candidate, signal, sessionAllowsAutonomousPlayModeExit(ctx), createPlanningUnityCliExecutor(pi));
       throwIfAborted(signal);
       return {
         content: [{ type: "text", text: report.text }],

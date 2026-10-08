@@ -286,36 +286,67 @@ export function parseUnityCliStatusOutput(output: string, projectRoot: string): 
     .filter((entry): entry is RunningUnityProcess => entry !== null);
 }
 
+export type UnityCliBlockedDialog = { level?: string; title?: string };
+export type UnityCliStatus = { processes: RunningUnityProcess[]; blockedBy: UnityCliBlockedDialog[]; blockedByDialog: boolean; warning?: string };
+
+/** beta.13 contract assumption: dialog details belong to exact-project instance rows only. */
+export function parseUnityCliBlockedDialogs(output: string, projectRoot: string): Pick<UnityCliStatus, "blockedBy" | "blockedByDialog"> {
+  const payload = parseJsonObject(output);
+  const data = getRecord(payload?.data);
+  const instances = Array.isArray(data?.instances) ? data.instances : [];
+  const errors = Array.isArray(payload?.errors) ? payload.errors : [];
+  let blockedByDialog = errors.some(entry => getRecord(entry)?.code === "STATUS_BLOCKED_BY_DIALOG");
+  const blockedBy: UnityCliBlockedDialog[] = [];
+  for (const entry of instances) {
+    const instance = getRecord(entry);
+    if (!instance || !instanceProjectPaths(instance).some(path => projectPathsMatch(path, projectRoot))) continue;
+    if (instance.blockedBy === undefined || instance.blockedBy === null) continue;
+    blockedByDialog = true;
+    const dialog = getRecord(instance.blockedBy);
+    if (!dialog || blockedBy.length >= 8) continue;
+    const level = typeof dialog.level === "string" ? summarizeUnityCliText(dialog.level, 80, 1).replace(/[\u0000-\u001f\u007f]/g, " ") : undefined;
+    const title = typeof dialog.title === "string" ? summarizeUnityCliText(dialog.title, 500, 1).replace(/[\u0000-\u001f\u007f]/g, " ") : undefined;
+    if (level || title) blockedBy.push({ ...(level ? { level } : {}), ...(title ? { title } : {}) });
+  }
+  return { blockedBy, blockedByDialog };
+}
+
 export async function listRunningUnityCliEditorsForProject(
   projectRoot: string,
   options: { cliCommand?: string; timeout?: number; execute?: UnityCliExecutor } = {},
-): Promise<{ processes: RunningUnityProcess[]; warning?: string }> {
+): Promise<UnityCliStatus> {
   const command = resolveUnityCliCommand(options);
   const result = await (options.execute ?? execFileCollect)(command, ["--format", "json", "--no-banner", "--non-interactive", "status", "--project-path", projectRoot], {
     timeout: options.timeout ?? 5000,
   });
 
   if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
-    return { processes: [] };
+    return { processes: [], blockedBy: [], blockedByDialog: false };
   }
 
   const processes = parseUnityCliStatusOutput(result.stdout, projectRoot);
   const payload = parseJsonObject(result.stdout);
+  const dialogs = parseUnityCliBlockedDialogs(result.stdout, projectRoot);
+  const status = { processes, ...dialogs };
+  if (dialogs.blockedByDialog) {
+    return { ...status, warning: "Unity CLI status reports STATUS_BLOCKED_BY_DIALOG. Resolve the blocking dialog manually in the existing Unity Editor; do not launch another Editor, automatically dismiss the dialog, or retry." };
+  }
   const statusWarnings = envelopeMessages(payload, "warnings");
   if (statusWarnings.length > 0) {
-    return { processes, warning: `Unity CLI status response is incomplete; process absence is uncertain: ${statusWarnings.join("; ")}` };
+    return { ...status, warning: `Unity CLI status response is incomplete; process absence is uncertain: ${statusWarnings.join("; ")}` };
   }
-  if (processes.length > 0) return { processes };
-
+  if (processes.length > 0) return status;
 
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
-  const onlyNoInstances = errors.some((entry) => getRecord(entry)?.code === "STATUS_NO_INSTANCES");
+  const onlyNoInstances = errors.length > 0 && errors.every((entry) => getRecord(entry)?.code === "STATUS_NO_INSTANCES");
   if (result.error && !onlyNoInstances) {
-    const message = result.stderr.trim() || result.error.message;
-    return { processes: [], warning: `Unity CLI status check failed; falling back to process scan: ${message}` };
+    const message = summarizeUnityCliText(result.stderr.trim() || result.error.message);
+    return { ...status, warning: `Unity CLI status check failed; falling back to process scan: ${message}` };
   }
-
-  return { processes: [] };
+  if (!onlyNoInstances && (payload?.success !== true || !Array.isArray(getRecord(payload?.data)?.instances) || errors.length > 0)) {
+    return { ...status, warning: "Unity CLI status response is malformed or incomplete; process absence is uncertain." };
+  }
+  return status;
 }
 
 function optionalString(...values: unknown[]): string | undefined {

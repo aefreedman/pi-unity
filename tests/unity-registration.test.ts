@@ -381,6 +381,46 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     await rm(root, { recursive: true, force: true });
   }
 }
+// Synthetic dialog envelope location is an approved contract assumption, not live parity.
+{
+  const root = await mkdtemp(join(tmpdir(), "pi-unity-dialog-status-"));
+  try {
+    const project = join(root, "Game");
+    await mkdir(join(project, "ProjectSettings"), { recursive: true });
+    await mkdir(join(project, "Temp"));
+    await mkdir(join(project, "Assets"));
+    await mkdir(join(project, "Packages"));
+    await writeFile(join(project, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.1.0f1\n");
+    await writeFile(join(project, "Temp", "UnityLockfile"), "synthetic");
+    const canonical = await realpath(project);
+    for (const scenario of ["exact", "foreign", "malformed", "missing", "invalid-json"] as const) {
+      const calls: string[][] = [];
+      const pi = fakePi(async (_command, args) => {
+        calls.push(args);
+        if (args.includes("--version")) return { code: 0, stdout: "1.0.0-beta.13", stderr: "" };
+        if (args.includes("pipeline")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [] } }), stderr: "" };
+        assert(args.includes("status"), "Status never dispatches lifecycle commands.");
+        const instances = scenario === "missing" ? [] : [{ projectPath: scenario === "foreign" ? canonical + "-copy" : canonical, pid: 45, blockedBy: scenario === "malformed" ? { title: 42 } : { level: "warning", title: "Login password=dialog-secret" } }];
+        return { code: 1, stdout: scenario === "invalid-json" ? "not-json" : JSON.stringify({ success: false, errors: [{ code: "STATUS_BLOCKED_BY_DIALOG" }], data: { instances } }), stderr: "" };
+      });
+      registerUnity(pi as any);
+      const ctx = { cwd: root, sessionManager: { getBranch: () => [] }, hasUI: false, ui: { setStatus() {} } };
+      const tool = pi.tools.find(item => item.name === "unity_project_status");
+      const result = await tool.execute("dialog-status", { path: project }, undefined, undefined, ctx);
+      assert.equal(result.details.projectState.staleLockSuspected, false);
+      assert.equal(result.details.projectState.processVerificationIncomplete, true);
+      assert.doesNotMatch(result.content[0].text, /appears available|may be stale/);
+      assert.equal(JSON.stringify(result).includes("dialog-secret"), false);
+      if (scenario !== "invalid-json") assert.match(result.content[0].text, /resolve.*manually/i);
+      if (scenario === "exact") {
+        assert.deepEqual(result.details.blockedBy, [{ level: "warning", title: "Login password= [redacted]" }]);
+        assert.equal(result.details.projectState.runningProcessCount, 1);
+      } else assert.deepEqual(result.details.blockedBy, []);
+      assert.equal(calls.filter(args => args.includes("status")).length, 1, "No status retry.");
+      assert(calls.every(args => args.includes("--version") || args.includes("pipeline") || args.includes("status")), "No launch or automatic dialog dismissal.");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+}
 // Execute the published serial recipe through registered tools and Pi's native
 // finalizer. The continuation decision below is scripted, not model behavior.
 {

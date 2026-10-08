@@ -18,6 +18,7 @@ import {
   parseUnityCliCommandListOutput,
   parseUnityCliPipelineListOutput,
   parseUnityCliStatusOutput,
+  parseUnityCliBlockedDialogs,
   readDeclaredUnityPipelineVersion,
   redactUnityPlanningOutput,
   resolveUnityCliCommand,
@@ -202,6 +203,26 @@ const warningStatus = await listRunningUnityCliEditorsForProject("/fixture/game"
 } });
 assert.equal(warningStatus.processes.length, 1, "Known positive status instances are retained.");
 assert.match(warningStatus.warning ?? "", /absence is uncertain/, "Status warnings block launch-safe absence claims even with a positive instance.");
+
+// Synthetic beta.13 contract assumptions, not live-observed dialog envelope parity.
+const dialogEnvelope = (blockedBy: unknown, projectPath = "/fixture/game") => JSON.stringify({ success: false, errors: [{ code: "STATUS_BLOCKED_BY_DIALOG" }], data: { instances: [{ projectPath, pid: 45, blockedBy }] } });
+assert.deepEqual(parseUnityCliBlockedDialogs(dialogEnvelope({ level: "warning", title: "Login token=private-value" }), "/fixture/game"), { blockedByDialog: true, blockedBy: [{ level: "warning", title: "Login token= [redacted]" }] });
+assert.deepEqual(parseUnityCliBlockedDialogs(dialogEnvelope({ title: "foreign-title" }, "/fixture/game-copy"), "/fixture/game"), { blockedByDialog: true, blockedBy: [] }, "Foreign project dialog titles are never attributed to the selected copy.");
+for (const malformed of [null, [], "bad", { level: 123, title: { secret: "bad" } }]) {
+  assert.deepEqual(parseUnityCliBlockedDialogs(dialogEnvelope(malformed), "/fixture/game"), { blockedByDialog: true, blockedBy: [] });
+}
+const boundedDialogs = parseUnityCliBlockedDialogs(JSON.stringify({ data: { instances: Array.from({ length: 20 }, () => ({ projectPath: "/fixture/game", blockedBy: { level: "x".repeat(200), title: "token=" + "secret".repeat(500) + " " + "y".repeat(800) } })) } }), "/fixture/game");
+assert.equal(boundedDialogs.blockedBy.length, 8);
+assert(boundedDialogs.blockedBy.every(dialog => dialog.level!.length <= 81 && dialog.title!.length <= 501 && !dialog.title!.includes("secret")), "Redaction precedes bounded truncation.");
+assert.deepEqual(parseUnityCliBlockedDialogs(JSON.stringify({ data: { instances: [{ projectPath: "/fixture/game-copy", blockedBy: { title: "foreign" } }] } }), "/fixture/game"), { blockedByDialog: false, blockedBy: [] });
+const nonzeroDialog = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async () => ({ stdout: dialogEnvelope({ title: "Save changes" }), stderr: "", error: Object.assign(new Error("exit 1"), { code: 1 }) }) });
+assert.equal(nonzeroDialog.processes[0]?.pid, 45, "Nonzero blocked status retains positive exact-copy process evidence.");
+assert.match(nonzeroDialog.warning!, /manually/);
+for (const stdout of ["not-json", JSON.stringify({ success: true }), JSON.stringify({ success: false, errors: [{ code: "STATUS_BLOCKED_BY_DIALOG" }], data: { instances: [] } }), dialogEnvelope({ title: "foreign" }, "/fixture/game-copy"), JSON.stringify({ success: false, errors: [{ code: "STATUS_NO_INSTANCES" }, { code: "STATUS_BLOCKED_BY_DIALOG" }] })]) {
+  const unknown = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async () => ({ stdout, stderr: "" }) });
+  assert.equal(unknown.processes.length, 0);
+  assert(unknown.warning, "Malformed or coded dialog evidence never establishes safe-to-launch absence.");
+}
 
 const absentCapabilities = await inspectUnityCliProjectCapabilities("/fixture/closed", "6000.1.0f1", {
   execute: async (_command, args) => args.includes("--version")
