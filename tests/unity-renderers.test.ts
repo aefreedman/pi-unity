@@ -59,6 +59,29 @@ const status = renderUnityToolResult(result({ ...base, mode: "status", status: "
 assert.match(plain(status), /lock may be stale/);
 assert(!plain(status).startsWith("✓"));
 components.push(status);
+for (const [outcome, expected] of [
+  ["completed", "CLI open completed · Editor readiness unverified"],
+  ["failed", "CLI open failed or refused"],
+  ["timeout", "CLI open timed out · launch uncertain"],
+  ["cancelled", "CLI open cancelled · launch uncertain"],
+] as const) {
+  const details: UnityToolDetails = { ...base, mode: "gui", status: outcome === "completed" ? "passed" : "failed",
+    guiLaunch: { command: "unity", args: ["open", base.projectRoot], cliPid: 123,
+      outcome, diagnostics: outcome === "failed" ? "PROJECT_UPGRADE_REQUIRED" : "" } };
+  for (const expanded of [false, true]) {
+    const rendered = renderUnityToolResult({ content: [{ type: "text", text: details.guiLaunch!.diagnostics }], details }, expanded, theme);
+    const text = plain(rendered, 240);
+    assert(text.includes(expected), `GUI ${outcome} must report the observed CLI outcome.`);
+    assert(!text.includes("Editor launched"), "CLI completion is not verified Editor launch.");
+    assert(!text.includes("PID 123"), "The CLI PID must not be presented as an Editor PID.");
+    assert(text.startsWith(outcome === "completed" ? "✓" : outcome === "failed" ? "✗" : "!"));
+    if (expanded && outcome === "failed") assert(text.includes("PROJECT_UPGRADE_REQUIRED"));
+    components.push(rendered);
+  }
+}
+const directGui = renderUnityToolResult(result({ ...base, mode: "gui", status: "passed", pid: 456 }), false, theme);
+assert.match(plain(directGui), /Editor launched · PID 456/);
+components.push(directGui);
 const args = { path: base.projectRoot, file: "Assets/Editor/BuildScene.cs", entry: "Main", dryRun: true };
 const script = renderUnityPipelineCall("unity_pipeline_run_script", args, theme, {});
 assert.match(plain(script), /Run script[\s\S]*BuildScene.cs · Main · compile only/);

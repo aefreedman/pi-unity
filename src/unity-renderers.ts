@@ -138,7 +138,15 @@ export function renderUnityToolResult(result: Result, expanded: boolean, theme: 
     summary = output.outcome === "rejected" ? compactUnityRendererValue(output.message, 240) : expanded ? "Completed" : compactUnityRendererValue(output.output || "No output returned", 240);
     if (output.outcome === "dispatched" && output.truncated && !expanded) summary += " · output truncated";
   }
-  else if (details.mode === "gui") summary = `Editor launched${details.pid ? ` · PID ${details.pid}` : ""}`;
+  else if (details.mode === "gui") {
+    const launch = details.guiLaunch;
+    summary = launch
+      ? launch.outcome === "completed" ? "CLI open completed · Editor readiness unverified"
+        : launch.outcome === "failed" ? "CLI open failed or refused"
+        : launch.outcome === "timeout" ? "CLI open timed out · launch uncertain"
+        : "CLI open cancelled · launch uncertain"
+      : `Editor launched${details.pid ? ` · PID ${details.pid}` : ""}`;
+  }
   else if (details.mode === "batchmode") summary = `${details.status ?? "unknown"} · exit ${details.exitCode ?? "unknown"}${counts(details.parsedTestResults ?? undefined) ? ` · ${counts(details.parsedTestResults ?? undefined)}` : ""}`;
   let text = theme.fg(tone, `${tone === "success" ? "✓" : tone === "error" ? "✗" : "!"} ${summary}`);
   const notices = [details.warning, ...(pipeline?.warnings ?? []), ...(details.evidenceWarnings ?? []), ...(tests?.diagnostics ?? [])].filter((value): value is string => Boolean(value));
