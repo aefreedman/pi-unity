@@ -1,3 +1,4 @@
+import { redactUnityCredentials } from "./unity-redaction";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { commandTargetsProject, type SupportedPlatform } from "./unity-core";
@@ -13,16 +14,9 @@ export type UnityProcessTerminationInfo = {
   forced?: boolean;
 };
 
-const SENSITIVE_FLAG = "(?:-{1,2})?(?:access[-_]?token|auth(?:entication)?[-_]?token|api[-_]?key|client[-_]?secret|credential(?:s)?|password|passwd|secret|token)";
-const SENSITIVE_VALUE = "(?:\"[^\"]*\"|'[^']*'|[^\\s]+)";
-const SENSITIVE_ASSIGNMENT = new RegExp(`(${SENSITIVE_FLAG})(=|:)${SENSITIVE_VALUE}`, "gi");
-const SENSITIVE_SEPARATE_ARGUMENT = new RegExp(`(${SENSITIVE_FLAG})\\s+${SENSITIVE_VALUE}`, "gi");
-
-/** Redact values, not flag names, so diagnostics remain actionable without leaking credentials. */
+/** Redact values, not flag names, so diagnostics remain actionable. */
 export function redactUnityProcessCommandLine(commandLine: string): string {
-  return commandLine
-    .replace(SENSITIVE_ASSIGNMENT, "$1$2[REDACTED]")
-    .replace(SENSITIVE_SEPARATE_ARGUMENT, "$1 [REDACTED]");
+  return redactUnityCredentials(commandLine, { marker: "[REDACTED]" });
 }
 
 export type UnityProcessTerminator = (process: RunningUnityProcess) => Promise<void | UnityProcessTerminationInfo>;

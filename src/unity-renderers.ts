@@ -1,3 +1,4 @@
+import { redactUnityCredentials } from "./unity-redaction";
 import { highlightCode, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { UnityToolDetails } from "../index";
@@ -9,7 +10,7 @@ type Result = { content?: Array<{ type: string; text?: string }>; details?: unkn
 type Options = { expanded: boolean; isPartial?: boolean };
 
 function redact(value: string): string {
-  return value.replace(/\b(token|secret|password|api[_-]?key)\s*([:=])\s*((?:\$@?|@\$?)?"(?:""|\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;)}\]]+)/gi, "$1$2[redacted]")
+  return redactUnityCredentials(value).replace(/([:=])\s+(\[redacted\])/gi, "$1$2")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
 }
 export function compactUnityRendererValue(value: unknown, limit = 160): string {

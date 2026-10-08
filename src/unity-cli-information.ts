@@ -59,7 +59,7 @@ export async function unityCliInfo(params: { include?: ("commands" | "changelog"
     if (command === "changelog") {
       if (typeof data.version !== "string" || typeof data.changelog !== "string") throw new Error("Unity changelog returned invalid data; result is uncertain.");
       output.cliVersion = safeText(data.version, 80);
-      output.changelog = redactUnityPlanningOutput(data.changelog.slice(0, maxChangelogChars));
+      output.changelog = redactUnityPlanningOutput(data.changelog).slice(0, maxChangelogChars);
       output.changelogTruncated = data.changelog.length > maxChangelogChars;
     } else {
       if (!Array.isArray(data.commands)) throw new Error("Unity commands returned invalid manifest; result is uncertain.");

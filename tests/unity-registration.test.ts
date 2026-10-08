@@ -542,6 +542,15 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       outcome: "passed", summary: { total: 2, passed: 2, failed: 0 }, tests: [{ name: "Synthetic.One", status: "Passed" }],
     };
     const artifact = async (result: NormalizedUnityTestResult) => writeNormalizedUnityTestArtifact(root, result);
+    const sensitiveLog = '-accessToken syntheticLogToken -password "synthetic password two words" -androidKeystorePass syntheticKeystore\nCompilation succeeded';
+    const logPath = join(root, "Logs", "sensitive.log");
+    await writeFile(logPath, sensitiveLog);
+    const safeLog = await inspect({ logFilePath: logPath, latestFromLogs: false });
+    const returned = JSON.stringify(safeLog);
+    for (const secret of ["syntheticLogToken", "synthetic password", "syntheticKeystore"]) assert(!returned.includes(secret), "Registered text and details must not expose log credentials");
+    assert.match(returned, /Compilation succeeded/, "Useful log context survives");
+    assert.equal(await readFile(logPath, "utf8"), sensitiveLog, "Local Editor logs remain unmodified");
+    await rm(logPath);
     const passing = await artifact(base);
     const latest = await inspect({});
     assert.equal(latest.details.testOutcome, "passed", "JSON-only discovery is first-class inspection input.");

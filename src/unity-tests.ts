@@ -1,3 +1,4 @@
+import { redactUnityCredentialData } from "./unity-redaction";
 import { randomUUID } from "node:crypto";
 import { mkdir, link, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -237,6 +238,7 @@ function projectRelative(value: string): string | undefined {
 
 /** Bounds and redacts the durable, backend-neutral evidence shape before serialization. */
 export function normalizeUnityTestResult(result: NormalizedUnityTestResult): NormalizedUnityTestResult {
+  result = redactUnityCredentialData(result);
   const tests = result.tests.slice(0, UNITY_TEST_MAX_TESTS).map(test => ({
     name: bound(test.name, 1_000) || "Unnamed test", status: bound(test.status, 100) || "unknown",
     ...(numberOrUndefined(test.durationSeconds) === undefined ? {} : { durationSeconds: numberOrUndefined(test.durationSeconds) }),

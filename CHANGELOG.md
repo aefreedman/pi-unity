@@ -7,6 +7,10 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Fixed
+
+- Share credential redaction across tool text/details/progress, diagnostics, local log excerpts, and durable normalized test evidence before truncation, including quoted and camelCase token flags and Android signing passwords. Original logs and test outcome classification remain unchanged.
+
 ## 0.16.1 - 2026-09-29
 
 ### Fixed

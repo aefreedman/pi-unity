@@ -1,3 +1,4 @@
+import { redactUnityCredentialData, redactUnityCredentials } from "./src/unity-redaction";
 import { registerUnityAssetPackageTools, type AssetResult } from "./src/unity-asset-packages";
 import { registerUnityInformationTools } from "./src/unity-cli-information";
 import { registerUnityCloudInventoryTools } from "./src/unity-cloud-inventory";
@@ -1313,6 +1314,26 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
 }
 
 export default function freeUnityPi(pi: ExtensionAPI) {
+  // Sanitize registered-tool output itself, including progress and thrown diagnostics;
+  // renderers are only a secondary boundary and source logs are never rewritten.
+  const registerTool: ExtensionAPI["registerTool"] = tool => pi.registerTool({
+    ...tool,
+    async execute(id, params, signal, onUpdate, ctx) {
+      try {
+        return redactUnityCredentialData(await tool.execute(id, params, signal,
+          onUpdate ? update => onUpdate(redactUnityCredentialData(update)) : undefined, ctx));
+      } catch (error) {
+        if (error instanceof Error) {
+          error.message = redactUnityCredentials(error.message);
+          if (error.stack) error.stack = redactUnityCredentials(error.stack);
+          throw error;
+        }
+        throw new Error(redactUnityCredentials(String(error)));
+      }
+    },
+  });
+  const redactedPi = { ...pi, registerTool };
+
   // Classify existing structured outcomes through Pi's tool_result hook while
   // preserving rejection details. Pi also supports native isError: true returned
   // from execute; this hook retains the current outcome classification.
@@ -1329,9 +1350,9 @@ export default function freeUnityPi(pi: ExtensionAPI) {
   });
 
   const auxiliaryCliExecutor = createPlanningUnityCliExecutor(pi);
-  registerUnityInformationTools(pi, auxiliaryCliExecutor);
-  registerUnityCloudInventoryTools(pi, auxiliaryCliExecutor);
-  registerUnityAssetPackageTools(pi, {
+  registerUnityInformationTools(redactedPi, auxiliaryCliExecutor);
+  registerUnityCloudInventoryTools(redactedPi, auxiliaryCliExecutor);
+  registerUnityAssetPackageTools(redactedPi, {
     execute: auxiliaryCliExecutor,
     resolveProject: async requested => {
       const canonical = await realpath(requested);
@@ -1480,7 +1501,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_guidance_audit",
     label: "Unity Guidance Audit",
     description: "Read known agent instruction files and report outdated or unsafe Unity CLI, Pipeline, batchmode, test, lifecycle, and project-copy guidance without editing files.",
@@ -1518,7 +1539,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_project_status",
     label: "Unity Project Status",
     description: "Inspect an exact Unity project copy's lockfile, running processes, and Unity CLI/Pipeline capabilities without launching Unity.",
@@ -1548,7 +1569,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_run_tests",
     label: "Unity Run Tests",
     description: "Run Unity Test Framework tests through one intent-oriented workflow. It reuses a reachable exact-copy Pipeline Editor when compatible, otherwise uses isolated `unity test` execution.",
@@ -1570,7 +1591,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     renderResult(result, { expanded, isPartial }, theme, context) { return renderUnityToolResult(result, expanded, theme, context, isPartial); },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_pipeline_recompile",
     label: "Unity Pipeline Recompile",
     description: "Recompile an already-open exact Unity project copy through its reachable advertised Pipeline, with internal bounded polling and compact compiler evidence.",
@@ -1597,7 +1618,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_pipeline_eval",
     label: "Unity Pipeline Eval",
     description: "Execute one bounded C# snippet through advertised eval in an already-open exact Unity Pipeline Editor. timeoutSeconds bounds pi-unity and Unity CLI waits; optional handlerTimeoutMilliseconds is forwarded only through a verified Pipeline raw-argv timeout contract and cannot cancel code already started on Unity's main thread.",
@@ -1649,7 +1670,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_pipeline_run_script",
     label: "Unity Pipeline Run Script",
     description: "Compile one existing project C# file in memory and invoke its advertised static entry point through Pipeline 0.6 run_script.",
@@ -1681,7 +1702,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     renderResult(result, options, theme, context) { return renderUnityPipelineResult(result, options, theme, context); },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_pipeline_inspect",
     label: "Unity Pipeline Inspect",
     description: "Dispatch one advertised package-owned inspection command in an already-open exact Unity Pipeline Editor.",
@@ -1730,7 +1751,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_inspect_artifacts",
     label: "Unity Inspect Artifacts",
     description: "Inspect existing Unity normalized JSON, Test Framework XML and logs without launching Unity. Inspection success is separate from test outcome.",
@@ -1761,7 +1782,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_open_editor",
     label: "Unity Open Editor",
     description: "Open the Unity Editor GUI for a Unity project copy, optionally passing Unity Editor's -automated flag.",
@@ -1820,7 +1841,7 @@ export default function freeUnityPi(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "unity_launch_batchmode",
     label: "Unity CLI",
     description: "Run Unity via CLI in batchmode for a resolved Unity project copy.",

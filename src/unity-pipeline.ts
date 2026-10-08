@@ -79,7 +79,7 @@ function field(value: RecordValue, ...names: string[]): unknown {
   return undefined;
 }
 function bounded(value: string, limit = UNITY_PIPELINE_MAX_STACK_CHARS): string {
-  const oneLine = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+  const oneLine = redactUnityPlanningOutput(value).replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
   return oneLine.length > limit ? `${oneLine.slice(0, limit - 1)}…` : oneLine;
 }
 function pipelineEnvelopeWarnings(output: string): string[] {

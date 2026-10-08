@@ -1,3 +1,4 @@
+import { redactUnityCredentials } from "./unity-redaction";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { hasUnityCommandLineFlag } from "./unity-core";
@@ -239,7 +240,7 @@ export async function loadUnityBatchmodeArtifacts(
 
 export function summarizeTextForAgent(value: string | undefined, maxLines = 40, maxChars = 4000): string | undefined {
   if (!value) return undefined;
-  const trimmed = value.trim();
+  const trimmed = redactUnityCredentials(value).trim();
   if (!trimmed) return undefined;
 
   const lines = trimmed.split(/\r?\n/);

@@ -1,3 +1,4 @@
+import { redactUnityCredentials } from "./unity-redaction";
 import { execFile } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
@@ -326,7 +327,7 @@ function optionalBoolean(...values: unknown[]): boolean | undefined {
 }
 
 export function summarizeUnityCliText(value: string, maxChars = 1000, maxLines = 10): string {
-  const lines = value.trim().split(/\r?\n/).slice(0, maxLines);
+  const lines = redactUnityCredentials(value, { assignmentSpace: true }).trim().split(/\r?\n/).slice(0, maxLines);
   const text = lines.join("\n");
   return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
@@ -507,7 +508,7 @@ function envelopeMessages(payload: Record<string, unknown> | null, fieldName: "e
   return entries.slice(0, UNITY_CLI_MAX_DIAGNOSTICS).flatMap((entry): string[] => {
     const item = getRecord(entry);
     const message = optionalString(item?.message, item?.detail, typeof entry === "string" ? entry : undefined);
-    return message ? [redactUnityPlanningOutput(summarizeUnityCliText(message, 1_000, 10))] : [];
+    return message ? [summarizeUnityCliText(redactUnityPlanningOutput(message), 1_000, 10)] : [];
   });
 }
 
@@ -865,7 +866,5 @@ export async function dispatchUnityPipelineRunScript(
 
 /** Keep connected inspection output useful without returning common credential forms verbatim. */
 export function redactUnityPlanningOutput(value: string): string {
-  return value
-    .replace(/\b((?:bearer|token|api[_ -]?key|password|secret)\s*[:=])\s*[^\s,;]+/gi, "$1 [redacted]")
-    .replace(/\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{12,}\b/gi, "[redacted]");
+  return redactUnityCredentials(value, { assignmentSpace: true });
 }
