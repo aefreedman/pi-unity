@@ -1,3 +1,4 @@
+import { declaredPiVersion, assertPiVersion } from "./pi-version.ts";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -32,7 +33,7 @@ type RunEvidence = {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "../..");
-const PI_VERSION = "1.1.0";
+const PI_VERSION = declaredPiVersion();
 
 function resolvePiCliPath(): string {
   const candidates = [
@@ -49,7 +50,7 @@ function resolvePiCliPath(): string {
 
 const piCliPath = resolvePiCliPath();
 const piManifest = JSON.parse(await readFile(resolve(dirname(piCliPath), "../package.json"), "utf8")) as { version?: unknown };
-if (piManifest.version !== PI_VERSION) throw new Error(`This eval requires Pi ${PI_VERSION} exactly; found ${String(piManifest.version)}`);
+assertPiVersion(piManifest.version, PI_VERSION);
 const skillPath = join(packageRoot, "skills/auditing-unity-agent-guidance/SKILL.md");
 const extensionPath = join(packageRoot, "index.ts");
 const casesPath = join(here, "cases.json");

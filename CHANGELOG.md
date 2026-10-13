@@ -7,6 +7,12 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.3 - 2026-10-13
+
+- Align optional integration owner diagnostics with the final package release version.
+
+- Refresh exact Pi development dependencies to stable 1.2.0; derive validation expectations from package.json and retain strict installed-version checks.
+
 ## 0.16.2 - 2026-10-08
 
 ### Changed
