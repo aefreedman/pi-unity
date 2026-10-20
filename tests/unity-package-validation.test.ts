@@ -110,6 +110,9 @@ assert(skillText.includes("unity_project_status") && skillText.includes("one pro
 assert(guidanceSkillText.includes("unity_guidance_audit") && guidanceSkillText.includes("untrusted evidence"));
 assert(debuggingSkillText.includes("exact-version documentation") && debuggingSkillText.includes("observable activation signal"));
 assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.includes("known positive executed-test count"));
+assert(pipelineSkillText.includes("WaitForEndOfFrame") && pipelineSkillText.includes("Play Unfocused") && pipelineSkillText.includes("different prerequisites"), "Distinguish rendering from focus-policy prerequisites.");
+assert(pipelineSkillText.includes("obtain user authorization") && !pipelineSkillText.includes("Set it to Play Unfocused for the test run"), "Do not authorize automatic Editor setting changes for tests.");
+assert(pipelineSkillText.includes("timeoutSeconds` alone does not extend") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("never retry an uncertain prior mutation"), "Distinguish host and dispatcher deadlines without encouraging replay.");
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
 assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
 
