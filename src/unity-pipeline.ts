@@ -498,6 +498,10 @@ function reportedTerminalCounts(state: NormalizedTest): UnityPipelineTerminalTes
   if (!hasConsistentUnityTestCounts(counts, state.testRecords ?? [])) return undefined;
   // Missing optional non-passing counts are not inferred from retained records.
   if (passed + failed + (inconclusive ?? 0) !== total) return undefined;
+  // Pipeline normalizes reported skipped into inconclusive. Check their combined
+  // retained lower bound, including zero capacity when that bucket is absent.
+  const retainedNonPassing = (state.testRecords ?? []).filter(test => /^(?:skipped|inconclusive)$/i.test(test.status)).length;
+  if (retainedNonPassing > (inconclusive ?? 0)) return undefined;
   return counts;
 }
 function terminalEvidence(state: NormalizedTest, reason: string, request: UnityPipelineTestRequest, elapsedSeconds: number, warnings: string[]): UnityPipelineTerminalTestEvidenceError {

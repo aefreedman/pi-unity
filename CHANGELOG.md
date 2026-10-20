@@ -9,7 +9,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Fixed
 
-- Preserve validated reported terminal Pipeline test counts in non-passing artifacts and compact summaries, without inferring counts from bounded records or treating cancellation and runner errors as success.
+- Preserve validated reported terminal Pipeline test counts in non-passing artifacts and compact summaries, without inferring counts from bounded records or treating cancellation and runner errors as success. Withhold aggregates that contradict retained skipped/inconclusive records, including an absent non-passing bucket.
 - Distinguish render-dependent Game View prerequisites from Play Unfocused policy and require authorization before changing Editor state. Clarify that eval host deadlines do not extend dispatcher waits or justify retrying uncertain mutations.
 
 ## 0.16.3 - 2026-10-13

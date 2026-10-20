@@ -802,6 +802,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     for (const [status, summary, tests, expected, outcome] of [
       ["completed", reported, records, reported, "tests_failed"],
       ["completed", reported, records.slice(3), reported, "tests_failed"],
+      // Skipped and Inconclusive share the normalized non-passing bucket.
+      // An absent bucket has zero capacity once reported aggregates exhaust total.
+      ["completed", reported, [...records.slice(3), { name: "Synthetic.Skipped", result: "Skipped" }], {}, "tests_failed"],
+      ["completed", { ...reported, inconclusive: 0 }, [...records.slice(3), { name: "Synthetic.Skipped", result: "Skipped" }], {}, "tests_failed"],
+      ["completed", { total: 4, passed: 2, failed: 1, inconclusive: 1 }, [...records.slice(3), { name: "Synthetic.Skipped", result: "Skipped" }, { name: "Synthetic.Inconclusive", result: "Inconclusive" }], {}, "tests_failed"],
+      ["completed", { total: 4, passed: 1, failed: 1, inconclusive: 2 }, [...records.slice(3), { name: "Synthetic.Skipped", result: "Skipped" }, { name: "Synthetic.Inconclusive", result: "Inconclusive" }], { total: 4, passed: 1, failed: 1, inconclusive: 2 }, "tests_failed"],
+      ["completed", { total: 4, passed: 2, failed: 1, skipped: 1 }, [...records.slice(3), { name: "Synthetic.Skipped", result: "Skipped" }], { total: 4, passed: 2, failed: 1, inconclusive: 1 }, "tests_failed"],
       ["completed", { total: 3, passed: 3, failed: 1 }, records.slice(3), {}, "tests_failed"],
       ["completed", { total: 5, passed: 3, failed: 1 }, records.slice(3), {}, "tests_failed"],
       ["completed", {}, records, {}, "tests_failed"],
