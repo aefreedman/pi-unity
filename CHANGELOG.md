@@ -7,6 +7,12 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.4 - 2026-10-20
+
+### Changed
+
+- Validate against exact Pi 1.3.0 development dependencies; retain manifest-derived installed-version checks.
+
 ### Fixed
 
 - Preserve validated reported terminal Pipeline test counts in non-passing artifacts and compact summaries, without inferring counts from bounded records or treating cancellation and runner errors as success. Withhold aggregates that contradict retained skipped/inconclusive records, including an absent non-passing bucket.
