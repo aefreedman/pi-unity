@@ -786,9 +786,42 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       const stored = validateNormalizedUnityTestArtifact(JSON.parse(await readFile(join(project, result.details.artifactPath), "utf8")));
       assert.equal(stored.outcome, outcome);
       assert(stored.diagnostics?.length, "Terminal observations are retained in schema-valid diagnostics.");
-      if (outcome === "uncertain") assert.deepEqual(stored.summary, {}, "Contradictory or invalid counts are never made authoritative.");
+      if (outcome === "uncertain") assert.deepEqual(stored.summary,
+        terminal.summary.total === 0 ? { total: 0, passed: 0, failed: 0 } : {},
+        "Valid zero counts remain non-passing; contradictory or invalid counts are never authoritative.");
       assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1, "Terminal evidence never redispatches.");
       assert(!calls.some(args => args.includes("open") || args.includes("run") || args.includes("test") || args.includes("editor_stop")), "Terminal evidence never changes lifecycle or route.");
+    }
+    // Reported counts survive the typed error -> artifact -> compact native error seam.
+    // Retained records are corroboration only, never a source of aggregate counts.
+    const reported = { total: 4, passed: 3, failed: 1 };
+    const records = [
+      { name: "Synthetic.One", result: "Passed" }, { name: "Synthetic.Two", result: "Passed" },
+      { name: "Synthetic.Three", result: "Passed" }, { name: "Synthetic.Failed", result: "Failed" },
+    ];
+    for (const [status, summary, tests, expected, outcome] of [
+      ["completed", reported, records, reported, "tests_failed"],
+      ["completed", reported, records.slice(3), reported, "tests_failed"],
+      ["completed", { total: 3, passed: 3, failed: 1 }, records.slice(3), {}, "tests_failed"],
+      ["completed", { total: 5, passed: 3, failed: 1 }, records.slice(3), {}, "tests_failed"],
+      ["completed", {}, records, {}, "tests_failed"],
+      ["completed", { total: 4, failed: 1 }, records.slice(3), {}, "tests_failed"],
+      ["cancelled", reported, records.slice(3), reported, "cancelled"],
+      ["error", { total: 4, passed: 4, failed: 0 }, [], { total: 4, passed: 4, failed: 0 }, "run_error"],
+    ] as const) {
+      for (const polled of [false, true]) {
+        const { result, calls } = await invoke({ status, summary, tests, mode: "editor", filter: "Synthetic.Target" }, polled);
+        assert.equal(result.isError, true);
+        assert.equal(result.details.testResult.outcome, outcome);
+        assert.deepEqual(result.details.testResult.summary, expected);
+        const stored = validateNormalizedUnityTestArtifact(JSON.parse(await readFile(join(project, result.details.artifactPath), "utf8")));
+        assert.deepEqual(stored.summary, expected);
+        assert.equal(stored.tests.length, tests.length, "Incomplete retained records remain available without changing totals.");
+        if (outcome === "tests_failed") assert.match(result.content[0].text,
+          "failed" in expected ? /1 failed of 4/ : /unknown failed of unknown/);
+        else assert.doesNotMatch(result.content[0].text, /tests passed/);
+        assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1);
+      }
     }
     for (const [terminal, polled] of [
       [{ status: "failed", mode: "playmode", filter: "Other", summary: { total: 1, passed: 0, failed: 1 } }, false],

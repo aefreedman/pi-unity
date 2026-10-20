@@ -368,6 +368,7 @@ try {
       inspect: async () => capabilities(root), canonicalize: async value => value,
     }), (error: unknown) => error instanceof UnityPipelineTerminalTestEvidenceError
       && error.evidence.state === "completed"
+      && (summary.total === 0 ? error.evidence.counts?.total === 0 : error.evidence.counts === undefined)
       && error.evidence.observations.some(value => value.includes("reported total=")));
   }
 

@@ -7,6 +7,10 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Fixed
+
+- Preserve validated reported terminal Pipeline test counts in non-passing artifacts and compact summaries, without inferring counts from bounded records or treating cancellation and runner errors as success.
+
 ## 0.16.3 - 2026-10-13
 
 - Align optional integration owner diagnostics with the final package release version.

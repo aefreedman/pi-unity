@@ -38,7 +38,9 @@ export type UnityPipelineOperationDetails = {
 export type UnityPipelineTestRecord = { name: string; status: string; durationSeconds?: number; message?: string; stackTrace?: string };
 /** testRecords are terminal evidence for the caller's durable artifact only; do not expose them in tool details. */
 export type UnityPipelineOperationResult = { text: string; details: UnityPipelineOperationDetails; testRecords?: UnityPipelineTestRecord[] };
-export type UnityPipelineTerminalTestEvidence = { state: "completed" | "failed" | "cancelled"; outcome: "uncertain" | "tests_failed" | "run_error" | "cancelled"; reason: string; elapsedSeconds: number; selection: { platform: "EditMode" | "PlayMode"; filter?: string }; correlation: Record<string, string>; observations: string[]; testRecords: UnityPipelineTestRecord[]; warnings: string[] };
+/** Complete, consistent reported counts; retained records may be only a bounded subset. */
+export type UnityPipelineTerminalTestCounts = { total: number; passed: number; failed: number; inconclusive?: number };
+export type UnityPipelineTerminalTestEvidence = { counts?: UnityPipelineTerminalTestCounts; state: "completed" | "failed" | "cancelled"; outcome: "uncertain" | "tests_failed" | "run_error" | "cancelled"; reason: string; elapsedSeconds: number; selection: { platform: "EditMode" | "PlayMode"; filter?: string }; correlation: Record<string, string>; observations: string[]; testRecords: UnityPipelineTestRecord[]; warnings: string[] };
 /** Terminal Pipeline evidence can be durable and inspectable without being passing evidence. */
 export class UnityPipelineTerminalTestEvidenceError extends Error {
   constructor(readonly evidence: UnityPipelineTerminalTestEvidence) { super(evidence.reason); this.name = "UnityPipelineTerminalTestEvidenceError"; }
@@ -489,10 +491,19 @@ function passingCounts(state: NormalizedTest): { total: number; passed: number; 
   if (state.passed + state.failed + (state.inconclusive ?? 0) !== state.total) return undefined;
   return { total: state.total, passed: state.passed, failed: state.failed, inconclusive: state.inconclusive };
 }
+function reportedTerminalCounts(state: NormalizedTest): UnityPipelineTerminalTestCounts | undefined {
+  const { total, passed, failed, inconclusive } = state;
+  if (total === undefined || passed === undefined || failed === undefined) return undefined;
+  const counts = { total, passed, failed, ...(inconclusive === undefined ? {} : { inconclusive }) };
+  if (!hasConsistentUnityTestCounts(counts, state.testRecords ?? [])) return undefined;
+  // Missing optional non-passing counts are not inferred from retained records.
+  if (passed + failed + (inconclusive ?? 0) !== total) return undefined;
+  return counts;
+}
 function terminalEvidence(state: NormalizedTest, reason: string, request: UnityPipelineTestRequest, elapsedSeconds: number, warnings: string[]): UnityPipelineTerminalTestEvidenceError {
   const outcome = state.state === "cancelled" ? "cancelled" : state.testFailureEstablished ? "tests_failed" : state.runnerError ? "run_error" : "uncertain";
   const observations = [`terminal state=${state.state}`, `terminal outcome=${outcome}`, ...["total", "passed", "failed", "inconclusive"].flatMap(key => state[key as keyof Pick<NormalizedTest, "total" | "passed" | "failed" | "inconclusive">] === undefined ? [] : [`reported ${key}=${String(state[key as keyof Pick<NormalizedTest, "total" | "passed" | "failed" | "inconclusive">])}`]), ...Object.entries(state.correlation).map(([key, value]) => `correlation ${key}=${value}`)].slice(0, UNITY_PIPELINE_MAX_DIAGNOSTICS);
-  return new UnityPipelineTerminalTestEvidenceError({ state: state.state as "completed" | "failed" | "cancelled", outcome, reason, elapsedSeconds, selection: { platform: request.testPlatform, ...(request.testFilter ?? request.testCategory ? { filter: request.testFilter ?? request.testCategory } : {}) }, correlation: state.correlation, observations, testRecords: state.testRecords ?? [], warnings });
+  return new UnityPipelineTerminalTestEvidenceError({ counts: reportedTerminalCounts(state), state: state.state as "completed" | "failed" | "cancelled", outcome, reason, elapsedSeconds, selection: { platform: request.testPlatform, ...(request.testFilter ?? request.testCategory ? { filter: request.testFilter ?? request.testCategory } : {}) }, correlation: state.correlation, observations, testRecords: state.testRecords ?? [], warnings });
 }
 function elapsed(start: number, now: () => number): number { return Math.max(0, (now() - start) / 1000); }
 function timeoutMessage(operation: string): Error { return new Error(`Unity Pipeline ${operation} timed out; result is uncertain and may still be running. No cancellation, retry, or route switch was performed.`); }

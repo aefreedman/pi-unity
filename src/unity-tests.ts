@@ -264,7 +264,7 @@ export function compactUnityTestSummary(result: NormalizedUnityTestResult): stri
     case "passed": return `Unity ${result.platform} tests passed: ${count} executed.`;
     case "passed_with_flakes": return `Unity ${result.platform} tests passed with ${result.flakyTests?.length ?? 0} flaky test(s): ${count} executed.`;
     case "empty_selection": return `Unity ${result.platform} test selection was empty; no Editor run was required.`;
-    case "tests_failed": return `Unity ${result.platform} tests failed: ${result.summary.failed ?? "unknown"} failed of ${count}.`;
+    case "tests_failed": return `Unity ${result.platform} tests failed: ${result.summary.failed ?? "unknown"} failed of ${result.summary.total ?? "unknown"}.`;
     default: return `Unity ${result.platform} test run ${result.outcome.replace(/_/g, " ")}.`;
   }
 }

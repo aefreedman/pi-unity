@@ -1220,7 +1220,7 @@ async function runUnifiedUnityTests(
       const normalized: NormalizedUnityTestResult = {
         schemaVersion: 1, source: "pipeline", platform: request.testPlatform,
         selection: { testFilters: request.testFilters, testCategories: request.testCategories },
-        durationSeconds: error.evidence.elapsedSeconds, outcome, summary: {}, tests: error.evidence.testRecords,
+        durationSeconds: error.evidence.elapsedSeconds, outcome, summary: error.evidence.counts ?? {}, tests: error.evidence.testRecords,
         diagnostics: [error.evidence.reason, ...error.evidence.observations, ...error.evidence.warnings].slice(0, 8),
       };
       let artifactPath: string;

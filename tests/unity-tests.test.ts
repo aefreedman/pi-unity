@@ -68,6 +68,7 @@ assert.equal(sanitized.tests[0]!.message!.length, 4_000);
 assert.equal(sanitized.tests[0]!.stackTrace!.length, 8_000);
 assert.deepEqual(sanitized.backendArtifacts, { log: "Logs/result.log" });
 assert.equal(compactUnityTestSummary(sanitized), "Unity EditMode tests failed: 1 failed of 1.");
+assert.equal(compactUnityTestSummary({ ...sanitized, summary: {} }), "Unity EditMode tests failed: unknown failed of unknown.", "Retained records do not establish aggregate counts.");
 const retry = parseUnityCliRetrySummary({ requested: 1, attempts: 2, passedFirstAttempt: 1, flaky: [{ test: "Suite.Flaky", attempts: 2 }], failed: [] });
 assert(retry);
 const reconciled = applyUnityCliRetrySummary({ ...sanitized, summary: { total: 2, passed: 1, failed: 1 }, tests: [{ name: "Suite.One", status: "Passed" }, { name: "Suite.Flaky", status: "Failed", message: "first attempt" }] }, retry);
