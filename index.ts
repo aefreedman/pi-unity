@@ -1,16 +1,16 @@
+import { executeUnityCommand } from "./src/unity-exec";
 import { redactUnityCredentialData, redactUnityCredentials } from "./src/unity-redaction";
 import { registerUnityAssetPackageTools, type AssetResult } from "./src/unity-asset-packages";
 import { registerUnityInformationTools } from "./src/unity-cli-information";
 import { registerUnityCloudInventoryTools } from "./src/unity-cloud-inventory";
 import { renderUnityGuidanceResult, renderUnityToolCall, renderUnityPipelineCall, renderUnityToolResult, renderUnityPipelineResult } from "./src/unity-renderers";
 import { type AgentToolUpdateCallback, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { Dirent } from "node:fs";
 import { mkdir, readFile, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { getKeybindings, truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
   buildUnityBatchmodeAgentText,
   deriveUnityBatchmodeStatus,
@@ -119,6 +119,11 @@ export type UnityToolDetails = {
   route?: "connected" | "isolated";
 };
 
+/** Keep SDK inference as well as host JSON Schema validation for string enums. */
+function StringEnum<const T extends readonly string[]>(values: T, options: { description?: string; default?: T[number] } = {}) {
+  return Type.Unsafe<T[number]>({ type: "string", enum: [...values], ...options });
+}
+
 const LAUNCHER_SCHEMA = Type.Optional(StringEnum(["auto", "unity-cli", "editor-executable"] as const, { description: "Launch backend. Defaults to auto, which prefers the Unity CLI and falls back to direct editor executable launch when the CLI is unavailable." }));
 
 type UnityLauncherPreference = "auto" | "unity-cli" | "editor-executable";
@@ -222,7 +227,7 @@ function buildProjectChoiceLabel(cwd: string, candidate: UnityProjectCandidate):
   return `${candidate.projectName} — ${formatPathForUser(cwd, candidate.projectRoot)}`;
 }
 
-async function chooseProjectCandidateWithWrappingNavigation(
+export async function chooseProjectCandidateWithWrappingNavigation(
   ctx: ExtensionContext,
   candidates: UnityProjectCandidate[],
 ): Promise<UnityProjectCandidate | null | undefined> {
@@ -230,8 +235,9 @@ async function chooseProjectCandidateWithWrappingNavigation(
     return undefined;
   }
 
-  return await ctx.ui.custom<UnityProjectCandidate | null>((tui, theme, _keybindings, done) => {
+  return await ctx.ui.custom<UnityProjectCandidate | null>((tui, theme, keybindings, done) => {
     let selectedIndex = 0;
+    let disposed = false;
     const maxVisible = Math.min(candidates.length, 8);
 
     const renderCandidate = (candidate: UnityProjectCandidate, isSelected: boolean, width: number): string => {
@@ -264,8 +270,9 @@ async function chooseProjectCandidateWithWrappingNavigation(
         return lines;
       },
       invalidate() {},
+      dispose() { disposed = true; },
       handleInput(data: string) {
-        const keybindings = getKeybindings();
+        if (disposed) return;
         if (keybindings.matches(data, "tui.select.up")) {
           selectedIndex = selectedIndex === 0 ? candidates.length - 1 : selectedIndex - 1;
           tui.requestRender();
@@ -277,15 +284,17 @@ async function chooseProjectCandidateWithWrappingNavigation(
           return;
         }
         if (keybindings.matches(data, "tui.select.confirm")) {
+          disposed = true;
           done(candidates[selectedIndex]);
           return;
         }
         if (keybindings.matches(data, "tui.select.cancel")) {
+          disposed = true;
           done(null);
         }
       },
     };
-  });
+  }, { blocked: { kind: "question", message: "Select Unity project" } });
 }
 
 function formatCandidateList(cwd: string, candidates: UnityProjectCandidate[]): string {
@@ -491,7 +500,7 @@ async function closeBlockingUnityProcessesForBatchmode(
     const gracefulExitDisclosure = `A graceful Unity Editor exit was requested for:\n${formatProcessSummary(running.processes)}`;
     let exitResult: Awaited<ReturnType<ExtensionAPI["exec"]>>;
     try {
-      exitResult = await pi.exec(exitCommand.command, exitCommand.args, { signal, timeout: 10_000 });
+      exitResult = await executeUnityCommand(pi, exitCommand.command, exitCommand.args, { signal, timeout: 10_000 });
     } catch (error) {
       if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
         const message = error instanceof Error ? error.message : String(error);
@@ -967,13 +976,13 @@ const UNITY_CLI_WARNING = "pi-unity capability warning: Unity CLI is unavailable
 async function warnWhenUnityCliUnavailable(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
   if (!ctx.hasUI || unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
   try {
-    const result = await pi.exec(resolveUnityCliCommand(), ["--version"], { timeout: 5000 });
+    const result = await executeUnityCommand(pi, resolveUnityCliCommand(), ["--version"], { timeout: 5000 });
     // Timeouts are uncertain and must neither warn nor select another backend.
     if (result.killed || result.code === 0 || unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
     unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
     ctx.ui.notify(UNITY_CLI_WARNING, "warning");
   } catch (error) {
-    if ((error instanceof Error && error.name === "AbortError") || isUnityCliProbeTimeout(error)) return;
+    if ((error instanceof Error && error.name === "AbortError") || isUnityCliProbeUncertain(error)) return;
     if (unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] === true) return;
     unityCliRuntimeState[UNITY_CLI_WARNING_SYMBOL] = true;
     ctx.ui.notify(UNITY_CLI_WARNING, "warning");
@@ -981,28 +990,28 @@ async function warnWhenUnityCliUnavailable(pi: ExtensionAPI, ctx: ExtensionConte
 }
 type UnityCliAvailability = "available" | "unavailable" | "uncertain";
 
-function isUnityCliProbeTimeout(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ETIMEDOUT");
+function isUnityCliProbeUncertain(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && ["ETIMEDOUT", "OUTPUT_TRUNCATED"].includes(String((error as { code?: unknown }).code)));
 }
 
 async function getUnityCliAvailability(pi: ExtensionAPI, signal?: AbortSignal): Promise<UnityCliAvailability> {
   try {
     throwIfAborted(signal);
     const command = resolveUnityCliCommand();
-    const result = await pi.exec(command, ["--version"], { signal, timeout: 5000 });
+    const result = await executeUnityCommand(pi, command, ["--version"], { signal, timeout: 5000 });
     throwIfAborted(signal);
     if (result.killed) return "uncertain";
     return result.code === 0 ? "available" : "unavailable";
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
-    return isUnityCliProbeTimeout(error) ? "uncertain" : "unavailable";
+    return isUnityCliProbeUncertain(error) ? "uncertain" : "unavailable";
   }
 }
 
 function createPlanningUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
   return async (command: string, args: string[], options: { timeout?: number; signal?: AbortSignal }) => {
     try {
-      const result = await pi.exec(command, args, { signal: options.signal, timeout: options.timeout });
+      const result = await executeUnityCommand(pi, command, args, { signal: options.signal, timeout: options.timeout });
       return result.code === 0 && !result.killed
         ? { stdout: result.stdout, stderr: result.stderr }
         : { stdout: result.stdout, stderr: result.stderr, error: Object.assign(new Error("Unity CLI command failed"), { code: result.killed ? "ETIMEDOUT" : result.code }) };
@@ -1016,7 +1025,7 @@ function createPlanningUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
 function createPipelineUnityCliExecutor(pi: Pick<ExtensionAPI, "exec">) {
   return async (command: string, args: string[], options: { timeout?: number; signal?: AbortSignal }) => {
     try {
-      const result = await pi.exec(command, args, { signal: options.signal, timeout: options.timeout });
+      const result = await executeUnityCommand(pi, command, args, { signal: options.signal, timeout: options.timeout });
       return result.code === 0 && !result.killed
         ? { stdout: result.stdout, stderr: result.stderr }
         : { stdout: result.stdout, stderr: result.stderr, error: Object.assign(new Error("Unity Pipeline command failed"), { code: result.killed ? "ETIMEDOUT" : result.code }) };
@@ -1135,7 +1144,7 @@ async function runGuardedUnityBatchmode(
           ? `Unity CLI launch selected; native Unity lockfile exists at ${lockState.nativeLockfilePath}. No running project process was found by pi-unity preflight, so the launch is being delegated to the Unity CLI instead of blocked as a stale lockfile.`
           : undefined;
         throwIfAborted(signal);
-        const result = await pi.exec(command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs });
+        const result = await executeUnityCommand(pi, command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs });
         throwIfAborted(signal);
         const report = await buildBatchmodeReport(
           ctx,
@@ -1264,7 +1273,7 @@ async function runUnifiedUnityTests(
       // coverage=false omits --coverage; a CLI project/global default may still enable it.
       if (key === "test.coverage" && request.coverage) continue;
       try {
-        const resolved = await pi.exec(resolveUnityCliCommand(), ["--format", "json", "--no-banner", "--non-interactive", "config", "resolve", key, candidate.projectRoot], { signal, timeout: 5000 });
+        const resolved = await executeUnityCommand(pi, resolveUnityCliCommand(), ["--format", "json", "--no-banner", "--non-interactive", "config", "resolve", key, candidate.projectRoot], { signal, timeout: 5000 });
         const envelope = JSON.parse(resolved.stdout) as { success?: unknown; data?: { key?: unknown; source?: unknown; value?: unknown }; warnings?: unknown[] };
         if (resolved.code === 0 && !resolved.killed && envelope.success === true && envelope.data?.key === key && (!envelope.warnings || envelope.warnings.length === 0) && ["env", "project", "global", "default"].includes(String(envelope.data.source))) {
           const raw = envelope.data.value;
@@ -1274,7 +1283,7 @@ async function runUnifiedUnityTests(
       } catch { /* Resolver evidence is advisory; it never changes the selected test dispatch. */ }
     }
     const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: resolveUnityCliBackendReportPaths({ nunit: plan.testResultsPath, junit: plan.junitResultsPath, log: plan.logFilePath }, formats), coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
-    const execution = await pi.exec(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
+    const execution = await executeUnityCommand(pi, command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
     const effectiveResultsPath = deriveUnityCliEffectiveReportPath(plan.testResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard });
     let effectiveResultsXml: string | undefined;
     try { effectiveResultsXml = await readFile(effectiveResultsPath, "utf8"); } catch { /* Missing current-run evidence is handled below. */ }

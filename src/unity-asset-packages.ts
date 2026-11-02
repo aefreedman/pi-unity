@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep, dirname, basename } from "node:path";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isUnityCliTimeout, redactUnityPlanningOutput, resolveUnityCliCommand, summarizeUnityCliText, type UnityCliExecutor, type UnityCliExecResult } from "./unity-cli";
 

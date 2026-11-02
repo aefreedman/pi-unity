@@ -1,13 +1,17 @@
 import { redactUnityCredentials } from "./unity-redaction";
-import { highlightCode, keyHint, type Theme } from "@earendil-works/pi-coding-agent";
+import { highlightCode, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { UnityToolDetails } from "../index";
 import type { UnityGuidanceAuditResult } from "./unity-guidance-audit";
 
 type Args = { path?: string; args?: unknown[]; code?: string; command?: string; file?: string; entry?: string; dryRun?: boolean; testPlatform?: string; testFilter?: string; testFilters?: string[]; testCategories?: string[]; execution?: string };
-type Context = { lastComponent?: unknown; args?: Args; isError?: boolean; expanded?: boolean };
+type Context = { keyHint?: (action: "app.tools.expand", description: string) => string; keyText?: (action: "app.tools.expand") => string; lastComponent?: unknown; args?: Args; isError?: boolean; expanded?: boolean };
 type Result = { content?: Array<{ type: string; text?: string }>; details?: unknown };
 type Options = { expanded: boolean; isPartial?: boolean };
+
+function expandHint(context?: Context): string {
+  return context?.keyText?.("app.tools.expand") ? context.keyHint?.("app.tools.expand", "details") ?? "" : "";
+}
 
 function redact(value: string): string {
   return redactUnityCredentials(value).replace(/([:=])\s+(\[redacted\])/gi, "$1$2")
@@ -103,7 +107,7 @@ export function renderUnityToolResult(result: Result, expanded: boolean, theme: 
   if (isPartial) return reuse(context, theme.fg("warning", `… ${compactUnityRendererValue(primary || "Waiting for Unity…", 200)}`));
   if (!details?.mode) {
     const text = expanded ? primary : compactUnityRendererValue(primary || "No output", 280);
-    return reuse(context, theme.fg(context?.isError ? "error" : "toolOutput", text) + (!expanded && primary ? `\n${theme.fg("dim", keyHint("app.tools.expand", "details"))}` : ""));
+    return reuse(context, theme.fg(context?.isError ? "error" : "toolOutput", text) + (!expanded && primary && expandHint(context) ? `\n${theme.fg("dim", expandHint(context))}` : ""));
   }
   const pipeline = details.pipeline;
   const tests = details.testResult;
@@ -165,7 +169,7 @@ export function renderUnityToolResult(result: Result, expanded: boolean, theme: 
     section("Evidence", theme.fg("toolOutput", primary));
     const paths = [...new Set([details.artifactPath, details.normalizedResultPath, details.artifacts?.testResultsPath, details.artifacts?.logFilePath, ...Object.values(tests?.backendArtifacts ?? {})].filter((value): value is string => Boolean(value)))];
     section("Artifacts", theme.fg("muted", redact(paths.join("\n"))));
-  } else text += `\n${theme.fg("dim", keyHint("app.tools.expand", "details"))}`;
+  } else if (expandHint(context)) text += `\n${theme.fg("dim", expandHint(context))}`;
   return reuse(context, text);
 }
 
@@ -178,6 +182,6 @@ export function renderUnityGuidanceResult(result: Result, options: Options, them
   let text = theme.fg(tone, `${tone === "success" ? "✓" : "!"} ${filesScanned} files · ${errors} errors · ${warnings} warnings · ${infos} info`);
   if (ancestors) text += `\n${theme.fg("warning", `${ancestors} ancestor files excluded`)}`;
   if (options.expanded) text += `\n\n${theme.fg("toolTitle", theme.bold("Findings"))}\n${theme.fg("toolOutput", content(result))}`;
-  else text += `\n${theme.fg("dim", keyHint("app.tools.expand", "details"))}`;
+  else if (expandHint(context)) text += `\n${theme.fg("dim", expandHint(context))}`;
   return reuse(context, text);
 }
