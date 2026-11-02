@@ -65,6 +65,8 @@ Use `unity_run_tests` for all ordinary Unity Test Framework work. It writes a du
 
 Isolated tests pin NUnit reports for normalized evidence; missing/malformed reports or nonzero CLI exits cannot pass. `retries` accepts 0–10; JSON-only retry evidence is reconciled to final outcomes. An omitted `coverage` setting may inherit from Unity CLI configuration (including enabled coverage); `coverage: false` does not override an inherited CLI setting. Where available the result reports read-only resolver provenance for effective `test.coverage` and `test.timeout`; no config is written. `timeoutSeconds` is a host deadline, not a CLI configuration override. Native batchmode `logFilePath` requires a project-contained absolute destination and conflicts with forwarded `-logFile`; `tailLog: false` disables native log tailing. Native log options require Unity CLI, not direct Editor execution. Connected Pipeline recompile remains the default; native CLI replacement is deferred pending exact identity, Play Mode, and JSON parity evidence.
 
+Batchmode and isolated-test runs drain stdout/stderr without cancelling the process for log volume. Diagnostic capture is bounded; overflowing streams are omitted with an explicit notice, while exit outcomes and native log/report files remain authoritative and unchanged. Structured CLI information and probes remain fail-closed on capture overflow.
+
 Batchmode runs use `-nographics` by default. Set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent tests. Unity permits only one process per project folder, so all launch routes verify the exact project and use a per-project mutex.
 
 ### Unity CLI information, Cloud inventory, and asset packages

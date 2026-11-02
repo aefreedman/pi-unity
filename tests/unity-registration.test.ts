@@ -10,9 +10,14 @@ import { resolveArtifactProfilesV1, resolveArtifactSearchServiceV1, resolveTodoL
 import { resolveFileDiscoveryFiltersV1 } from "@aefree/pi-file-discovery/contracts/v1";
 import { ExtensionRunner, initTheme } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import registerUnity from "../index";
+import registerUnityExtension from "../index";
 import { writeNormalizedUnityTestArtifact, type NormalizedUnityTestResult } from "../src/unity-tests";
 import { validateNormalizedUnityTestArtifact } from "../src/unity-artifact-inspection";
+
+// Keep all existing synthetic dispatches injected, including long-running work.
+function registerUnity(pi: any, dependencies: any = {}) {
+  return registerUnityExtension(pi, { executeLong: async (command, args, options) => ({ ...await pi.exec(command, args, options), outputOmitted: false }), ...dependencies });
+}
 
 initTheme("dark");
 

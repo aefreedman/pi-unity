@@ -1,4 +1,4 @@
-import { executeUnityCommand } from "./src/unity-exec";
+import { executeUnityCommand, executeUnityLongCommand, type UnityLongExecutor } from "./src/unity-exec";
 import { redactUnityCredentialData, redactUnityCredentials } from "./src/unity-redaction";
 import { registerUnityAssetPackageTools, type AssetResult } from "./src/unity-asset-packages";
 import { registerUnityInformationTools } from "./src/unity-cli-information";
@@ -1083,6 +1083,7 @@ async function runGuardedUnityBatchmode(
   params: GuardedBatchmodeParams,
   signal: AbortSignal | undefined,
   toolName: "unity_launch_batchmode" | "unity_run_test_batch",
+  executeLong: UnityLongExecutor,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details: UnityToolDetails }> {
   return withUnityProjectLaunchMutex(
     candidate.projectRoot,
@@ -1144,7 +1145,7 @@ async function runGuardedUnityBatchmode(
           ? `Unity CLI launch selected; native Unity lockfile exists at ${lockState.nativeLockfilePath}. No running project process was found by pi-unity preflight, so the launch is being delegated to the Unity CLI instead of blocked as a stale lockfile.`
           : undefined;
         throwIfAborted(signal);
-        const result = await executeUnityCommand(pi, command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs });
+        const result = await executeLong(command.command, command.args, { signal, timeout: useUnityCli ? timeoutMs + 30_000 : timeoutMs, cwd: ctx.cwd });
         throwIfAborted(signal);
         const report = await buildBatchmodeReport(
           ctx,
@@ -1152,7 +1153,7 @@ async function runGuardedUnityBatchmode(
           editorPath,
           { code: result.code, stdout: result.stdout, stderr: result.stderr, killed: result.killed },
           useUnityCli ? (params.logFilePath ? [...reportArgs, "-logFile", params.logFilePath] : reportArgs) : command.args,
-          joinWarnings(closeReport.warning, lockfileCleanup.warning, lockWarning, discoveryWarning),
+          joinWarnings(closeReport.warning, lockfileCleanup.warning, lockWarning, discoveryWarning, result.outputOmitted ? "Process diagnostics exceeded the capture limit and were omitted; exit outcome and native log/report evidence are retained." : undefined),
         );
         report.details.command = command.command;
         report.details.cliArgs = useUnityCli ? command.args : undefined;
@@ -1196,6 +1197,7 @@ async function runUnifiedUnityTests(
   signal: AbortSignal | undefined,
   onUpdate?: AgentToolUpdateCallback<unknown>,
   allowAutonomousExitPlayMode = true,
+  executeLong: UnityLongExecutor = executeUnityLongCommand,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details: UnityToolDetails & { testResult: NormalizedUnityTestResult; artifactPath: string; route: "connected" | "isolated" } }> {
   const request = normalizeUnityRunTestsRequest(raw);
   const requirements = getUnityTestRouteRequirements(request);
@@ -1255,7 +1257,7 @@ async function runUnifiedUnityTests(
   if (!cliAvailable && request.isolatedLauncher === "unity-cli") throw new Error("Unity CLI was requested but is unavailable.");
   if (!cliAvailable && (request.retries || request.rerunFailed || request.shard || request.coverage || formats.includes("junit"))) throw new Error("Unity CLI is unavailable and the requested options have no direct Editor fallback.");
   if (!cliAvailable) {
-    const fallback = await runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, { args: plan.args, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, launcher: "editor-executable", closeBlockingUnityProcess: request.closeBlockingUnityProcess }, signal, "unity_run_test_batch");
+    const fallback = await runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, { args: plan.args, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds, launcher: "editor-executable", closeBlockingUnityProcess: request.closeBlockingUnityProcess }, signal, "unity_run_test_batch", executeLong);
     const parsed = fallback.details.parsedTestResults;
     const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
     const normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "editor-executable", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome: determineUnityTestOutcome(summary), summary, tests: parsed?.tests ?? [] };
@@ -1283,7 +1285,7 @@ async function runUnifiedUnityTests(
       } catch { /* Resolver evidence is advisory; it never changes the selected test dispatch. */ }
     }
     const command = createUnityCliTestCommand(candidate.projectRoot, { testPlatform: request.testPlatform, testFilters: request.testFilters, testCategories: request.testCategories, retries: request.retries, rerunFailed: request.rerunFailed, shard: request.shard, shardInventoryPath: request.shardInventoryPath, reportPaths: resolveUnityCliBackendReportPaths({ nunit: plan.testResultsPath, junit: plan.junitResultsPath, log: plan.logFilePath }, formats), coverage: request.coverage, coverageOptions: request.coverageOptions, useGraphics: request.useGraphics, timeoutSeconds: request.timeoutSeconds });
-    const execution = await executeUnityCommand(pi, command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000 });
+    const execution = await executeLong(command.command, command.args, { signal, timeout: (request.timeoutSeconds ?? 3600) * 1000 + 30_000, cwd: ctx.cwd });
     const effectiveResultsPath = deriveUnityCliEffectiveReportPath(plan.testResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard });
     let effectiveResultsXml: string | undefined;
     try { effectiveResultsXml = await readFile(effectiveResultsPath, "utf8"); } catch { /* Missing current-run evidence is handled below. */ }
@@ -1292,6 +1294,7 @@ async function runUnifiedUnityTests(
     const summary = { total: parsed?.total, passed: parsed?.passed, failed: parsed?.failed, skipped: parsed?.skipped };
     const outcome = execution.killed ? "timed_out" : !parsed || (execution.code !== 0 && execution.code !== 8) ? "run_error" : execution.code === 8 ? "tests_failed" : determineUnityTestOutcome(summary);
     let normalized: NormalizedUnityTestResult = { schemaVersion: 1, source: "unity-cli", platform: request.testPlatform, selection: { testFilters: request.testFilters, testCategories: request.testCategories }, outcome, summary, tests: parsed?.tests ?? [], diagnostics: !parsed ? [`Required current-run NUnit XML missing or malformed: ${effectiveResultsPath}`] : execution.code !== 0 && execution.code !== 8 ? [`Unity CLI exited with code ${execution.code ?? "unknown"}; test results cannot establish success.`] : undefined, backendArtifacts: { ...(parsed && formats.includes("nunit") ? { nunit: `Logs/${effectiveResultsPath.split(/[\\/]/).pop()}` } : {}), ...(parsed && formats.includes("junit") ? { junit: `Logs/${deriveUnityCliEffectiveReportPath(plan.junitResultsPath, { rerunFailed: request.rerunFailed, shard: request.shard }).split(/[\\/]/).pop()}` } : {}), log: `Logs/${plan.logFilePath.split(/[\\/]/).pop()}` } };
+    if (execution.outputOmitted) normalized.diagnostics = [...(normalized.diagnostics ?? []), "Process diagnostics exceeded the capture limit and were omitted; native logs/reports and the exit outcome were retained."];
     if (request.retries > 0 && parsed && execution.code === 0 && !execution.killed) {
       const retryPath = effectiveResultsPath.replace(/\.[^.\\/]+$/, ".retries.json");
       try {
@@ -1333,7 +1336,7 @@ function formatUnityGuidanceAudit(result: UnityGuidanceAuditResult): string {
   return lines.join("\n");
 }
 
-export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?: UnityGuiSpawn; observationTimeoutMs?: number } = {}) {
+export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?: UnityGuiSpawn; observationTimeoutMs?: number; executeLong?: UnityLongExecutor } = {}) {
   // Sanitize registered-tool output itself, including progress and thrown diagnostics;
   // renderers are only a secondary boundary and source logs are never rewritten.
   const registerTool: ExtensionAPI["registerTool"] = tool => pi.registerTool({
@@ -1607,7 +1610,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
-      return await runUnifiedUnityTests(pi, ctx, candidate, discoveryWarning, params as UnityRunTestsRequest, signal, onUpdate, sessionAllowsAutonomousPlayModeExit(ctx));
+      return await runUnifiedUnityTests(pi, ctx, candidate, discoveryWarning, params as UnityRunTestsRequest, signal, onUpdate, sessionAllowsAutonomousPlayModeExit(ctx), guiDependencies.executeLong ?? executeUnityLongCommand);
     },
     renderCall(args, theme, context) { return renderUnityToolCall("unity_run_tests", args, theme, "tests", undefined, context); },
     renderResult(result, { expanded, isPartial }, theme, context) { return renderUnityToolResult(result, expanded, theme, context, isPartial); },
@@ -1896,7 +1899,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
       throwIfAborted(signal);
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      return runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, params, signal, "unity_launch_batchmode");
+      return runGuardedUnityBatchmode(pi, ctx, candidate, discoveryWarning, params, signal, "unity_launch_batchmode", guiDependencies.executeLong ?? executeUnityLongCommand);
     },
     renderCall(args, theme) {
       const displayArgs = args.useGraphics ? args.args : ["-nographics", ...(args.args ?? [])];

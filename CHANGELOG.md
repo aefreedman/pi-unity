@@ -14,7 +14,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Fixed
 
-- Bound all Pi process captures and reject truncated output before parsing JSON or reporting completion; preserve cancellation and failed-executable handling.
+- Bound structured Pi process captures and reject truncated output before parsing JSON. Drain long-running batchmode and isolated-test output with bounded diagnostic retention instead of terminating noisy runs; retain exit outcomes, native logs and final reports, with explicit omission notices. Preserve timeout, cancellation and failed-executable handling.
 - Keep asset schemas and string-enum inference usable in both the extension loader and direct SDK imports.
 
 ## 0.16.4 - 2026-10-20
