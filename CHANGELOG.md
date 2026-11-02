@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.5 - 2026-11-02
+
 ### Changed
 
 - Validate against exact Pi 1.5.0 development dependencies, including real-host schema coercion and rejection checks.
