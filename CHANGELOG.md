@@ -11,13 +11,14 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
-- Validate against exact Pi 1.5.0 development dependencies, including real-host schema coercion and rejection checks.
-- Use host-injected expand hints and selector keybindings; report project selection as waiting for input.
+- Updated for Pi 1.5.0.
+- Expand hints and project selection follow your configured keybindings. The project picker now shows that Pi is waiting for input.
 
 ### Fixed
 
-- Bound structured Pi process captures and reject truncated output before parsing JSON. Drain long-running batchmode and isolated-test output with bounded diagnostic retention instead of terminating noisy runs; retain exit outcomes, native logs and final reports, with explicit omission notices. Preserve timeout, cancellation and failed-executable handling.
-- Keep asset schemas and string-enum inference usable in both the extension loader and direct SDK imports.
+- Keep noisy batchmode and isolated test runs running instead of terminating them when console output exceeds the capture limit. Omitted console output is reported; native logs and final reports remain available.
+- Reject incomplete command output rather than parsing it as a successful JSON response.
+- Fix asset-tool parameter typings for SDK consumers.
 
 ## 0.16.4 - 2026-10-20
 
