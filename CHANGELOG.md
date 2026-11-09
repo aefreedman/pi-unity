@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.7 - 2026-11-09
+
 ### Changed
 
 - Make native Unity CLI/Pipeline use the normal documented route; retain existing tools as optional adapters with their own scoped guarantees.
