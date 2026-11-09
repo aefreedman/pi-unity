@@ -15,7 +15,7 @@ test("all ten cloud inventory operations dispatch one exact read-only argv", asy
   for (const [family, resources] of [["cloud-build", ["targets", "builds"]], ["automation", ["apps", "pipelines", "jobs"]]] as const) {
     for (const resource of resources) for (const operation of ["list", "get"] as const) {
       const calls: string[][] = [];
-      const execute: UnityCliExecutor = async (_cmd, args, options) => { calls.push(args); assert.equal(options.timeout, 20000); return envelope(`pipeline ${family} ${resource}${operation === "get" ? " get" : ""}`, operation === "get" ? { id: "42" } : { items: [{ id: "42" }], total: 9, nextPage: 3, partial: false }); };
+      const execute: UnityCliExecutor = async (_cmd, args, options) => { calls.push(args); assert.equal(options.timeout, 20000); return envelope(`pipeline ${family} ${resource} ${operation}`, operation === "get" ? { id: "42" } : { items: [{ id: "42" }], total: 9, nextPage: 3, partial: false }); };
       const result = await unityCloudInventory(family, { resource, operation, ...(operation === "get" ? { id: "42" } : { page: 2, limit: 5 }), cloudOrg: "org", ...(family === "cloud-build" ? { cloudProject: "proj", ...(resource === "builds" && operation === "get" ? { buildTarget: "target" } : {}) } : {}) }, execute);
       assert.equal(result.remoteRead, true); assert.equal(calls.length, 1);
       assert.deepEqual(calls[0], ["--format", "json", "--no-banner", "--non-interactive", "pipeline", family, resource, ...(operation === "get" ? ["get", "42"] : []), "--cloud-org", "org", ...(family === "cloud-build" ? ["--cloud-project", "proj"] : []), ...(operation === "list" ? ["--page", "2", "--limit", "5"] : []), ...(family === "cloud-build" && resource === "builds" && operation === "get" ? ["--build-target", "target"] : [])]);
@@ -25,7 +25,7 @@ test("all ten cloud inventory operations dispatch one exact read-only argv", asy
 });
 test("build-specific documented filters and pagination remain bounded", async () => {
   const calls: string[][] = [];
-  const execute: UnityCliExecutor = async (_cmd, args) => { calls.push(args); return envelope(args.includes("get") ? "pipeline cloud-build builds get" : "pipeline cloud-build targets", args.includes("get") ? { id: "42" } : { items: [], total: 0, nextPage: null, partial: false }); };
+  const execute: UnityCliExecutor = async (_cmd, args) => { calls.push(args); return envelope(args.includes("get") ? "pipeline cloud-build builds get" : "pipeline cloud-build targets list", args.includes("get") ? { id: "42" } : { items: [], total: 0, nextPage: null, partial: false }); };
   await unityCloudInventory("cloud-build", { resource: "builds", operation: "get", id: "42", buildTarget: "android-release" }, execute);
   assert.deepEqual(calls[0].slice(-2), ["--build-target", "android-release"]);
   await unityCloudInventory("cloud-build", { resource: "targets", operation: "list", platform: "android", buildTargetName: "release", branch: "main" }, execute);
@@ -40,14 +40,14 @@ test("canonical cloud listings retain partial and continuation metadata and reje
   const request = { resource: "apps", operation: "list" as const, limit: 100 };
   const data = { items: Array.from({ length: 80 }, (_, id) => ({ id })), total: null, nextPage: 2, partial: true };
   let calls = 0;
-  const result = await unityCloudInventory("automation", request, async () => { calls++; return envelope("pipeline automation apps", data); });
+  const result = await unityCloudInventory("automation", request, async () => { calls++; return envelope("pipeline automation apps list", data); });
   assert.equal(calls, 1); assert.equal(result.inventoryComplete, false);
   assert.deepEqual(result.listing, { partial: true, total: null, nextPage: 2, returnedCount: 80, outputTruncated: true });
   assert.equal((result.data as {items: unknown[]}).items.length, 50);
   for (const changed of [{ items: {} }, { items: [null] }, { partial: "true" }, { total: -1 }, { total: undefined }, { nextPage: 1 }, { nextPage: "2" }, { nextPage: undefined }]) {
-    await assert.rejects(unityCloudInventory("automation", request, async () => envelope("pipeline automation apps", { ...data, ...changed })), /invalid listing/);
+    await assert.rejects(unityCloudInventory("automation", request, async () => envelope("pipeline automation apps list", { ...data, ...changed })), /invalid listing/);
   }
-  for (const command of ["pipeline", "pipeline automation apps list", "pipeline automation jobs"]) {
+  for (const command of ["pipeline", "pipeline automation apps", "pipeline automation jobs list"]) {
     await assert.rejects(unityCloudInventory("automation", request, async () => envelope(command, data)), /invalid envelope/);
   }
   await assert.rejects(unityCloudInventory("automation", { resource: "apps", operation: "get", id: "42" }, async () => envelope("pipeline automation apps get", {})), /empty get/);
@@ -56,13 +56,13 @@ test("canonical cloud listings retain partial and continuation metadata and reje
 
 test("schema-open cloud data is bounded and recursively redacted; failure cannot become empty inventory", async () => {
   const req = { resource: "apps", operation: "list" as const };
-  const result = await unityCloudInventory("automation", req, async () => envelope("pipeline automation apps", { items: [{ password: "private", nested: { apiKey: "sensitive", note: "token=private", text: "x".repeat(4000) } }], total: null, nextPage: 2, partial: true }));
+  const result = await unityCloudInventory("automation", req, async () => envelope("pipeline automation apps list", { items: [{ password: "private", nested: { apiKey: "sensitive", note: "token=private", text: "x".repeat(4000) } }], total: null, nextPage: 2, partial: true }));
   assert.doesNotMatch(JSON.stringify(result), /private|sensitive/);
   assert.ok(JSON.stringify(result).length < 4000);
-  await assert.rejects(unityCloudInventory("automation", req, async () => envelope("pipeline automation apps", {}, false)), error => { assert.match(String(error), /AUTH_REQUIRED/); assert.doesNotMatch(String(error), /private/); return true; });
+  await assert.rejects(unityCloudInventory("automation", req, async () => envelope("pipeline automation apps list", {}, false)), error => { assert.match(String(error), /AUTH_REQUIRED/); assert.doesNotMatch(String(error), /private/); return true; });
   await assert.rejects(unityCloudInventory("automation", req, async () => ({ stdout: "", stderr: "password=private", error: new Error("network secret") })), /uncertain/);
-  await assert.rejects(unityCloudInventory("automation", req, async () => envelope("pipeline automation apps", null)), /invalid data/);
-  const valid = envelope("pipeline automation apps", { items: [], total: 0, nextPage: null, partial: false });
+  await assert.rejects(unityCloudInventory("automation", req, async () => envelope("pipeline automation apps list", null)), /invalid data/);
+  const valid = envelope("pipeline automation apps list", { items: [], total: 0, nextPage: null, partial: false });
   await assert.rejects(unityCloudInventory("automation", req, async () => ({ ...valid, error: new Error("failed exit") })), /uncertain/);
   await assert.rejects(unityCloudInventory("automation", req, async () => ({ stdout: JSON.stringify({ ...JSON.parse(valid.stdout), warnings: ["partial remote failure"] }), stderr: "" })), /warnings/);
   const empty = await unityCloudInventory("automation", req, async () => valid);

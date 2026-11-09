@@ -10,7 +10,7 @@ export const automationParameters = Type.Object({ resource: Type.Union([Type.Lit
 type Request = { resource: string; operation: "list" | "get"; id?: string; cloudOrg?: string; cloudProject?: string; page?: number; limit?: number; buildTarget?: string; platform?: string; buildTargetName?: string; branch?: string };
 export async function unityCloudInventory(family: "cloud-build" | "automation", request: Request, execute: UnityCliExecutor, signal?: AbortSignal) {
   if (!(family === "cloud-build" ? ["targets", "builds"] : ["apps", "pipelines", "jobs"]).includes(request.resource) || !["list", "get"].includes(request.operation)) throw new Error("Invalid cloud inventory resource or operation.");
-  const command = `pipeline ${family} ${request.resource}${request.operation === "get" ? " get" : ""}`;
+  const command = `pipeline ${family} ${request.resource} ${request.operation}`;
   const args = [...base, family, request.resource, ...(request.operation === "get" ? ["get"] : [])];
   if (request.operation === "get") {
     if (request.page !== undefined || request.limit !== undefined || !request.id) throw new Error("Get requires an ID and does not accept pagination.");
