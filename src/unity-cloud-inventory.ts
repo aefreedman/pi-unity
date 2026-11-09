@@ -10,7 +10,8 @@ export const automationParameters = Type.Object({ resource: Type.Union([Type.Lit
 type Request = { resource: string; operation: "list" | "get"; id?: string; cloudOrg?: string; cloudProject?: string; page?: number; limit?: number; buildTarget?: string; platform?: string; buildTargetName?: string; branch?: string };
 export async function unityCloudInventory(family: "cloud-build" | "automation", request: Request, execute: UnityCliExecutor, signal?: AbortSignal) {
   if (!(family === "cloud-build" ? ["targets", "builds"] : ["apps", "pipelines", "jobs"]).includes(request.resource) || !["list", "get"].includes(request.operation)) throw new Error("Invalid cloud inventory resource or operation.");
-  const args = [...base, family, request.resource, request.operation];
+  const command = `pipeline ${family} ${request.resource}${request.operation === "get" ? " get" : ""}`;
+  const args = [...base, family, request.resource, ...(request.operation === "get" ? ["get"] : [])];
   if (request.operation === "get") {
     if (request.page !== undefined || request.limit !== undefined || !request.id) throw new Error("Get requires an ID and does not accept pagination.");
     args.push(validArg(request.id, "resource ID"));
@@ -32,9 +33,20 @@ export async function unityCloudInventory(family: "cloud-build" | "automation", 
       args.push(flag, validArg(value, "target filter"));
     }
   }
-  const envelope = checkCliResult(await execute(resolveUnityCliCommand(), args, { timeout: 20000, signal }), `pipeline ${family} ${request.resource} ${request.operation}`, "pipeline");
-  if (envelope.data === undefined || envelope.data === null || typeof envelope.data !== "object") throw new Error("Cloud inventory returned invalid data; result is uncertain.");
-  return { remoteRead: true, family, resource: request.resource, operation: request.operation, selection: { cloudOrg: request.cloudOrg ? "argument" : "CLI environment or saved default", cloudProject: family === "cloud-build" ? request.cloudProject ? "argument" : "CLI environment or saved default" : undefined }, page: request.operation === "list" ? request.page ?? 1 : undefined, limit: request.operation === "list" ? request.limit ?? 25 : undefined, data: boundedCliData(envelope.data), dataBounded: true };
+  if (family === "cloud-build" && request.resource === "builds" && request.operation === "get" && request.buildTarget === undefined) throw new Error("Build get requires a build target.");
+  const envelope = checkCliResult(await execute(resolveUnityCliCommand(), args, { timeout: 20000, signal }), command);
+  if (!envelope.data || typeof envelope.data !== "object" || Array.isArray(envelope.data)) throw new Error("Cloud inventory returned invalid data; result is uncertain.");
+  const data = envelope.data as Record<string, unknown>;
+  let listing: { partial: boolean; total: number | null; nextPage: number | null; returnedCount: number; outputTruncated: boolean } | undefined;
+  if (request.operation === "list") {
+    const page = request.page ?? 1;
+    const count = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+    if (!Array.isArray(data.items) || data.items.length > (request.limit ?? 25) || data.items.some(item => !item || typeof item !== "object" || Array.isArray(item)) || typeof data.partial !== "boolean" || !(data.total === null || count(data.total) && data.total >= data.items.length) || !(data.nextPage === null || count(data.nextPage) && data.nextPage > page)) throw new Error("Cloud inventory returned invalid listing metadata; result is uncertain.");
+    // Keep completeness evidence outside the bounded payload: a page is never a whole inventory.
+    const outputTruncated = data.items.length > 50 || JSON.stringify(boundedCliData(data)) !== JSON.stringify(data);
+    listing = { partial: data.partial, total: data.total, nextPage: data.nextPage, returnedCount: data.items.length, outputTruncated };
+  } else if (!Object.keys(data).length) throw new Error("Cloud inventory returned empty get data; result is uncertain.");
+  return { remoteRead: true, family, resource: request.resource, operation: request.operation, selection: { cloudOrg: request.cloudOrg ? "argument" : "CLI environment or saved default", cloudProject: family === "cloud-build" ? request.cloudProject ? "argument" : "CLI environment or saved default" : undefined }, page: request.operation === "list" ? request.page ?? 1 : undefined, limit: request.operation === "list" ? request.limit ?? 25 : undefined, data: boundedCliData(data), dataBounded: true, listing, inventoryComplete: false };
 }
 export function registerUnityCloudInventoryTools(pi: Pick<ExtensionAPI, "registerTool">, execute: UnityCliExecutor) {
   pi.registerTool({ name: "unity_cloud_build_inventory", label: "Unity Cloud Build inventory", description: "One authenticated remote read: targets or builds list/get. No paging beyond the requested page, login or writes.", parameters: cloudBuildParameters, execute: async (_id, params, signal) => { const data = await unityCloudInventory("cloud-build", params, execute, signal); return { content: [{ type: "text", text: JSON.stringify(data) }], details: data }; } });
