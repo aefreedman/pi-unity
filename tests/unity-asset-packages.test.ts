@@ -67,18 +67,37 @@ test("export rejects traversal, aliases, collision including dangling symlink, a
   await symlink(join(project, "Assets", "Example.txt"), join(project, "Assets", "Alias.txt"));
   assert.equal((await exportUnitypackage({ path: project, assetPaths: ["Assets/Alias.txt"], output }, deps)).code, "asset_path_invalid");
   assert.equal((await exportUnitypackage({ path: project, assetPaths: ["Assets/Example.txt"], output, includeDependencies: false }, deps)).outcome, "dispatched");
-  assert.deepEqual(calls, [["--format", "json", "--no-banner", "--non-interactive", "assets", "export", "Assets/Example.txt", "--output", output, "--project", project, "--no-dependencies"]]);
+  assert.deepEqual(calls, [["--format", "json", "--no-banner", "--non-interactive", "assets", "export", "Assets/Example.txt", "--output", output, "--project-path", project, "--no-dependencies"]]);
 }));
 
 test("import validates the archive using inspect before its one mutation dispatch; failure stops", async () => fixture(async ({ project, archive }) => {
   const calls: string[][] = [];
-  const deps: AssetDependencies = { resolveProject: async () => project, withSafeProjectLaunch: async (_, action) => action(), execute: async (_, args) => { calls.push(args); return { stdout: args.includes("inspect") ? goodInspect() : goodMutation, stderr: "" }; } };
+  const deps: AssetDependencies = { resolveProject: async () => project, withSafeProjectLaunch: async (_, action) => action(), execute: async (_, args) => { calls.push(args); return { stdout: args.includes("inspect") ? goodInspect() : goodMutation.replace("assets export", "assets import"), stderr: "" }; } };
   assert.equal((await importUnitypackage({ path: project, file: archive }, deps)).outcome, "dispatched");
   assert.deepEqual(calls.map(c => c[5]), ["inspect", "import"]);
+  assert.deepEqual(calls[1], ["--format", "json", "--no-banner", "--non-interactive", "assets", "import", archive, "--project-path", project]);
   calls.length = 0;
   deps.execute = async (_, args) => { calls.push(args); return { stdout: "bad", stderr: "" }; };
   assert.equal((await importUnitypackage({ path: project, file: archive }, deps)).outcome, "rejected");
   assert.equal(calls.length, 1);
+}));
+
+test("asset operations require their exact full-path command identity", async () => fixture(async ({ project, archive, output }) => {
+  for (const command of [undefined, "assets", "assets import", "pipeline assets inspect"]) {
+    const payload = { ...JSON.parse(goodInspect()), command };
+    const result = await inspectUnitypackage(archive, { execute: async () => ({ stdout: JSON.stringify(payload), stderr: "" }) });
+    assert.equal(result.code, "asset_cli_failed");
+  }
+  let calls = 0;
+  const deps: AssetDependencies = { resolveProject: async () => project, withSafeProjectLaunch: async (_, action) => action(), execute: async (_, args) => {
+    calls++;
+    return { stdout: args.includes("inspect") ? goodInspect() : goodMutation.replace("assets export", "assets inspect"), stderr: "" };
+  } };
+  assert.equal((await importUnitypackage({ path: project, file: archive }, deps)).code, "asset_cli_failed");
+  assert.equal(calls, 2);
+  calls = 0;
+  assert.equal((await exportUnitypackage({ path: project, assetPaths: ["Assets/Example.txt"], output }, deps)).code, "asset_cli_failed");
+  assert.equal(calls, 1);
 }));
 
 test("exact-copy identity changes and timeout/failure never retry", async () => fixture(async ({ project, output }) => {

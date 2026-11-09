@@ -33,13 +33,13 @@ function inside(root: string, path: string): boolean {
 const defaultExecute: UnityCliExecutor = (command, args, options) => new Promise(done => {
   execFile(command, args, { timeout: options.timeout, signal: options.signal, windowsHide: true, maxBuffer: MAX_OUTPUT_BYTES }, (error, stdout, stderr) => done({ stdout, stderr, error: error ?? undefined }));
 });
-function envelope(result: UnityCliExecResult): { data: Record<string, unknown>; warnings: unknown[] } | AssetResult {
+function envelope(result: UnityCliExecResult, expectedCommand: string): { data: Record<string, unknown>; warnings: unknown[] } | AssetResult {
   let payload: unknown;
   if (result.stdout.length > MAX_OUTPUT_BYTES || result.stderr.length > 8192) return reject("asset_output_oversized", "Unity CLI output exceeded the inspection limit; operation state may be uncertain.");
   try { payload = JSON.parse(result.stdout); } catch { /* fail closed */ }
   const obj = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
   const data = obj?.data && typeof obj.data === "object" && !Array.isArray(obj.data) ? obj.data as Record<string, unknown> : null;
-  if (result.error || obj?.success !== true || !data || !Array.isArray(obj?.errors) || !Array.isArray(obj?.warnings) || obj.errors.length > 0) {
+  if (result.error || obj?.success !== true || obj.command !== expectedCommand || !data || !Array.isArray(obj?.errors) || !Array.isArray(obj?.warnings) || obj.errors.length > 0) {
     const reported = Array.isArray(obj?.errors) ? obj.errors.slice(0, 3).map(item => typeof item === "object" && item !== null && typeof (item as { message?: unknown }).message === "string" ? (item as { message: string }).message : "").join("; ") : "";
     return reject(isUnityCliTimeout(result) ? "asset_timeout" : "asset_cli_failed", `Unity CLI did not provide successful JSON evidence; post-dispatch effects may be uncertain. ${diagnostic(reported || result.stderr || result.error?.message || "")}`);
   }
@@ -76,7 +76,7 @@ async function invoke(args: string[], timeout: number, deps: AssetDependencies, 
   let result: UnityCliExecResult;
   try { result = await (deps.execute ?? defaultExecute)(resolveUnityCliCommand({ cliCommand: deps.cliCommand }), [...FORMAT, "assets", ...args], { timeout, signal }); }
   catch { return reject("asset_cli_failed", "Unity CLI invocation failed; post-dispatch effects may be uncertain."); }
-  return envelope(result);
+  return envelope(result, `assets ${args[0]}`);
 }
 export async function inspectUnitypackage(file: string, deps: AssetDependencies = {}, signal?: AbortSignal): Promise<AssetResult> {
   const checked = await archive(file);
@@ -130,7 +130,7 @@ export async function importUnitypackage(request: { path: string; file: string; 
     if ("outcome" in checked) return checked;
     const inspection = await inspectUnitypackage(checked.path, deps, signal);
     if (inspection.outcome !== "inspected") return inspection;
-    return ["import", checked.path, "--project", root];
+    return ["import", checked.path, "--project-path", root];
   }, signal);
 }
 export async function exportUnitypackage(request: { path: string; assetPaths: string[]; output: string; includeDependencies?: boolean; timeoutSeconds?: number }, deps: AssetDependencies, signal?: AbortSignal): Promise<AssetResult> {
@@ -153,7 +153,7 @@ export async function exportUnitypackage(request: { path: string; assetPaths: st
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return reject("asset_output_invalid", "Export output cannot be checked safely."); }
     try { if (!(await stat(await realpath(dirname(request.output)))).isDirectory() || !basename(request.output)) throw new Error(); }
     catch { return reject("asset_output_invalid", "Export output parent must be an existing accessible directory."); }
-    return ["export", ...selected, "--output", request.output, "--project", root, ...(request.includeDependencies === false ? ["--no-dependencies"] : [])];
+    return ["export", ...selected, "--output", request.output, "--project-path", root, ...(request.includeDependencies === false ? ["--no-dependencies"] : [])];
   }, signal);
 }
 
