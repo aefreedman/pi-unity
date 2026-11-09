@@ -48,6 +48,28 @@ export type UnityCliPipelineInstance = {
   reachable?: boolean;
 };
 
+/** Stable package operation keys mapped to current Pipeline wire identities. */
+const UNITY_PIPELINE_COMMAND_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  editor_status: "editor status", editor_stop: "editor.playmode stop",
+  recompile: "script recompile", recompile_status: "script recompile_status",
+  run_tests: "test run", test_status: "test status", eval: "script eval", run_script: "script run",
+  get_authoring_root: "authoring get_root", get_build_settings: "build get_settings",
+  get_player_settings: "settings.player get", get_runtime_pipeline_settings: "settings.runtime_pipeline get",
+  get_scene_hierarchy: "scene get_hierarchy", list_open_scenes: "scene list_open", list_build_targets: "build.target list",
+});
+export function unityPipelineCommandName(operation: string): string {
+  return UNITY_PIPELINE_COMMAND_NAMES[operation] ?? operation;
+}
+export function selectUnityPipelineCommand(capabilities: UnityCliProjectCapabilities, operation: string): string | undefined {
+  const grouped = UNITY_PIPELINE_COMMAND_NAMES[operation];
+  if (!grouped) return undefined;
+  if (capabilities.advertisedCommands.includes(grouped)) return grouped;
+  return capabilities.advertisedCommands.includes(operation) ? operation : undefined;
+}
+export function hasUnityPipelineCommand(capabilities: UnityCliProjectCapabilities, operation: string): boolean {
+  return selectUnityPipelineCommand(capabilities, operation) !== undefined;
+}
+
 export type UnityCliDiscoveryState = "not_attempted" | "available" | "absent" | "timeout" | "unavailable";
 
 export type UnityCliCommandParameter = {
@@ -194,7 +216,7 @@ export function createUnityCliBatchmodeReportArgs(projectRoot: string, extraEdit
 
 export function createUnityCliEditorExitCommand(
   projectRoot: string,
-  options: { cliCommand?: string; timeoutSeconds?: number } = {},
+  options: { cliCommand?: string; timeoutSeconds?: number; nativeCommand?: string } = {},
 ): UnityCliCommand {
   return {
     command: resolveUnityCliCommand(options),
@@ -205,7 +227,8 @@ export function createUnityCliEditorExitCommand(
       projectRoot,
       "--timeout",
       String(options.timeoutSeconds ?? 5),
-      "eval",
+      "--result-only",
+      options.nativeCommand ?? unityPipelineCommandName("eval"),
       "UnityEditor.EditorApplication.Exit(0); return true;",
     ],
   };
@@ -265,10 +288,21 @@ function instanceProjectPaths(instance: Record<string, unknown>): string[] {
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 }
 
+/** Partial or malformed listings never establish process absence. */
+function completeUnityCliListing(data: Record<string, unknown> | null): boolean {
+  const items = data?.items ?? data?.instances;
+  return Array.isArray(items)
+    && (data?.partial === undefined || data.partial === false)
+    && (data?.nextPage === undefined || data.nextPage === null)
+    && (data?.nextCursor === undefined || data.nextCursor === null)
+    && (data?.total === undefined || data.total === null || Number.isSafeInteger(data.total) && Number(data.total) === items.length)
+    && items.every(item => getRecord(item) !== null && instanceProjectPaths(getRecord(item)!).length > 0);
+}
+
 export function parseUnityCliStatusOutput(output: string, projectRoot: string): RunningUnityProcess[] {
   const payload = parseJsonObject(output);
   const data = getRecord(payload?.data);
-  const rawInstances = Array.isArray(data?.instances) ? data.instances : [];
+  const rawInstances = Array.isArray(data?.items) ? data.items : Array.isArray(data?.instances) ? data.instances : [];
 
   return rawInstances
     .map((entry) => {
@@ -293,9 +327,9 @@ export type UnityCliStatus = { processes: RunningUnityProcess[]; blockedBy: Unit
 export function parseUnityCliBlockedDialogs(output: string, projectRoot: string): Pick<UnityCliStatus, "blockedBy" | "blockedByDialog"> {
   const payload = parseJsonObject(output);
   const data = getRecord(payload?.data);
-  const instances = Array.isArray(data?.instances) ? data.instances : [];
+  const instances = Array.isArray(data?.items) ? data.items : Array.isArray(data?.instances) ? data.instances : [];
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
-  let blockedByDialog = errors.some(entry => getRecord(entry)?.code === "STATUS_BLOCKED_BY_DIALOG");
+  let blockedByDialog = errors.some(entry => /^(?:STATUS_BLOCKED_BY_DIALOG(?:_[A-Z_]+)?|EDITOR_BLOCKED_BY_DIALOG)$/.test(String(getRecord(entry)?.code ?? "")));
   const blockedBy: UnityCliBlockedDialog[] = [];
   for (const entry of instances) {
     const instance = getRecord(entry);
@@ -335,16 +369,15 @@ export async function listRunningUnityCliEditorsForProject(
   if (statusWarnings.length > 0) {
     return { ...status, warning: `Unity CLI status response is incomplete; process absence is uncertain: ${statusWarnings.join("; ")}` };
   }
-  if (processes.length > 0) return status;
 
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
   const onlyNoInstances = errors.length > 0 && errors.every((entry) => getRecord(entry)?.code === "STATUS_NO_INSTANCES");
   if (result.error && !onlyNoInstances) {
-    const message = summarizeUnityCliText(result.stderr.trim() || result.error.message);
+    const message = cliFailureMessage(result) ?? "unknown CLI failure";
     return { ...status, warning: `Unity CLI status check failed; falling back to process scan: ${message}` };
   }
-  if (!onlyNoInstances && (payload?.success !== true || !Array.isArray(getRecord(payload?.data)?.instances) || errors.length > 0)) {
-    return { ...status, warning: "Unity CLI status response is malformed or incomplete; process absence is uncertain." };
+  if ((payload?.command !== undefined && payload.command !== "status") || !completeUnityCliListing(getRecord(payload?.data)) || (!onlyNoInstances && (payload?.success !== true || errors.length > 0))) {
+    return { ...status, warning: `Unity CLI status response is malformed or incomplete; process absence is uncertain.${cliFailureMessage(result) ? ` ${cliFailureMessage(result)}` : ""}` };
   }
   return status;
 }
@@ -366,7 +399,7 @@ export function summarizeUnityCliText(value: string, maxChars = 1000, maxLines =
 export function parseUnityCliPipelineListOutput(output: string, projectRoot: string): { instances: UnityCliPipelineInstance[]; latestVersion?: string } {
   const payload = parseJsonObject(output);
   const data = getRecord(payload?.data);
-  const rawInstances = Array.isArray(data?.instances) ? data.instances : [];
+  const rawInstances = Array.isArray(data?.items) ? data.items : Array.isArray(data?.instances) ? data.instances : [];
   const instances = rawInstances.flatMap((entry): UnityCliPipelineInstance[] => {
     const instance = getRecord(entry);
     if (!instance) return [];
@@ -412,14 +445,14 @@ function isBoundedDescriptorString(value: unknown): value is string {
 
 function parseUnityCliCommandCatalog(output: string): UnityCliCommandCatalog {
   const payload = parseJsonObject(output);
-  const data = getRecord(payload?.data);
+  const data = getRecord(payload?.data) ?? (Array.isArray(payload?.commands) ? payload : null);
   const candidates: unknown[] = [];
   let valid = false;
   if (Array.isArray(payload?.data)) {
     valid = true;
     candidates.push(...payload.data);
   }
-  for (const key of ["commands", "tools", "items"]) {
+  for (const key of [Array.isArray(data?.items) ? "items" : "commands"]) {
     const value = data?.[key];
     if (Array.isArray(value)) {
       valid = true;
@@ -430,12 +463,13 @@ function parseUnityCliCommandCatalog(output: string): UnityCliCommandCatalog {
   const parametersByCommand: Record<string, readonly UnityCliCommandParameter[]> = {};
   const verifiedCandidates = new Map<string, Array<readonly UnityCliCommandParameter[] | undefined>>();
   const names: string[] = [];
+  let invalidIdentity = false;
   for (const entry of candidates) {
     const record = getRecord(entry);
-    const rawName = typeof entry === "string" ? entry : optionalString(record?.name, record?.command, record?.id);
-    if (!isBoundedDescriptorString(rawName)) continue;
+    const rawName = typeof entry === "string" ? entry : optionalString(record?.command, typeof record?.group === "string" && typeof record?.name === "string" ? `${record.group} ${record.name}` : undefined, record?.name, record?.id);
+    if (!isBoundedDescriptorString(rawName)) { invalidIdentity = true; continue; }
     const name = rawName.trim();
-    if (!isBoundedDescriptorString(name)) continue;
+    if (!isBoundedDescriptorString(name) || typeof record?.command === "string" && typeof record?.group === "string" && typeof record?.name === "string" && name !== `${record.group} ${record.name}`) { invalidIdentity = true; continue; }
     names.push(name);
 
     // Preserve a best-effort descriptor for status display, but retain authoritative
@@ -467,7 +501,14 @@ function parseUnityCliCommandCatalog(output: string): UnityCliCommandCatalog {
     descriptors.length === 1 && descriptors[0] ? [[name, descriptors[0]]] : [],
   ));
   return {
-    valid: Boolean(payload?.success === true && valid),
+    valid: Boolean((payload?.success === true || payload === data && payload?.success === undefined) && valid && !invalidIdentity
+      && (payload !== data || data?.count === candidates.length && data?.total === candidates.length && data?.offset === 0)
+      && (data?.partial === undefined || data.partial === false)
+      && (data?.nextPage === undefined || data.nextPage === null)
+      && (data?.nextCursor === undefined || data.nextCursor === null)
+      && (data?.offset === undefined || data.offset === 0)
+      && (data?.total === undefined || Number.isSafeInteger(data.total) && Number(data.total) === candidates.length)
+      && !(Array.isArray(payload?.errors) && payload.errors.length)),
     commands,
     parametersByCommand: Object.fromEntries(commands.flatMap(name => parametersByCommand[name] ? [[name, parametersByCommand[name]]] : [])),
     verifiedParametersByCommand,
@@ -530,7 +571,7 @@ async function readPipelineDescriptorCapabilities(projectRoot: string): Promise<
 
 export function isUnityCliTimeout(result: Pick<UnityCliExecResult, "error">): boolean {
   const error = result.error;
-  return error?.code === "ETIMEDOUT" || error?.killed === true || error?.signal === "SIGTERM";
+  return error?.code === 14 || error?.code === "14" || error?.code === "ETIMEDOUT" || error?.killed === true || error?.signal === "SIGTERM";
 }
 
 const UNITY_CLI_MAX_DIAGNOSTICS = 8;
@@ -594,12 +635,12 @@ export async function inspectUnityCliProjectCapabilities(
   result.cliAvailable = true;
   result.cliVersion = summarizeUnityCliText(versionResult.stdout, 200, 1) || undefined;
 
-  const pipelineResult = await execute(command, ["--format", "json", "--no-banner", "--non-interactive", "pipeline", "list"], { timeout: discoveryTimeout, signal: options.signal });
+  const pipelineResult = await execute(command, ["--format", "json", "--no-banner", "--non-interactive", "pipeline", "editors"], { timeout: discoveryTimeout, signal: options.signal });
   const pipelinePayload = parseJsonObject(pipelineResult.stdout);
   const pipelineData = getRecord(pipelinePayload?.data);
   const pipelineDiagnostics = cliEnvelopeDiagnostics(pipelinePayload);
   result.warnings.push(...cliEnvelopeInfo(pipelinePayload));
-  if (pipelineResult.error || pipelinePayload?.success !== true || !Array.isArray(pipelineData?.instances) || pipelineDiagnostics.length > 0) {
+  if (pipelineResult.error || pipelinePayload?.success !== true || !completeUnityCliListing(pipelineData) || (pipelinePayload?.command !== undefined && pipelinePayload.command !== "pipeline editors list") || (Array.isArray(pipelinePayload?.errors) && pipelinePayload.errors.length > 0) || pipelineDiagnostics.length > 0) {
     result.pipelineDiscovery = isUnityCliTimeout(pipelineResult) ? "timeout" : "unavailable";
     const diagnostic = pipelineDiagnostics.join("; ") || cliFailureMessage(pipelineResult) || "malformed or unsupported JSON response";
     result.warnings.push(`Unity Pipeline instance discovery ${result.pipelineDiscovery === "timeout" ? "timed out; Pipeline startup state is uncertain" : "is incomplete or failed; Pipeline startup state is uncertain"}: ${diagnostic}`);
@@ -624,8 +665,7 @@ export async function inspectUnityCliProjectCapabilities(
   }
 
   result.commandDiscoveryAttempted = true;
-  // `unity list` normalizes parameter types/defaults, while `unity command` with no command
-  // returns the live Pipeline catalog descriptor needed for exact capability-gated forwarding.
+  // Request the complete live descriptor with full grouped identities and parameter types.
   const listResult = await execute(command, ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--detail", "full"], { timeout: discoveryTimeout, signal: options.signal });
   const catalog = parseUnityCliCommandCatalog(listResult.stdout);
   const listPayload = parseJsonObject(listResult.stdout);
@@ -677,7 +717,7 @@ export type UnityPlanningInspectionRequest = {
   args?: string[];
   /** A bounded C# snippet for advertised eval. Pipeline compiles it with Roslyn on the Editor main thread. */
   evalSnippet?: string;
-  /** Verified Pipeline eval dispatcher wait in milliseconds; distinct from the CLI/host wait. */
+  /** Capability-gated native eval timeout in milliseconds; distinct from the host deadline. */
   handlerTimeoutMilliseconds?: number;
 };
 
@@ -716,16 +756,17 @@ function caseInsensitiveField(record: Record<string, unknown>, name: string): un
 
 function runScriptCommandFailure(output: string): "malformed" | "failure" | undefined {
   const envelope = parseJsonObject(output);
-  if (!envelope || caseInsensitiveField(envelope, "success") !== true) return envelope ? "failure" : "malformed";
+  if (!envelope) return "malformed";
+  if (caseInsensitiveField(envelope, "success") === false) return "failure";
   const wrapper = getRecord(caseInsensitiveField(envelope, "data")) ?? envelope;
   if (caseInsensitiveField(wrapper, "success") === false) return "failure";
-  let response: unknown = caseInsensitiveField(wrapper, "result");
+  let response: unknown = Object.prototype.hasOwnProperty.call(wrapper, "diagnostics") ? wrapper : caseInsensitiveField(wrapper, "result");
   // Legacy wrapper puts the documented RunScriptResponse in data.result; compact
   // transport puts it in result. A bare success envelope has no command evidence.
   if (typeof response === "string") { try { response = JSON.parse(response); } catch { return "malformed"; } }
   const result = getRecord(response);
   if (!result || !Object.prototype.hasOwnProperty.call(result, "diagnostics") || !Array.isArray(caseInsensitiveField(result, "diagnostics"))) return "malformed";
-  if (caseInsensitiveField(result, "success") === false || caseInsensitiveField(result, "failed") === true) return "failure";
+  if (caseInsensitiveField(result, "success") !== true || caseInsensitiveField(result, "failed") === true) return "failure";
   const diagnostics = caseInsensitiveField(result, "diagnostics") as unknown[];
   if (diagnostics.some(item => {
     const diagnostic = getRecord(item);
@@ -735,40 +776,61 @@ function runScriptCommandFailure(output: string): "malformed" | "failure" | unde
 }
 
 function hasVerifiedEvalTimeoutContract(capabilities: UnityCliProjectCapabilities): boolean {
-  const parameters = capabilities.verifiedCommandParameters?.eval;
+  const nativeCommand = selectUnityPipelineCommand(capabilities, "eval");
+  const parameters = nativeCommand ? capabilities.verifiedCommandParameters?.[nativeCommand] : undefined;
+  if (nativeCommand === "eval") return capabilities.pipelineSupportsExecArgv === true && Array.isArray(parameters)
+    && parameters.length === 2 && parameters[0]?.name === "code" && parameters[0]?.type === "String" && parameters[0]?.required === true
+    && parameters[1]?.name === "timeout" && parameters[1]?.type === "Int32" && parameters[1]?.required === false && parameters[1]?.defaultValue === 5000;
   return capabilities.pipelineSupportsExecArgv === true
     && Array.isArray(parameters)
-    && parameters.length === 2
-    && parameters[0]?.name === "code"
-    && parameters[0]?.type === "String"
-    && parameters[0]?.required === true
-    && parameters[1]?.name === "timeout"
-    && parameters[1]?.type === "Int32"
-    && parameters[1]?.required === false
-    && parameters[1]?.defaultValue === 5000;
+    && parameters.length === 6
+    && parameters[0]?.name === "code" && parameters[0]?.type === "String" && parameters[0]?.required === false && parameters[0]?.defaultValue === null
+    && parameters[1]?.name === "file" && parameters[1]?.type === "String" && parameters[1]?.required === false && parameters[1]?.defaultValue === null
+    && parameters[2]?.name === "timeout" && parameters[2]?.type === "Double" && parameters[2]?.required === false && parameters[2]?.defaultValue === 30
+    && ["dry-run", "auto-import", "internals"].every((name, index) => parameters[index + 3]?.name === name && parameters[index + 3]?.type === "Boolean" && parameters[index + 3]?.required === false && parameters[index + 3]?.defaultValue === false);
 }
 
-function connectedCommandFailure(output: string, isEval: boolean): "malformed" | "failure" | undefined {
-  const envelope = parseJsonObject(output);
-  if (!envelope) return "malformed";
-  if (caseInsensitiveField(envelope, "success") !== true) return "failure";
-  // Pipeline 0.6 compact responses omit the CLI wrapper's data field.
-  const data = getRecord(caseInsensitiveField(envelope, "data")) ?? envelope;
-  if (caseInsensitiveField(data, "success") === false) return "failure";
-  if (!isEval) return undefined;
+/** Validate positive command-specific evidence, not merely JSON or a success-shaped object. */
+function inspectionPayloadValid(command: string, value: unknown): boolean {
+  if (command === "list_build_targets") return Array.isArray(value) && value.every(item => {
+    const row = getRecord(item);
+    return row && typeof caseInsensitiveField(row, "name") === "string" && typeof caseInsensitiveField(row, "isInstalled") === "boolean";
+  });
+  const result = getRecord(value);
+  if (!result) return false;
+  const field = (name: string) => caseInsensitiveField(result, name);
+  switch (command) {
+    case "get_authoring_root": return typeof field("root") === "string" && String(field("root")).length > 0;
+    case "get_build_settings": return typeof field("active-build-target") === "string" && Array.isArray(field("scenes"));
+    case "get_player_settings": case "get_runtime_pipeline_settings":
+      return field("success") === true && field("group") === (command === "get_player_settings" ? "player" : "runtime_pipeline") && getRecord(field("values")) !== null;
+    case "get_scene_hierarchy": return typeof field("sceneName") === "string" && Array.isArray(field("roots"));
+    case "list_open_scenes": return Number.isSafeInteger(field("count")) && Array.isArray(field("scenes")) && Number(field("count")) === (field("scenes") as unknown[]).length;
+    case "editor_status": return typeof field("status") === "string" && typeof field("playMode") === "string" && typeof field("compiling") === "boolean";
+    default: return false;
+  }
+}
 
-  let response: unknown = caseInsensitiveField(data, "result") ?? data;
+function connectedCommandFailure(output: string, command: string): "malformed" | "failure" | undefined {
+  let response: unknown;
+  try { response = JSON.parse(output); } catch { return "malformed"; }
+  const envelope = getRecord(response);
+  if (envelope && caseInsensitiveField(envelope, "success") === false) return "failure";
+  if (envelope && caseInsensitiveField(envelope, "success") !== undefined && typeof caseInsensitiveField(envelope, "success") !== "boolean") return "malformed";
+  const data = getRecord(envelope && caseInsensitiveField(envelope, "data")) ?? envelope;
+  if (data && caseInsensitiveField(data, "success") === false) return "failure";
+  if (data) response = Object.prototype.hasOwnProperty.call(data, "diagnostics") ? data : caseInsensitiveField(data, "result") ?? data;
   if (typeof response === "string") {
     try { response = JSON.parse(response); } catch { return "malformed"; }
   }
-  const evalResponse = getRecord(response);
-  if (!evalResponse) return "malformed";
-  if (caseInsensitiveField(evalResponse, "success") !== true) return "failure";
-  const diagnostics = caseInsensitiveField(evalResponse, "diagnostics");
-  if (Array.isArray(diagnostics) && diagnostics.some(item => {
-    const diagnostic = getRecord(item);
-    return String(caseInsensitiveField(diagnostic ?? {}, "severity") ?? "").toLowerCase() === "error";
-  })) return "failure";
+  const result = getRecord(response);
+  if (result && (caseInsensitiveField(result, "success") === false || caseInsensitiveField(result, "failed") === true)) return "failure";
+  if (command !== "eval") return inspectionPayloadValid(command, response) ? undefined : "malformed";
+  if (!result) return "malformed";
+  if (caseInsensitiveField(result, "success") !== true) return "failure";
+  const diagnostics = caseInsensitiveField(result, "diagnostics");
+  if (!Array.isArray(diagnostics)) return "malformed";
+  if (diagnostics.some(item => String(caseInsensitiveField(getRecord(item) ?? {}, "severity") ?? "").toLowerCase() === "error")) return "failure";
   return undefined;
 }
 
@@ -824,7 +886,8 @@ export async function dispatchUnityPlanningInspection(
   } else if (!UNITY_PLANNING_READ_COMMANDS.includes(request.command as typeof UNITY_PLANNING_READ_COMMANDS[number]) || (request.evalSnippet?.trim() ?? "") !== "") {
     return { outcome: "rejected", code: "planning_command_invalid", message: "Only a package-owned purpose-built inspection command may be selected here." };
   }
-  if (!initial.advertisedCommands.includes(request.command)) {
+  const nativeCommand = selectUnityPipelineCommand(initial, request.command);
+  if (!nativeCommand) {
     return { outcome: "rejected", code: "planning_command_unadvertised", message: "The exact Pipeline copy did not advertise the requested command." };
   }
 
@@ -833,7 +896,7 @@ export async function dispatchUnityPlanningInspection(
   if (refreshedFailure || !haveSameKnownProcessIds(initial.matchingInstances, refreshed.matchingInstances)) {
     return { outcome: "rejected", code: "unity_project_identity_changed", message: `Pipeline identity changed or disconnected immediately before planning dispatch.${unityCapabilityDiagnosticSuffix(refreshed)}` };
   }
-  if (!refreshed.advertisedCommands.includes(request.command)) {
+  if (selectUnityPipelineCommand(refreshed, request.command) !== nativeCommand) {
     return { outcome: "rejected", code: "planning_command_unadvertised", message: "The refreshed exact Pipeline copy did not advertise the requested command." };
   }
   if (isEval && request.handlerTimeoutMilliseconds !== undefined && !hasVerifiedEvalTimeoutContract(refreshed)) {
@@ -843,9 +906,11 @@ export async function dispatchUnityPlanningInspection(
   const command = resolveUnityCliCommand({ cliCommand: options.cliCommand });
   const args = [
     "--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot,
-    "--timeout", String(Math.max(1, Math.ceil((options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS) / 1000))),
-    request.command,
-    ...(isEval ? [request.evalSnippet!.trim(), ...(request.handlerTimeoutMilliseconds === undefined ? [] : [String(request.handlerTimeoutMilliseconds)])] : request.args ?? []),
+    // A request timeout overrides the native parameter. Omit it only for the
+    // verified handler override; the executor still owns the separate host deadline.
+    ...(isEval && nativeCommand !== "eval" && request.handlerTimeoutMilliseconds !== undefined ? [] : ["--timeout", String(Math.max(1, Math.ceil((options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS) / 1000)))]),
+    "--result-only", nativeCommand,
+    ...(isEval ? [request.evalSnippet!.trim(), ...(request.handlerTimeoutMilliseconds === undefined ? [] : (nativeCommand === "eval" ? [String(request.handlerTimeoutMilliseconds)] : ["", String(request.handlerTimeoutMilliseconds / 1000)]))] : request.args ?? []),
   ];
   const execution = await options.execute(command, args, { timeout: options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS, signal: options.signal });
   const raw = [execution.stdout, execution.stderr].filter(Boolean).join("\n");
@@ -853,7 +918,7 @@ export async function dispatchUnityPlanningInspection(
   if (execution.error) {
     return { outcome: "rejected", code: isUnityCliTimeout(execution) ? "planning_command_timeout" : "planning_command_failed", message: `Connected command did not complete successfully; its effect may be uncertain.${output ? ` ${output}` : ""}` };
   }
-  const reportedFailure = connectedCommandFailure(execution.stdout, isEval);
+  const reportedFailure = connectedCommandFailure(execution.stdout, request.command);
   if (reportedFailure) {
     return {
       outcome: "rejected",
@@ -864,7 +929,7 @@ export async function dispatchUnityPlanningInspection(
   return { outcome: "dispatched", command: request.command, output, truncated: output.length < raw.trim().length };
 }
 
-/** Dispatch the documented Pipeline 0.6 ephemeral run_script form; hotpatch is deliberately not exposed. */
+/** Dispatch the advertised ephemeral script command; hotpatch is deliberately not exposed. */
 export async function dispatchUnityPipelineRunScript(
   request: UnityPipelineRunScriptRequest,
   options: { cliCommand?: string; timeout?: number; signal?: AbortSignal; execute: UnityCliExecutor; inspect?: (projectRoot: string, unityVersion: string) => Promise<UnityCliProjectCapabilities> },
@@ -882,11 +947,12 @@ export async function dispatchUnityPipelineRunScript(
   if (serializedArgs === undefined || serializedArgs.length > 4_000 || (request.entry?.length ?? 0) > 500 || /[\u0000-\u001f\u007f]/.test(request.entry ?? "")) return { outcome: "rejected", code: "run_script_args_invalid", message: "run_script entry or JSON arguments exceed bounded request limits." };
   const inspect = options.inspect ?? ((root, version) => inspectUnityCliProjectCapabilities(root, version, { cliCommand: options.cliCommand, timeout: options.timeout, signal: options.signal, execute: options.execute }));
   const initial = await inspect(projectRoot, request.unityVersion);
-  if (planningInspectionReadiness(initial) || !initial.advertisedCommands.includes("run_script")) return { outcome: "rejected", code: "run_script_unavailable", message: `The exact reachable Pipeline copy does not establish advertised run_script support.${unityCapabilityDiagnosticSuffix(initial)}` };
+  const nativeCommand = selectUnityPipelineCommand(initial, "run_script");
+  if (planningInspectionReadiness(initial) || !nativeCommand) return { outcome: "rejected", code: "run_script_unavailable", message: `The exact reachable Pipeline copy does not establish advertised run_script support.${unityCapabilityDiagnosticSuffix(initial)}` };
   const refreshed = await inspect(projectRoot, request.unityVersion);
-  if (planningInspectionReadiness(refreshed) || !haveSameKnownProcessIds(initial.matchingInstances, refreshed.matchingInstances) || !refreshed.advertisedCommands.includes("run_script")) return { outcome: "rejected", code: "unity_project_identity_changed", message: `Pipeline identity or run_script availability changed immediately before dispatch.${unityCapabilityDiagnosticSuffix(refreshed)}` };
+  if (planningInspectionReadiness(refreshed) || !haveSameKnownProcessIds(initial.matchingInstances, refreshed.matchingInstances) || selectUnityPipelineCommand(refreshed, "run_script") !== nativeCommand) return { outcome: "rejected", code: "unity_project_identity_changed", message: `Pipeline identity or run_script availability changed immediately before dispatch.${unityCapabilityDiagnosticSuffix(refreshed)}` };
   const timeout = Math.max(1, Math.min(options.timeout ?? 30_000, 86_400_000));
-  const args = ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--timeout", String(Math.ceil(timeout / 1000)), "run_script", "--file", relativeFile, "--mode", "ephemeral", "--args", serializedArgs, "--timeout_ms", String(timeout), ...(request.entry?.trim() ? ["--entry", request.entry.trim()] : []), ...(request.dryRun ? ["--dry_run", "true"] : [])];
+  const args = ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--timeout", String(Math.ceil(timeout / 1000)), "--result-only", nativeCommand, "--file", relativeFile, "--mode", "ephemeral", "--args", serializedArgs, ...(nativeCommand === "run_script" ? ["--timeout_ms", String(timeout)] : []), ...(request.entry?.trim() ? ["--entry", request.entry.trim()] : []), ...(request.dryRun ? [nativeCommand === "run_script" ? "--dry_run" : "--dry-run", "true"] : [])];
   const execution = await options.execute(resolveUnityCliCommand({ cliCommand: options.cliCommand }), args, { timeout, signal: options.signal });
   const raw = [execution.stdout, execution.stderr].filter(Boolean).join("\n"); const output = summarizeUnityCliText(redactUnityPlanningOutput(raw), 4_000, 40);
   if (execution.error) return { outcome: "rejected", code: isUnityCliTimeout(execution) ? "run_script_timeout" : "run_script_failed", message: `run_script did not complete successfully; its effect may be uncertain.${output ? ` ${output}` : ""}` };

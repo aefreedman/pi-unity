@@ -21,6 +21,14 @@ function registerUnity(pi: any, dependencies: any = {}) {
 
 initTheme("dark");
 
+// Derived from published Pipeline 0.10 CodeEvalCommand, not a live Editor capture.
+const evalParameters = [
+  { name: "code", type: "String", required: false, defaultValue: null },
+  { name: "file", type: "String", required: false, defaultValue: null },
+  { name: "timeout", type: "Double", required: false, defaultValue: 30 },
+  ...["dry-run", "auto-import", "internals"].map(name => ({ name, type: "Boolean", required: false, defaultValue: false })),
+];
+
 function fakePi(exec: (command: string, args: string[]) => Promise<any> = async () => ({ code: 0, stdout: "", stderr: "" })) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
   const tools: any[] = [];
@@ -278,14 +286,14 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     const pi = fakePi(async (_command, args) => {
       calls.push(args);
       if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
-      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-      if (args.includes("command") && !args.includes("get_authoring_root") && !args.includes("eval")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: [
-        { name: "get_authoring_root", parameters: [] },
-        { name: "eval", parameters: malformedEvalDescriptor ? [{ name: "code", type: "String", required: true }, null] : [{ name: "code", type: "String", required: true }, { name: "timeout", type: "Int32", required: false, defaultValue: 5000 }] },
+      if (args.includes("pipeline") && args.includes("editors")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("command") && !args.includes("authoring get_root") && !args.includes("script eval")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: [
+        { name: "authoring get_root", parameters: [] },
+        { name: "script eval", parameters: malformedEvalDescriptor ? [{ name: "code", type: "String", required: true }, null] : evalParameters },
       ] } }), stderr: "" };
-      const connectedCommand = args[args.indexOf("--timeout") + 2];
-      return connectedCommand === "eval"
-        ? { code: 0, stdout: JSON.stringify({ success: true, data: { result: { success: true, result: 42, diagnostics: [] } } }), stderr: "" }
+      const connectedCommand = args[args.indexOf("--result-only") + 1];
+      return connectedCommand === "script eval"
+        ? { code: 0, stdout: JSON.stringify({ success: true, data: { result: { success: true, result: 42, diagnostics: [], root: "Assets" } } }), stderr: "" }
         : { code: 0, stdout: JSON.stringify({ success: true, data: { result: { root: "token=definitely-not-a-real-secret" } } }), stderr: "" };
     });
     registerUnity(pi as any);
@@ -296,24 +304,24 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     const result = await pipelineInspection.execute("test", { path: project, command: "get_authoring_root" }, undefined, undefined, ctx);
     assert.equal(result.details.pipelineInspection.outcome, "dispatched", JSON.stringify(result.details.pipelineInspection));
     assert.match(result.content[0].text, /token= \[redacted\]/);
-    const evalResult = await pipelineEval.execute("eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;", timeoutSeconds: 86400 }, undefined, undefined, ctx);
+    const evalResult = await pipelineEval.execute("script eval", { path: project, code: "var s = UnityEngine.Application.dataPath; return s.Length;", timeoutSeconds: 86400 }, undefined, undefined, ctx);
     assert.equal(evalResult.details.pipelineEval.outcome, "dispatched", "The primary Pipeline eval tool must expose advertised arbitrary C# eval.");
     const handlerEvalCode = "return \"--not-a-flag\";";
     const handlerEvalResult = await pipelineEval.execute("handler-eval", { path: project, code: handlerEvalCode, timeoutSeconds: 12, handlerTimeoutMilliseconds: 321 }, undefined, undefined, ctx);
     assert.equal(handlerEvalResult.details.pipelineEval.outcome, "dispatched", "The registered native eval tool forwards a legitimately advertised handler timeout.");
     const handlerEvalCall = calls.find((args) => args.includes(handlerEvalCode));
-    const handlerEvalIndex = handlerEvalCall!.indexOf("eval");
-    assert.deepEqual(handlerEvalCall!.slice(handlerEvalIndex), ["eval", handlerEvalCode, "321"], "Registered eval preserves code as one argv token and appends milliseconds only after it.");
-    assert.equal(handlerEvalCall!.filter(arg => arg === "--timeout").length, 1, "Registered eval keeps exactly one host timeout flag.");
+    const handlerEvalIndex = handlerEvalCall!.indexOf("script eval");
+    assert.deepEqual(handlerEvalCall!.slice(handlerEvalIndex), ["script eval", handlerEvalCode, "", "0.321"], "Registered eval preserves code as one argv token and preserves the empty file slot before the fractional-second server timeout.");
+    assert.equal(handlerEvalCall!.filter(arg => arg === "--timeout").length, 0, "The grouped native timeout must not be overridden by a CLI request timeout.");
     malformedEvalDescriptor = true;
-    const evalDispatchCount = calls.filter(args => args.includes("eval") && args.includes("--timeout")).length;
+    const evalDispatchCount = calls.filter(args => args.includes("script eval") && args.includes("--result-only")).length;
     const malformedEvalResult = await pipelineEval.execute("malformed-handler-eval", { path: project, code: "return false;", handlerTimeoutMilliseconds: 321 }, undefined, undefined, ctx);
     assert.equal(malformedEvalResult.details.pipelineEval.outcome, "rejected", "The registered tool rejects malformed live descriptors before eval dispatch.");
     assert.equal(malformedEvalResult.details.pipelineEval.code, "planning_eval_timeout_unavailable");
-    assert.equal(calls.filter(args => args.includes("eval") && args.includes("--timeout")).length, evalDispatchCount, "Malformed descriptor rejection has zero native eval dispatches.");
+    assert.equal(calls.filter(args => args.includes("script eval") && args.includes("--result-only")).length, evalDispatchCount, "Malformed descriptor rejection has zero native eval dispatches.");
     const evalCall = calls.find((args) => args.includes("var s = UnityEngine.Application.dataPath; return s.Length;"));
     assert.equal(evalCall?.[evalCall.indexOf("--timeout") + 1], "86400", "Eval forwards its selected deadline to Unity CLI.");
-    assert(calls.some((args) => args.includes("get_authoring_root")), "The guarded handler must dispatch only after discovery.");
+    assert(calls.some((args) => args.includes("authoring get_root")), "The guarded handler must dispatch only after discovery.");
     assert(calls.some((args) => args.includes("var s = UnityEngine.Application.dataPath; return s.Length;")), "The primary eval tool must preserve a local-variable C# snippet.");
     assert(calls.every((args) => !args.includes("open") && !args.includes("run") && !args.includes("Exit")), "Connected inspection must not launch or close Unity.");
   } finally {
@@ -333,15 +341,15 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     let playMode = true;
     const pi = fakePi(async (_command, args) => {
       if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
-      if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-      if (args.includes("command") && !args.includes("--timeout")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "editor_stop", "recompile", "recompile_status", "run_tests", "test_status"] } }), stderr: "" };
-      const command = args[args.indexOf("--timeout") + 2];
+      if (args.includes("pipeline") && args.includes("editors")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonicalProject, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+      if (args.includes("command") && !args.includes("--result-only")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor status", "editor.playmode stop", "script recompile", "script recompile_status", "test run", "test status"] } }), stderr: "" };
+      const command = args[args.indexOf("--result-only") + 1];
       dispatched.push(command);
-      if (command === "editor_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "ready", playMode: playMode ? "playing" : "stopped" } } }), stderr: "" };
-      if (command === "editor_stop") { playMode = false; return { code: 0, stdout: JSON.stringify({ success: true, data: { result: "Exited play mode", success: true } }), stderr: "" }; }
-      if (command === "recompile") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "up_to_date" } } }), stderr: "" };
-      if (command === "test_status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: JSON.stringify({ status: "no_tests", message: "No test run in progress" }) } }), stderr: "" };
-      if (command === "run_tests") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", mode: "editor", summary: { total: 21, passed: 21, failed: 0 }, tests: [{ name: "Passing.Record", result: "Passed" }] } } }), stderr: "" };
+      if (command === "editor status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "ready", playMode: playMode ? "playing" : "stopped" } } }), stderr: "" };
+      if (command === "editor.playmode stop") { playMode = false; return { code: 0, stdout: JSON.stringify({ success: true, data: { result: "Exited play mode", success: true } }), stderr: "" }; }
+      if (command === "script recompile") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "up_to_date" } } }), stderr: "" };
+      if (command === "test status") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: JSON.stringify({ status: "no_tests", message: "No test run in progress" }) } }), stderr: "" };
+      if (command === "test run") return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { status: "completed", mode: "editor", summary: { total: 21, passed: 21, failed: 0 }, tests: [{ name: "Passing.Record", result: "Passed" }] } } }), stderr: "" };
       throw new Error(`Unexpected Pipeline command: ${String(command)}`);
     });
     registerUnity(pi as any);
@@ -358,7 +366,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.match(statusResult.content[0].text, /declared Unity 6000\.1\.0f1/, "Project status lazily loads the declared version required for Pipeline capability checks.");
     const defaultTestResult = await tests.execute("default-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA);
     assert.match(defaultTestResult.content[0].text, /21 executed/);
-    assert.equal(dispatched.includes("editor_stop"), true, "Play Mode exit is allowed by default.");
+    assert.equal(dispatched.includes("editor.playmode stop"), true, "Play Mode exit is allowed by default.");
     const playModeCommand = pi.commands.find((item) => item.name === "unity-playmode-exit");
     await playModeCommand.handler("disallow", ctxA);
     assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: false } });
@@ -379,9 +387,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their verified Play Mode exit path.");
     assert.equal(testResult.details.pipeline.playModeHandling, "agent_exited");
     assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");
-    assert.equal(dispatched.filter((command) => command === "editor_stop").length, 2);
-    assert.equal(dispatched.filter((command) => command === "recompile").length, 1);
-    assert.equal(dispatched.filter((command) => command === "run_tests").length, 2);
+    assert.equal(dispatched.filter((command) => command === "editor.playmode stop").length, 2);
+    assert.equal(dispatched.filter((command) => command === "script recompile").length, 1);
+    assert.equal(dispatched.filter((command) => command === "test run").length, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -447,13 +455,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       const pi = fakePi(async (_command, args) => {
         if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
         const response = (result: unknown) => ({ code: 0, stdout: JSON.stringify({ success: true, data: { result } }), stderr: "" });
-        if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonical, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-        if (args.includes("command") && !args.includes("--timeout")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "run_tests", "test_status"] } }), stderr: "" };
+        if (args.includes("pipeline") && args.includes("editors")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonical, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+        if (args.includes("command") && !args.includes("--result-only")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor status", "test run", "test status"] } }), stderr: "" };
         commands.push(args);
-        const command = args[args.indexOf("--timeout") + 2];
-        if (command === "editor_status") return response({ status: "ready", playMode: "stopped" });
-        if (command === "test_status") return response({ status: scenario === "active" ? "running" : "no_tests" });
-        assert.equal(command, "run_tests", "No Editor closure, launch, fallback or lifecycle dispatch is permitted.");
+        const command = args[args.indexOf("--result-only") + 1];
+        if (command === "editor status") return response({ status: "ready", playMode: "stopped" });
+        if (command === "test status") return response({ status: scenario === "active" ? "running" : "no_tests" });
+        assert.equal(command, "test run", "No Editor closure, launch, fallback or lifecycle dispatch is permitted.");
         if (scenario === "malformed") return { code: 0, stdout: "not JSON", stderr: "" };
         if (scenario === "timeout") return { code: null, killed: true, stdout: "", stderr: "" };
         const filter = args[args.indexOf("--filter") + 1];
@@ -477,11 +485,11 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
         assert.equal(artifact.summary.total, 1);
         assert.deepEqual(artifact.tests.map((test: any) => test.name), [`${params.testFilters[0]}.One`]);
       }
-      const runs = commands.filter(args => args.includes("run_tests"));
+      const runs = commands.filter(args => args.includes("test run"));
       assert.equal(results.length, scenario === "passed" ? 2 : 1, `${scenario}: scripted recipe stops remaining calls`);
       assert.equal(runs.length, scenario === "passed" ? 2 : scenario === "active" ? 0 : 1, `${scenario}: no automatic second dispatch or retry`);
       assert.deepEqual(runs.map(args => args[args.indexOf("--filter") + 1]), recipe.slice(0, runs.length).map(params => params.testFilters[0]));
-      assert(runs.every(args => args[args.indexOf("--filter_type") + 1] === "testName"));
+      assert(runs.every(args => args[args.indexOf("--filter-type") + 1] === "testName"));
       if (scenario !== "passed") assert.equal(results[0].isError, true, `${scenario}: native failure`);
       else {
         assert.notEqual(results[0].details.artifactPath, results[1].details.artifactPath);
@@ -507,8 +515,8 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
         assert.equal(commands.length, before);
         const category = await nativeToolResult(pi, tool, { path: project, testPlatform: "EditMode", execution: "connected", testCategories: ["SyntheticCategory"] }, ctx);
         assert.equal(category.isError, false);
-        const categoryRun = commands.filter(args => args.includes("run_tests")).at(-1)!;
-        assert.equal(categoryRun[categoryRun.indexOf("--filter_type") + 1], "category");
+        const categoryRun = commands.filter(args => args.includes("test run")).at(-1)!;
+        assert.equal(categoryRun[categoryRun.indexOf("--filter-type") + 1], "category");
         assert.equal(categoryRun[categoryRun.indexOf("--filter") + 1], "SyntheticCategory");
       }
     }
@@ -527,36 +535,36 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       for (const scenario of ["success", "identity", "unadvertised", "dispatch-failed", "timeout", "thrown-timeout", "malformed", "reported-failure"]) {
         const calls: string[][] = [];
         let discoveries = 0;
-        const command = name === "unity_pipeline_eval" ? "eval" : "get_authoring_root";
+        const command = name === "unity_pipeline_eval" ? "script eval" : "authoring get_root";
         const pi = fakePi(async (_command, args) => {
           calls.push(args);
           if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
-          if (args.includes("pipeline") && args.includes("list")) {
+          if (args.includes("pipeline") && args.includes("editors")) {
             discoveries++;
             return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: project, pid: scenario === "identity" && discoveries > 1 ? 43 : 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
           }
-          if (args.includes("command") && !args.includes("--timeout")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: scenario === "unadvertised" ? ["editor_status"] : [command] } }), stderr: "" };
-          assert.equal(args[args.indexOf("--timeout") + 2], command, "Only the selected command may dispatch.");
+          if (args.includes("command") && !args.includes("--result-only")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: scenario === "unadvertised" ? ["editor status"] : [command] } }), stderr: "" };
+          assert.equal(args[args.indexOf("--result-only") + 1], command, "Only the selected command may dispatch.");
           if (scenario === "dispatch-failed") return { code: 1, stdout: "", stderr: "Synthetic dispatch error" };
           if (scenario === "timeout") return { code: null, killed: true, stdout: "", stderr: "" };
           if (scenario === "thrown-timeout") throw Object.assign(new Error("Synthetic timeout"), { code: "ETIMEDOUT" });
           if (scenario === "malformed") return { code: 0, stdout: "not JSON", stderr: "" };
           if (scenario === "reported-failure") return { code: 0, stdout: JSON.stringify({ success: true, data: { success: false, result: { success: false, diagnostics: [{ severity: "Error", message: "Synthetic diagnostic" }] } } }), stderr: "" };
-          return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { success: true, result: 42, diagnostics: [] } } }), stderr: "" };
+          return { code: 0, stdout: JSON.stringify({ success: true, data: { result: { success: true, result: 42, diagnostics: [], root: "Assets" } } }), stderr: "" };
         });
         registerUnity(pi as any);
         const tool = pi.tools.find(item => item.name === name);
-        const result = await nativeToolResult(pi, tool, { path: project, ...(command === "eval" ? { code: "return 42;", timeoutSeconds: 12 } : { command }) }, ctx);
+        const result = await nativeToolResult(pi, tool, { path: project, ...(command === "script eval" ? { code: "return 42;", timeoutSeconds: 12 } : { command: "get_authoring_root" }) }, ctx);
         assert.equal(result.isError, scenario !== "success", `${name}/${scenario} native failure`);
-        const detail = command === "eval" ? result.details.pipelineEval : result.details.pipelineInspection;
+        const detail = command === "script eval" ? result.details.pipelineEval : result.details.pipelineInspection;
         assert.equal(detail.outcome, scenario === "success" ? "dispatched" : "rejected");
         const expectedCode = { identity: "unity_project_identity_changed", unadvertised: "planning_command_unadvertised", "dispatch-failed": "planning_command_failed", timeout: "planning_command_timeout", "thrown-timeout": "planning_command_timeout", malformed: "planning_command_malformed", "reported-failure": "planning_command_reported_failure" }[scenario];
         if (expectedCode) assert.equal(detail.code, expectedCode, `${name}/${scenario} structured reason`);
         if (["timeout", "thrown-timeout", "dispatch-failed"].includes(scenario)) assert.match(detail.message, /effect may be uncertain/, "Failure after dispatch never implies no mutation occurred.");
         if (scenario === "reported-failure") assert.match(detail.message, /Synthetic diagnostic/);
-        const dispatches = calls.filter(args => args.includes("command") && args.includes("--timeout"));
+        const dispatches = calls.filter(args => args.includes("command") && args.includes("--result-only"));
         assert.equal(dispatches.length, ["identity", "unadvertised"].includes(scenario) ? 0 : 1, `${name}/${scenario}: zero retry or fallback`);
-        assert(calls.every(args => !args.some(arg => ["open", "run", "test", "Exit", "editor_stop"].includes(arg))), "No lifecycle, launch, test or fallback commands.");
+        assert(calls.every(args => !args.some(arg => ["open", "run", "test", "Exit", "editor.playmode stop"].includes(arg))), "No lifecycle, launch, test or fallback commands.");
       }
     }
     const pi = fakePi();
@@ -755,18 +763,18 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       const pi = fakePi(async (_command, args) => {
         calls.push(args);
         if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
-        if (args.includes("pipeline") && args.includes("list")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonical, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-        if (args.includes("command") && !args.includes("--timeout")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "run_tests", "test_status"] } }), stderr: "" };
-        const command = args[args.indexOf("--timeout") + 2];
+        if (args.includes("pipeline") && args.includes("editors")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonical, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
+        if (args.includes("command") && !args.includes("--result-only")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor status", "test run", "test status"] } }), stderr: "" };
+        const command = args[args.indexOf("--result-only") + 1];
         const envelope = (result: any) => ({ code: 0, stdout: JSON.stringify({ success: true, data: { result } }), stderr: "" });
-        if (command === "editor_status") return envelope({ status: "idle" });
-        if (command === "test_status") {
-          const statusCalls = calls.filter(call => call[call.indexOf("--timeout") + 2] === "test_status").length;
+        if (command === "editor status") return envelope({ status: "idle" });
+        if (command === "test status") {
+          const statusCalls = calls.filter(call => call[call.indexOf("--result-only") + 1] === "test status").length;
           if (preflight) return envelope(preflight);
           if (polled && statusCalls > 1) return envelope(partialPoll && statusCalls === 2 ? partialPoll : terminal);
           return envelope({ status: "no_tests" });
         }
-        if (command === "run_tests") return envelope(polled ? { status: "running", mode: "editor", filter: "Synthetic.Target" } : terminal);
+        if (command === "test run") return envelope(polled ? { status: "running", mode: "editor", filter: "Synthetic.Target" } : terminal);
         throw new Error(`Unexpected Pipeline command ${command}`);
       });
       registerUnity(pi as any);
@@ -794,8 +802,8 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       if (outcome === "uncertain") assert.deepEqual(stored.summary,
         terminal.summary.total === 0 ? { total: 0, passed: 0, failed: 0 } : {},
         "Valid zero counts remain non-passing; contradictory or invalid counts are never authoritative.");
-      assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1, "Terminal evidence never redispatches.");
-      assert(!calls.some(args => args.includes("open") || args.includes("run") || args.includes("test") || args.includes("editor_stop")), "Terminal evidence never changes lifecycle or route.");
+      assert.equal(calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 1, "Terminal evidence never redispatches.");
+      assert(!calls.some(args => args.includes("open") || args.includes("run") || args.includes("test") || args.includes("editor.playmode stop")), "Terminal evidence never changes lifecycle or route.");
     }
     // Reported counts survive the typed error -> artifact -> compact native error seam.
     // Retained records are corroboration only, never a source of aggregate counts.
@@ -832,7 +840,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
         if (outcome === "tests_failed") assert.match(result.content[0].text,
           "failed" in expected ? /1 failed of 4/ : /unknown failed of unknown/);
         else assert.doesNotMatch(result.content[0].text, /tests passed/);
-        assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1);
+        assert.equal(calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 1);
       }
     }
     for (const [terminal, polled] of [
@@ -845,7 +853,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       assert.match(result.content[0].text, /different mode or filter|displaced/, "Mismatched terminal state is not attributed.");
       const after = await readdir(join(project, "Logs")).catch(() => [] as string[]);
       assert.deepEqual(after, before, "Mismatched direct/polled terminal state writes no artifact.");
-      assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1);
+      assert.equal(calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 1);
     }
     for (const active of [
       { status: "running", mode: "editor", filter: "Synthetic.Target", summary: { total: 2, passed: 0, failed: 0, skipped: 1 }, tests: [{ name: "Synthetic.Skipped", result: "Skipped" }] },
@@ -856,7 +864,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       const { result, calls } = await invoke({ status: "completed", summary: {} }, false, undefined, active);
       assert.equal(result.isError, true, "Active preflight remains a native error regardless of partial records.");
       assert.match(result.content[0].text, /pre-existing connected Unity test run/);
-      assert.equal(calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 0, "Active preflight never dispatches a replacement run.");
+      assert.equal(calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 0, "Active preflight never dispatches a replacement run.");
       assert.deepEqual(await readdir(join(project, "Logs")), before, "Active preflight writes no artifact.");
     }
     const polledPartial = await invoke(
@@ -866,13 +874,13 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     );
     assert.equal(polledPartial.result.isError, false, "Partial polling records wait for a correlated terminal response.");
     assert.equal(polledPartial.result.details.testResult.outcome, "passed");
-    assert.equal(polledPartial.calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1, "Polling partial evidence never redispatches.");
+    assert.equal(polledPartial.calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 1, "Polling partial evidence never redispatches.");
     const preflightPi = fakePi(async (_command, args) => {
       if (args.includes("--version")) return { code: 0, stdout: "1.0.0", stderr: "" };
       if (args.includes("pipeline")) return { code: 0, stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: canonical, pid: 42, pipelineServer: { isReachable: true } }] } }), stderr: "" };
-      if (args.includes("command") && !args.includes("--timeout")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor_status", "run_tests", "test_status"] } }), stderr: "" };
-      const command = args[args.indexOf("--timeout") + 2];
-      return { code: 0, stdout: JSON.stringify({ success: true, data: { result: command === "editor_status" ? { status: "idle" } : { status: "running" } } }), stderr: "" };
+      if (args.includes("command") && !args.includes("--result-only")) return { code: 0, stdout: JSON.stringify({ success: true, data: { commands: ["editor status", "test run", "test status"] } }), stderr: "" };
+      const command = args[args.indexOf("--result-only") + 1];
+      return { code: 0, stdout: JSON.stringify({ success: true, data: { result: command === "editor status" ? { status: "idle" } : { status: "running" } } }), stderr: "" };
     });
     registerUnity(preflightPi as any);
     const preflightTool = preflightPi.tools.find(item => item.name === "unity_run_tests");
@@ -884,7 +892,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(persistence.result.isError, true, "Artifact persistence failure is a native error.");
     assert.match(persistence.result.content[0].text, /Durable terminal evidence could not be persisted/);
     assert.doesNotMatch(persistence.result.content[0].text, /Normalized artifact:/, "A failed persistence never claims an artifact path.");
-    assert.equal(persistence.calls.filter(args => args[args.indexOf("--timeout") + 2] === "run_tests").length, 1, "Persistence failure never replays dispatch.");
+    assert.equal(persistence.calls.filter(args => args[args.indexOf("--result-only") + 1] === "test run").length, 1, "Persistence failure never replays dispatch.");
   } finally { await rm(root, { recursive: true, force: true }); }
 }
 // U2 acceptance uses the public inspection tool so selection and link failures cannot be

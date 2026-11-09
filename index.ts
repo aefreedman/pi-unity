@@ -26,7 +26,7 @@ import {
   type UnityParsedTestResults,
 } from "./src/unity-batchmode";
 import { formatPathForUser, hasUnityCommandLineFlag } from "./src/unity-core";
-import { createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliBlockedDialog, type UnityCliExecutor } from "./src/unity-cli";
+import { selectUnityPipelineCommand, hasUnityPipelineCommand, createUnityCliBatchmodeReportArgs, createUnityCliEditorExitCommand, createUnityCliRunCommand, createUnityCliTestCommand, dispatchUnityPipelineRunScript, dispatchUnityPlanningInspection, haveSameKnownProcessIds, inspectUnityCliProjectCapabilities, listRunningUnityCliEditorsForProject, resolveUnityCliCommand, UNITY_PLANNING_READ_COMMANDS, type UnityCliProjectCapabilities, type UnityCliBlockedDialog, type UnityCliExecutor } from "./src/unity-cli";
 import { launchUnityCliOpenDetached, summarizeUnityGuiLaunch, type UnityGuiLaunchResult, type UnityGuiSpawn } from "./src/unity-launch";
 import { createUnityBatchmodeCommand, launchUnityEditorDetached, resolveUnityEditorPath } from "./src/unity-editor-fallback";
 import { loadPiUnitySettings, type PiUnitySettings } from "./src/pi-unity-settings";
@@ -187,7 +187,7 @@ const PIPELINE_EVAL_PARAMS = Type.Object({
   path: Type.Optional(Type.String({ maxLength: 1000, description: "Unity project path, workspace copy root, or folder containing project copies." })),
   code: Type.String({ minLength: 1, maxLength: 4000, description: "Bounded C# source for advertised Pipeline eval. Roslyn compiles it on the connected Editor main thread; include an explicit return value when evidence is needed." }),
   timeoutSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86400, default: 12, description: "Connected eval host/CLI deadline in seconds (maximum 24 hours). A timeout is uncertain and does not retry or cancel Unity work." })),
-  handlerTimeoutMilliseconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86400000, description: "Optional advertised Pipeline eval dispatcher wait in milliseconds. Forwarded only when the exact copy advertises raw argv and the verified code/timeout signature; it cannot cancel code already started on Unity's main thread." })),
+  handlerTimeoutMilliseconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 86400000, description: "Optional native eval timeout in milliseconds, forwarded only with verified raw argv and the advertised signature. Grouped Pipeline commands receive seconds without a CLI request override; existing flat commands retain their millisecond signature. timeoutSeconds remains the host deadline." })),
 }, { additionalProperties: false });
 
 const PIPELINE_RUN_SCRIPT_PARAMS = Type.Object({
@@ -487,16 +487,16 @@ async function closeBlockingUnityProcessesForBatchmode(
 
   const unityVersion = await requireManualUnityVersion(candidate);
   const cliCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
-  const canRequestGracefulExit = cliCapabilities.commandDiscoverySucceeded && cliCapabilities.advertisedCommands.includes("eval");
+  const canRequestGracefulExit = cliCapabilities.commandDiscoverySucceeded && hasUnityPipelineCommand(cliCapabilities, "eval");
   if (canRequestGracefulExit) {
     const refreshedRunning = await listBlockingUnityProcesses(candidate.projectRoot);
     const refreshedCapabilities = await inspectUnityCliProjectCapabilities(candidate.projectRoot, unityVersion, { signal });
     const samePids = haveSameKnownProcessIds(running.processes, refreshedRunning.processes);
     const samePipelinePids = haveSameKnownProcessIds(cliCapabilities.matchingInstances, refreshedCapabilities.matchingInstances);
-    if (refreshedRunning.warning || !samePids || !samePipelinePids || !refreshedCapabilities.advertisedCommands.includes("eval")) {
+    if (refreshedRunning.warning || !samePids || !samePipelinePids || selectUnityPipelineCommand(refreshedCapabilities, "eval") !== selectUnityPipelineCommand(cliCapabilities, "eval")) {
       throw new Error("Refusing to request graceful Unity exit because the exact project copy's Editor/Pipeline identity changed or could not be revalidated immediately before the mutating command.");
     }
-    const exitCommand = createUnityCliEditorExitCommand(candidate.projectRoot, { timeoutSeconds: 5 });
+    const exitCommand = createUnityCliEditorExitCommand(candidate.projectRoot, { timeoutSeconds: 5, nativeCommand: selectUnityPipelineCommand(refreshedCapabilities, "eval") });
     const gracefulExitDisclosure = `A graceful Unity Editor exit was requested for:\n${formatProcessSummary(running.processes)}`;
     let exitResult: Awaited<ReturnType<ExtensionAPI["exec"]>>;
     try {
@@ -1646,13 +1646,13 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
   registerTool({
     name: "unity_pipeline_eval",
     label: "Unity Pipeline Eval",
-    description: "Execute one bounded C# snippet through advertised eval in an already-open exact Unity Pipeline Editor. timeoutSeconds bounds pi-unity and Unity CLI waits; optional handlerTimeoutMilliseconds is forwarded only through a verified Pipeline raw-argv timeout contract and cannot cancel code already started on Unity's main thread.",
+    description: "Execute one bounded C# snippet through advertised eval in an already-open exact Unity Pipeline Editor. timeoutSeconds bounds pi-unity and Unity CLI waits; optional handlerTimeoutMilliseconds selects the verified native timeout independently of the host deadline and cannot cancel code already started on Unity's main thread.",
     promptSnippet: "Query or operate on an already-open exact Unity project through Pipeline's Roslyn C# REPL.",
     promptGuidelines: [
       "Use unity_pipeline_eval for project-specific properties, APIs, and operations that advertised typed commands do not cover. It revalidates exact-copy identity and advertised eval immediately before dispatch.",
       "Pipeline eval compiles arbitrary C# with Roslyn on the Editor main thread. Include an explicit return value for observable evidence; normal property reads and local-variable snippets are supported.",
       "Eval is not statically read-only. Follow user intent and project guidance, and obtain explicit authorization before lifecycle, persistent-setting, destructive, asset, scene-save, package, build, or test mutations.",
-      "timeoutSeconds bounds the host and Unity CLI wait. When supplied, handlerTimeoutMilliseconds bounds only the verified Pipeline dispatcher wait; a shorter host deadline may still win, and a server wait expiry cannot cancel code already started on Unity's main thread.",
+      "timeoutSeconds bounds the host deadline. Without a handler override it also sets the CLI request timeout. A verified handlerTimeoutMilliseconds override instead selects native Pipeline seconds; a shorter host deadline may still win, and timeout cannot cancel code already started on Unity's main thread.",
       "A rejected, malformed, failing, or timed-out eval is not success; do not silently retry it through another route.",
     ],
     parameters: PIPELINE_EVAL_PARAMS,
@@ -1698,7 +1698,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
   registerTool({
     name: "unity_pipeline_run_script",
     label: "Unity Pipeline Run Script",
-    description: "Compile one existing project C# file in memory and invoke its advertised static entry point through Pipeline 0.6 run_script.",
+    description: "Compile one existing project C# file in memory and invoke its advertised static entry point through the advertised Pipeline script run command.",
     promptSnippet: "Run one explicitly requested existing C# builder script through an already-open exact Unity Pipeline Editor.",
     promptGuidelines: [
       "unity_pipeline_run_script is arbitrary code execution, not read-only and not a sandbox. Use it only for explicit user intent; obtain explicit authorization for lifecycle, settings, asset, build, test, or destructive mutations.",

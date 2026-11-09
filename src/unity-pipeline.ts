@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { projectPathsMatch } from "./unity-core";
 import { hasConsistentUnityTestCounts } from "./unity-artifact-inspection";
-import { redactUnityPlanningOutput, resolveUnityCliCommand, summarizeUnityCliText, unityCapabilityDiagnosticSuffix, type UnityCliExecResult, type UnityCliExecutor, type UnityCliProjectCapabilities } from "./unity-cli";
+import { selectUnityPipelineCommand, unityPipelineCommandName, hasUnityPipelineCommand, redactUnityPlanningOutput, resolveUnityCliCommand, summarizeUnityCliText, unityCapabilityDiagnosticSuffix, type UnityCliExecResult, type UnityCliExecutor, type UnityCliProjectCapabilities } from "./unity-cli";
 
 /** Public limits are deliberately small enough that connected work cannot create an unbounded agent wait loop. */
 export const UNITY_PIPELINE_COMPILE_TIMEOUT_SECONDS = 180;
@@ -47,7 +47,7 @@ export class UnityPipelineTerminalTestEvidenceError extends Error {
 }
 
 type RecordValue = Record<string, unknown>;
-type ParsedEnvelope = { result: RecordValue; outerSuccess: boolean; malformed?: string };
+type ParsedEnvelope = { result: RecordValue; outerSuccess: boolean; bare?: boolean; malformed?: string };
 type NormalizedCompile = { state: "up_to_date" | "triggered" | "compiling" | "completed" | "failed" | "uncertain"; diagnostics: string[]; failed: boolean };
 type NormalizedTest = {
   state: "inactive" | "starting" | "running" | "completed" | "failed" | "cancelled" | "uncertain";
@@ -135,10 +135,10 @@ async function defaultSleep(milliseconds: number, signal?: AbortSignal): Promise
 }
 
 /** Only package-owned argument arrays are produced; callers cannot select arbitrary Pipeline commands. */
-export function createUnityPipelineCommand(projectRoot: string, command: "editor_status" | "editor_stop" | "recompile" | "recompile_status" | "run_tests" | "test_status", args: string[] = [], options: { timeoutSeconds?: number; cliCommand?: string } = {}) {
+export function createUnityPipelineCommand(projectRoot: string, command: "editor_status" | "editor_stop" | "recompile" | "recompile_status" | "run_tests" | "test_status", args: string[] = [], options: { timeoutSeconds?: number; cliCommand?: string; nativeCommand?: string } = {}) {
   return {
     command: resolveUnityCliCommand({ cliCommand: options.cliCommand }),
-    args: ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--timeout", String(options.timeoutSeconds ?? 12), command, ...args],
+    args: ["--format", "json", "--no-banner", "--non-interactive", "command", "--project-path", projectRoot, "--timeout", String(options.timeoutSeconds ?? 12), "--result-only", options.nativeCommand ?? unityPipelineCommandName(command), ...args],
   };
 }
 
@@ -150,16 +150,21 @@ export function parseUnityPipelineEnvelope(output: string): ParsedEnvelope {
   // Pipeline 0.6 may return the compact exec envelope { success, result, warnings }
   // rather than the older CLI wrapper { success, data: { result } }.
   const data = record(outer.data);
-  const rawResult = data?.result ?? outer.result ?? data;
+  // --result-only opts out of formatted streaming. A bare payload is only used
+  // after callers check the CLI exit; normalization still requires operation evidence.
+  const payloadFields = ["status", "summary", "results", "diagnostics"];
+  const wrapped = data !== undefined || Object.prototype.hasOwnProperty.call(outer, "result") && !payloadFields.some(key => field(outer!, key) !== undefined);
+  const rawResult = wrapped ? data?.result ?? outer.result ?? data : outer;
+  const outerSuccess = wrapped ? outer.success === true : outer.success === undefined || outer.success === true;
   if (typeof rawResult === "string") {
     try {
       const parsed = record(JSON.parse(rawResult));
-      if (!parsed) return { result: {}, outerSuccess: outer.success === true, malformed: "Unity Pipeline returned a non-object nested result." };
-      return { result: parsed, outerSuccess: outer.success === true };
-    } catch { return { result: {}, outerSuccess: outer.success === true, malformed: "Unity Pipeline returned malformed nested JSON." }; }
+      if (!parsed) return { result: {}, outerSuccess, malformed: "Unity Pipeline returned a non-object nested result." };
+      return { result: parsed, outerSuccess, bare: !wrapped };
+    } catch { return { result: {}, outerSuccess, malformed: "Unity Pipeline returned malformed nested JSON." }; }
   }
   const result = record(rawResult);
-  return result ? { result, outerSuccess: outer.success === true } : { result: {}, outerSuccess: outer.success === true, malformed: "Unity Pipeline response omitted data.result." };
+  return result ? { result, outerSuccess, bare: !wrapped } : { result: {}, outerSuccess, malformed: "Unity Pipeline response omitted data.result." };
 }
 
 function walk(value: unknown, visitor: (item: RecordValue) => void, depth = 0): void {
@@ -304,13 +309,14 @@ export function normalizeUnityPipelineTest(output: string): NormalizedTest {
 
 function editorStopSucceeded(output: string): boolean {
   try {
-    const outer = record(JSON.parse(output));
-    const data = record(outer?.data);
-    if (outer?.success !== true || data?.success === false) return false;
-    const rawResult = data?.result;
-    if (typeof rawResult === "string") return /^(?:exited play mode|already in edit mode)$/i.test(rawResult.trim());
-    const result = record(rawResult);
-    return Boolean(result && !hasSemanticFailure(result));
+    const outer: unknown = JSON.parse(output);
+    if (typeof outer === "string") return /^(?:exited play mode|already in edit mode)$/i.test(outer.trim());
+    const parsed = parseUnityPipelineEnvelope(output);
+    const envelope = record(outer);
+    const data = record(envelope?.data);
+    const rawResult = data?.result ?? envelope?.result;
+    if (typeof rawResult === "string") return envelope?.success === true && /^(?:exited play mode|already in edit mode)$/i.test(rawResult.trim());
+    return !parsed.bare && !parsed.malformed && parsed.outerSuccess && !hasSemanticFailure(parsed.result) && Object.keys(parsed.result).length > 0;
   } catch {
     return false;
   }
@@ -339,7 +345,11 @@ export function normalizeUnityScriptChangesWhilePlaying(value: unknown): UnitySc
 
 function editorStatus(output: string): { lifecycle: "compatible" | "playing" | "paused"; scriptChangesWhilePlaying: UnityScriptChangesWhilePlayingPolicy } {
   const parsed = parseUnityPipelineEnvelope(output);
-  if (parsed.malformed || !parsed.outerSuccess) throw new Error("Unity Pipeline editor_status evidence is malformed or unavailable; operation not started.");
+  if (parsed.malformed || !parsed.outerSuccess || hasSemanticFailure(parsed.result)
+    || !["idle", "ready", "playing", "paused", "editmode", "stopped"].includes(statusOf(parsed.result) ?? "")
+    || parsed.bare && (typeof field(parsed.result, "playmode") !== "string" || typeof field(parsed.result, "compiling") !== "boolean")) {
+    throw new Error("Unity Pipeline editor_status evidence is malformed, busy or unavailable; operation not started.");
+  }
   let policy: UnityScriptChangesWhilePlayingPolicy = "unknown";
   walk(parsed.result, item => {
     if (policy !== "unknown") return;
@@ -352,7 +362,7 @@ function capabilityError(capabilities: UnityCliProjectCapabilities, required: st
   if (!capabilities.cliAvailable) return "Unity CLI is unavailable; operation not started.";
   if (capabilities.pipelineDiscovery !== "available" || !capabilities.matchingInstances.some(instance => instance.reachable === true)) return "No reachable Pipeline instance exists for the exact Unity project copy; operation not started.";
   if (!capabilities.commandDiscoverySucceeded) return "Pipeline command availability is uncertain; operation not started.";
-  const missing = required.filter(command => !capabilities.advertisedCommands.includes(command));
+  const missing = required.filter(command => !hasUnityPipelineCommand(capabilities, command));
   return missing.length ? `The exact Pipeline copy does not advertise ${missing.join(", ")}; operation not started.` : undefined;
 }
 function knownPids(capabilities: UnityCliProjectCapabilities): number[] { return capabilities.matchingInstances.flatMap(instance => Number.isInteger(instance.pid) && (instance.pid ?? 0) > 0 ? [instance.pid!] : []).sort((a, b) => a - b); }
@@ -393,19 +403,21 @@ async function inspectWithDeadline(deps: PipelineDependencies, projectRoot: stri
   }
 }
 
-async function executeCommand(deps: PipelineDependencies, projectRoot: string, command: Parameters<typeof createUnityPipelineCommand>[1], args: string[], signal: AbortSignal | undefined, deadline?: number, now: () => number = Date.now): Promise<UnityCliExecResult> {
+async function executeCommand(deps: PipelineDependencies, projectRoot: string, command: Parameters<typeof createUnityPipelineCommand>[1], args: string[], signal: AbortSignal | undefined, deadline?: number, now: () => number = Date.now, capabilities?: UnityCliProjectCapabilities): Promise<UnityCliExecResult> {
   throwIfAborted(signal);
   const remaining = deadline === undefined ? 15_000 : deadline - now();
   if (remaining <= 0) throw timeoutMessage(command);
-  const request = createUnityPipelineCommand(projectRoot, command, args, { timeoutSeconds: Math.max(1, Math.ceil(Math.min(15_000, remaining) / 1000)), cliCommand: deps.cliCommand });
+  const nativeCommand = capabilities ? selectUnityPipelineCommand(capabilities, command) : undefined;
+  if (!nativeCommand) throw new Error("Pipeline command identity is unavailable; operation not started.");
+  const request = createUnityPipelineCommand(projectRoot, command, args, { nativeCommand, timeoutSeconds: Math.max(1, Math.ceil(Math.min(15_000, remaining) / 1000)), cliCommand: deps.cliCommand });
   const result = await deps.execute(request.command, request.args, { timeout: Math.max(1, Math.min(15_000, remaining)), signal });
   throwIfAborted(signal);
   if (deadline !== undefined) ensureBeforeDeadline(deadline, now, command);
   return result;
 }
-async function dispatchMainThreadCommand(deps: PipelineDependencies, projectRoot: string, command: "recompile" | "run_tests", args: string[], operation: string, signal: AbortSignal | undefined, deadline: number, now: () => number, sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>): Promise<UnityCliExecResult> {
+async function dispatchMainThreadCommand(deps: PipelineDependencies, projectRoot: string, command: "recompile" | "run_tests", args: string[], operation: string, signal: AbortSignal | undefined, deadline: number, now: () => number, sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>, capabilities: UnityCliProjectCapabilities): Promise<UnityCliExecResult> {
   for (let attempt = 0; ; attempt += 1) {
-    const response = await executeCommand(deps, projectRoot, command, args, signal, deadline, now);
+    const response = await executeCommand(deps, projectRoot, command, args, signal, deadline, now, capabilities);
     if (!isUnityPipelineInitialSettlingBusy(response.stdout)) return response;
     const remaining = deadline - now();
     if (remaining <= 0) throw new Error(`Unity Pipeline server remained busy while settling; ${operation} was not started before the deadline.`);
@@ -419,7 +431,7 @@ async function dispatchMainThreadCommand(deps: PipelineDependencies, projectRoot
 async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = true): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
   const capabilities = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   const error = capabilityError(capabilities, commands); if (error) throw new Error(error + unityCapabilityDiagnosticSuffix(capabilities));
-  let editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
+  let editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now, capabilities);
   if (editor.error) throw new Error("Unity Pipeline editor_status failed; operation not started.");
   let status = editorStatus(editor.stdout);
   let exitedPlayMode = false;
@@ -443,7 +455,7 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
     // Test execution has separate lifecycle semantics: stop explicitly, then verify Edit Mode.
     if (!allowAutonomousExitPlayMode) throw new Error("Unity Editor is in Play Mode or paused; Play Mode exit is disabled for this session, so tests were not started.");
     const stopError = capabilityError(capabilities, ["editor_stop"]); if (stopError) throw new Error(stopError);
-    const stopped = await executeCommand(deps, projectRoot, "editor_stop", [], signal, deadline, now);
+    const stopped = await executeCommand(deps, projectRoot, "editor_stop", [], signal, deadline, now, capabilities);
     if (stopped.error) throw new Error("Unity Pipeline editor_stop failed; tests were not started and Play Mode state is uncertain.");
     if (!editorStopSucceeded(stopped.stdout)) throw new Error("Unity Pipeline editor_stop returned failing or malformed evidence; tests were not started and Play Mode state is uncertain.");
     const sleep = deps.sleep ?? defaultSleep;
@@ -451,7 +463,7 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
       const delay = Math.min(UNITY_PIPELINE_BACKOFF_SECONDS[attempt]! * 1000, deadline - now());
       if (delay <= 0) break;
       await sleep(delay, signal); throwIfAborted(signal); ensureBeforeDeadline(deadline, now, "Play Mode exit");
-      editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now);
+      editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now, capabilities);
       if (editor.error) continue;
       status = editorStatus(editor.stdout);
       if (status.lifecycle === "compatible") { exitedPlayMode = true; break; }
@@ -460,7 +472,7 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
     playModeHandling = "agent_exited";
   }
   const refreshed = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
-  if (capabilityError(refreshed, commands) || !sameIdentity(capabilities, refreshed, projectRoot)) throw new Error("Unity Pipeline identity changed before dispatch; operation not started.");
+  if (capabilityError(refreshed, commands) || !sameIdentity(capabilities, refreshed, projectRoot) || [...commands, ...(exitedPlayMode ? ["editor_stop"] : [])].some(command => selectUnityPipelineCommand(capabilities, command) !== selectUnityPipelineCommand(refreshed, command))) throw new Error("Unity Pipeline identity changed before dispatch; operation not started.");
   return { capabilities: refreshed, exitedPlayMode, playModeHandling, ...(operation === "recompile" && status.lifecycle !== "compatible" ? { scriptChangesWhilePlaying: status.scriptChangesWhilePlaying } : {}) };
 }
 function playModeOutcomeText(preflight: { playModeHandling: UnityPipelinePlayModeHandling }): string {
@@ -525,7 +537,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
   const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "recompile before dispatch");
   throwIfAborted(signal);
-  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "recompile", [], "recompile", signal, deadline, now, sleep);
+  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "recompile", [], "recompile", signal, deadline, now, sleep, identity);
   if (dispatched.error) throw new Error(`Unity Pipeline recompile dispatch failed; operation may not have started.${pipelineFailureDiagnostic(dispatched) ? ` ${pipelineFailureDiagnostic(dispatched)}` : ""}`);
   const dispatchWarnings = pipelineEnvelopeWarnings(dispatched.stdout);
   let state = normalizeUnityPipelineCompile(dispatched.stdout);
@@ -541,7 +553,8 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
     const identityState = pollingIdentity(identity, current, projectRoot);
     if (identityState === "changed") throw new Error("Unity Pipeline identity changed during recompile; operation state is uncertain.");
     if (identityState === "temporary_disconnect") continue;
-    const response = await executeCommand(deps, projectRoot, "recompile_status", [], signal, deadline, now);
+    if (!current.commandDiscoverySucceeded || ["editor_status", "recompile_status", "test_status"].some(command => selectUnityPipelineCommand(identity, command) !== selectUnityPipelineCommand(current, command))) throw new Error("Pipeline command identity changed while polling; operation state is uncertain.");
+    const response = await executeCommand(deps, projectRoot, "recompile_status", [], signal, deadline, now, identity);
     if (response.error) continue; // Domain reload can briefly disconnect the same exact copy.
     if (isUnityPipelineInitialSettlingBusy(response.stdout)) continue;
     retainWarnings(dispatchWarnings, response.stdout);
@@ -562,7 +575,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   const identity = preflight.capabilities;
   const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "tests before dispatch");
-  const before = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now);
+  const before = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now, identity);
   if (before.error) throw new Error("Unity Pipeline test status is unavailable; test run not started.");
   const existing = normalizeUnityPipelineTest(before.stdout);
   if (existing.state === "starting" || existing.state === "running") throw new Error("A pre-existing connected Unity test run is active; test run not started.");
@@ -571,11 +584,12 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     throw new Error(`Unity Pipeline returned unsupported preflight test status '${bounded(observed, 80)}'; test run not started.`);
   }
   if (request.testFilter && request.testCategory) throw new Error("Connected Pipeline cannot combine a test-name filter and category in one run; operation not started.");
-  const selectorArgs = request.testFilter ? ["--filter", request.testFilter, "--filter_type", "testName"]
-    : request.testCategory ? ["--filter", request.testCategory, "--filter_type", "category"] : [];
-  const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...selectorArgs, "--async_tests", "true"];
+  const flatTests = selectUnityPipelineCommand(identity, "run_tests") === "run_tests";
+  const selectorArgs = request.testFilter ? ["--filter", request.testFilter, flatTests ? "--filter_type" : "--filter-type", "testName"]
+    : request.testCategory ? ["--filter", request.testCategory, flatTests ? "--filter_type" : "--filter-type", "category"] : [];
+  const args = ["--mode", request.testPlatform === "EditMode" ? "editor" : "playmode", ...selectorArgs, flatTests ? "--async_tests" : "--async-tests", "true"];
   ensureBeforeDeadline(deadline, now, "tests before dispatch"); throwIfAborted(signal);
-  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "run_tests", args, "tests", signal, deadline, now, sleep);
+  const dispatched = await dispatchMainThreadCommand(deps, projectRoot, "run_tests", args, "tests", signal, deadline, now, sleep, identity);
   if (dispatched.error) throw new Error(`Unity Pipeline test dispatch failed; test run may not have started.${pipelineFailureDiagnostic(dispatched) ? ` ${pipelineFailureDiagnostic(dispatched)}` : ""}`);
   const dispatchWarnings = pipelineEnvelopeWarnings(dispatched.stdout);
   let state = normalizeUnityPipelineTest(dispatched.stdout);
@@ -599,7 +613,8 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
     const identityState = pollingIdentity(identity, current, projectRoot);
     if (identityState === "changed") throw new Error("Unity Pipeline identity changed during tests; operation state is uncertain.");
     if (identityState === "temporary_disconnect") continue;
-    const response = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now);
+    if (!current.commandDiscoverySucceeded || ["editor_status", "recompile_status", "test_status"].some(command => selectUnityPipelineCommand(identity, command) !== selectUnityPipelineCommand(current, command))) throw new Error("Pipeline command identity changed while polling; operation state is uncertain.");
+    const response = await executeCommand(deps, projectRoot, "test_status", [], signal, deadline, now, identity);
     if (response.error) continue;
     if (isUnityPipelineInitialSettlingBusy(response.stdout)) continue;
     retainWarnings(dispatchWarnings, response.stdout);

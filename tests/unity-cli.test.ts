@@ -24,8 +24,17 @@ import {
   resolveUnityCliCommand,
   summarizeUnityCliText,
   UNITY_PLANNING_READ_COMMANDS,
+  unityPipelineCommandName,
   type UnityCliProjectCapabilities,
 } from "../src/unity-cli";
+
+// Derived from published Pipeline 0.10 CodeEvalCommand, not a live Editor capture.
+const evalParameters = [
+  { name: "code", type: "String", required: false, defaultValue: null },
+  { name: "file", type: "String", required: false, defaultValue: null },
+  { name: "timeout", type: "Double", required: false, defaultValue: 30 },
+  ...["dry-run", "auto-import", "internals"].map(name => ({ name, type: "Boolean", required: false, defaultValue: false })),
+];
 
 const open = createUnityCliOpenCommand("/workspace/My Game");
 assert.equal(resolveUnityCliCommand({ env: { UNITY_CLI_PATH: "unity-custom" } as NodeJS.ProcessEnv }), "unity-custom");
@@ -100,7 +109,8 @@ assert.deepEqual(exit.args, [
   "/workspace/My Game",
   "--timeout",
   "7",
-  "eval",
+  "--result-only",
+  "script eval",
   "UnityEditor.EditorApplication.Exit(0); return true;",
 ]);
 
@@ -175,7 +185,7 @@ assert.deepEqual(parseUnityCliCommandListOutput("not json"), []);
 assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({ success: true, data: { commands: [] } })), []);
 assert.equal(parseUnityCliCommandListOutput(JSON.stringify({
   success: true,
-  data: { commands: ["eval\nforged", "x".repeat(121), ...Array.from({ length: 300 }, (_, index) => `command_${index}`)] },
+  data: { commands: Array.from({ length: 300 }, (_, index) => `command_${index}`) },
 })).length, 256, "Command discovery must remain bounded.");
 
 assert.equal(isUnityCliTimeout({ error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }), true);
@@ -224,6 +234,21 @@ for (const stdout of ["not-json", JSON.stringify({ success: true }), JSON.string
   assert(unknown.warning, "Malformed or coded dialog evidence never establishes safe-to-launch absence.");
 }
 
+// beta.17 status listing metadata and dialog families, with positive process evidence retained.
+for (const code of ["STATUS_BLOCKED_BY_DIALOG_SAFE_MODE", "STATUS_BLOCKED_BY_DIALOG_GRAPHICS_API", "STATUS_BLOCKED_BY_DIALOG_SOFTWARE_TERMS", "EDITOR_BLOCKED_BY_DIALOG", "STATUS_SAFE_MODE", "EDITOR_BUSY", "CLI_VERSION_OUT_OF_RANGE"]) {
+  const stdout = JSON.stringify({ success: false, command: "status", data: { items: [{ projectPath: "/fixture/game", pid: 45 }], total: 1, partial: false, nextPage: null }, errors: [{ code, message: `${code} token=secret` }], warnings: [] });
+  const status = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async () => ({ stdout, stderr: "" }) });
+  assert.equal(status.processes[0]?.pid, 45);
+  assert(status.warning, `${code} must block launch rather than disappear behind positive process evidence`);
+  assert.doesNotMatch(status.warning, /token=secret/);
+  if (code.includes("DIALOG")) assert.equal(status.blockedByDialog, true);
+}
+for (const metadata of [{ partial: true }, { nextPage: 2 }, { nextCursor: "next" }, { total: 2 }, { items: [null] }]) {
+  const status = await listRunningUnityCliEditorsForProject("/fixture/game", { execute: async () => ({ stdout: JSON.stringify({ success: true, command: "status", data: { items: [], total: 0, partial: false, nextPage: null, ...metadata }, errors: [], warnings: [] }), stderr: "" }) });
+  assert(status.warning, "Partial or malformed canonical metadata is uncertainty, never absence");
+}
+assert.equal(isUnityCliTimeout({ error: Object.assign(new Error("native timeout"), { code: 14 }) }), true);
+
 const absentCapabilities = await inspectUnityCliProjectCapabilities("/fixture/closed", "6000.1.0f1", {
   execute: async (_command, args) => args.includes("--version")
     ? { stdout: "1.0.0", stderr: "" }
@@ -256,17 +281,14 @@ try {
       if (args.includes("--version")) return { stdout: "1.0.0", stderr: "" };
       if (args.includes("pipeline")) return { stdout: JSON.stringify({ success: true, data: { instances: [{ projectPath: catalogProject, pid: 7, pipelineServer: { isReachable: true } }] } }), stderr: "" };
       assert(args.includes("command") && args.includes("--detail") && args.includes("full"), "Exact timeout gating must request the full command descriptor, not normalized unity list metadata.");
-      return { stdout: JSON.stringify({ success: true, data: { commands: [{ name: "eval", parameters: [{ name: "code", type: "String", required: true, defaultValue: null }, { name: "timeout", type: "Int32", required: false, defaultValue: 5000 }] }] } }), stderr: "" };
+      return { stdout: JSON.stringify({ success: true, data: { commands: [{ name: "eval", command: "script eval", group: "script", parameters: evalParameters }] } }), stderr: "" };
     },
   });
-  assert.deepEqual(catalogCapabilities.verifiedCommandParameters?.eval, [
-    { name: "code", type: "String", required: true, defaultValue: null },
-    { name: "timeout", type: "Int32", required: false, defaultValue: 5000 },
-  ], "Only a complete full command descriptor is retained as capability evidence.");
+  assert.deepEqual(catalogCapabilities.verifiedCommandParameters?.["script eval"], evalParameters, "Only a complete full command descriptor is retained as capability evidence.");
 
   await mkdir(join(catalogProject, "Library", "Pipeline"), { recursive: true });
   await writeFile(join(catalogProject, "Library", "Pipeline", ".unity-pipeline-port"), JSON.stringify({ capabilities: ["exec.argv"] }));
-  const validEvalDescriptor = { name: "eval", parameters: [{ name: "code", type: "String", required: true }, { name: "timeout", type: "Int32", required: false, defaultValue: 5000 }] };
+  const validEvalDescriptor = { name: "eval", command: "script eval", group: "script", parameters: evalParameters };
   const malformedCatalogs: Array<[string, unknown[]]> = [
     ["null parameter", [{ ...validEvalDescriptor, parameters: [validEvalDescriptor.parameters[0], null] }]],
     ["nonboolean required", [{ ...validEvalDescriptor, parameters: [validEvalDescriptor.parameters[0], { name: "timeout", type: "Int32", required: "false", defaultValue: 5000 }] }]],
@@ -296,6 +318,39 @@ try {
   await rm(catalogProject, { recursive: true, force: true });
 }
 
+// Catalog identities and argument types derive from published Pipeline 0.10 source.
+const currentCatalog = { commands: [
+  { name: "status", group: "editor", command: "editor status", parameters: [] },
+  { name: "status", group: "test", command: "test status", parameters: [] },
+  { name: "eval", group: "custom", command: "custom eval", parameters: evalParameters },
+  { name: "eval", group: "script", command: "script eval", parameters: evalParameters },
+], count: 4, total: 4, offset: 0, limit: null };
+assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify(currentCatalog)), ["custom eval", "editor status", "script eval", "test status"], "Same leaf names in different groups stay distinct");
+for (const changed of [{ total: 5 }, { offset: 1 }, { partial: true }, { nextPage: 2 }, { commands: [{ name: "eval", group: "custom", command: "script eval", parameters: evalParameters }] }]) {
+  assert.deepEqual(parseUnityCliCommandListOutput(JSON.stringify({ ...currentCatalog, ...changed })), [], "Partial or contradictory native catalogs cannot grant capabilities");
+}
+const currentDiscovery = await inspectUnityCliProjectCapabilities("/fixture/current", "6000", { execute: async (_command, args) => {
+  if (args.includes("--version")) return { stdout: "1.0.0-beta.17", stderr: "" };
+  if (args.includes("pipeline")) {
+    assert.deepEqual(args.slice(-2), ["pipeline", "editors"]);
+    return { stdout: JSON.stringify({ success: true, command: "pipeline editors list", data: { items: [{ projectPath: "/fixture/current", pid: 7, pipelineServer: { isReachable: true } }], instances: [], total: 1, nextPage: null, partial: false }, errors: [], warnings: [] }), stderr: "" };
+  }
+  return { stdout: JSON.stringify(currentCatalog), stderr: "" };
+} });
+assert.equal(currentDiscovery.commandDiscoverySucceeded, true);
+assert.equal(currentDiscovery.matchingInstances[0]?.pid, 7, "Canonical items outrank deprecated aliases");
+assert.deepEqual(currentDiscovery.verifiedCommandParameters?.["script eval"], evalParameters);
+for (const metadata of [{ partial: true }, { nextPage: 2 }, { total: 2 }]) {
+  let calls = 0;
+  const partial = await inspectUnityCliProjectCapabilities("/fixture/current", "6000", { execute: async (_command, args) => {
+    calls++;
+    return args.includes("--version") ? { stdout: "1.0.0-beta.17", stderr: "" } : { stdout: JSON.stringify({ success: true, command: "pipeline editors list", data: { items: [{ projectPath: "/fixture/current", pid: 7 }], total: 1, partial: false, nextPage: null, ...metadata } }), stderr: "" };
+  } });
+  assert.equal(calls, 2, "Partial listing must never trigger command discovery");
+  assert.equal(partial.pipelineDiscovery, "unavailable");
+  assert.equal(partial.matchingInstances[0]?.pid, 7);
+}
+
 assert.deepEqual(UNITY_PLANNING_READ_COMMANDS, [
   "get_authoring_root",
   "get_build_settings",
@@ -314,7 +369,7 @@ try {
     projectSupportsPipeline: true,
     pipelinePackageDeclared: true,
     matchingInstances: [{ projectPath: planningProject, pid, reachable: true }],
-    advertisedCommands: commands,
+    advertisedCommands: commands.map(unityPipelineCommandName),
     advertisedCommandCount: commands.length,
     advertisedCommandsTruncated: false,
     commandDiscoveryAttempted: true,
@@ -347,10 +402,7 @@ try {
     ...planningCapabilities(42),
     pipelineSupportsExecArgv: true,
     verifiedCommandParameters: {
-      eval: [
-        { name: "code", type: "String", required: true },
-        { name: "timeout", type: "Int32", required: false, defaultValue: 5000 },
-      ],
+      "script eval": evalParameters,
     },
   });
   const handlerTimeoutCalls: string[][] = [];
@@ -359,7 +411,8 @@ try {
     evalSnippet: "return \"--not-a-flag\";", handlerTimeoutMilliseconds: 321,
   }, {
     inspect: async () => evalTimeoutCapabilities(),
-    execute: async (_command, args) => {
+    execute: async (_command, args, options) => {
+      assert.equal(options.timeout, 12000, "The independent host deadline remains bounded.");
       handlerTimeoutCalls.push(args);
       return { stdout: JSON.stringify({ success: true, data: { result: { success: true, result: "safe", diagnostics: [] } } }), stderr: "" };
     },
@@ -367,14 +420,14 @@ try {
   assert.equal(handlerTimeout.outcome, "dispatched");
   assert.equal(handlerTimeoutCalls.length, 1, "Handler timeout forwarding must dispatch exactly once.");
   const handlerTimeoutArgs = handlerTimeoutCalls[0]!;
-  const evalIndex = handlerTimeoutArgs.indexOf("eval");
-  assert.deepEqual(handlerTimeoutArgs.slice(evalIndex), ["eval", "return \"--not-a-flag\";", "321"], "The handler timeout is an argv positional after code, preserving whitespace/flag-like C# exactly.");
-  assert.equal(handlerTimeoutArgs.filter(arg => arg === "--timeout").length, 1, "Do not send a colliding duplicate --timeout flag.");
-  assert.equal(handlerTimeoutArgs[handlerTimeoutArgs.indexOf("--timeout") + 1], "12", "Existing host/CLI timeout remains seconds and precedes eval.");
+  const evalIndex = handlerTimeoutArgs.indexOf("script eval");
+  assert.deepEqual(handlerTimeoutArgs.slice(evalIndex), ["script eval", "return \"--not-a-flag\";", "", "0.321"], "The optional file slot is explicitly empty and the server timeout is fractional seconds.");
+  assert.equal(handlerTimeoutArgs.filter(arg => arg === "--timeout").length, 0, "Do not send a colliding duplicate --timeout flag.");
+  assert(!handlerTimeoutArgs.includes("--timeout"), "No request timeout may override the verified native parameter.");
 
   for (const unavailableCapabilities of [
     { ...evalTimeoutCapabilities(), pipelineSupportsExecArgv: false },
-    { ...evalTimeoutCapabilities(), verifiedCommandParameters: { eval: [{ name: "code", type: "String", required: true }] } },
+    { ...evalTimeoutCapabilities(), verifiedCommandParameters: { "script eval": [{ name: "code", type: "String", required: true }] } },
   ]) {
     const unavailable = await dispatchUnityPlanningInspection({
       projectRoot: planningProject, unityVersion: "6000.1.13f1", command: "eval", evalSnippet: "return true;", handlerTimeoutMilliseconds: 321,
@@ -413,7 +466,7 @@ try {
   if (serverTimeout.outcome === "rejected") assert.equal(serverTimeout.code, "planning_command_reported_failure");
 
   for (const [label, refreshed] of [
-    ["signature loss", { ...evalTimeoutCapabilities(), verifiedCommandParameters: { eval: [{ name: "code", type: "String", required: true }] } }],
+    ["signature loss", { ...evalTimeoutCapabilities(), verifiedCommandParameters: { "script eval": [{ name: "code", type: "String", required: true }] } }],
     ["exec.argv loss", { ...evalTimeoutCapabilities(), pipelineSupportsExecArgv: false }],
   ] as const) {
     let inspections = 0; let evalDispatches = 0;
@@ -501,11 +554,11 @@ try {
   const scriptCalls: string[][] = [];
   const runScript = await dispatchUnityPipelineRunScript({ projectRoot: planningProject, unityVersion: "6000", file: scriptFile, entry: "Build.Main", args: ["ok", 2], dryRun: true }, {
     inspect: async () => planningCapabilities(42, ["run_script"]),
-    execute: async (_command, args) => { scriptCalls.push(args); return { stdout: JSON.stringify({ success: true, result: { result: "ok", diagnostics: [], compileMs: 1, executeMs: 0 } }), stderr: "" }; },
+    execute: async (_command, args) => { scriptCalls.push(args); return { stdout: JSON.stringify({ success: true, result: { success: true, result: "ok", diagnostics: [], compileMs: 1, executeMs: 0 } }), stderr: "" }; },
   });
   assert.equal(runScript.outcome, "dispatched");
   assert(scriptCalls[0]?.includes("AgentScripts/Build.cs") || scriptCalls[0]?.includes("AgentScripts\\Build.cs"));
-  assert(scriptCalls[0]?.includes("--dry_run") && scriptCalls[0]?.includes("--entry") && scriptCalls[0]?.includes('["ok",2]'));
+  assert(scriptCalls[0]?.includes("--dry-run") && scriptCalls[0]?.includes("--entry") && scriptCalls[0]?.includes('["ok",2]'));
   for (const [label, file, code] of [["sibling", join(`${planningProject}Sibling`, "Attack.cs"), "run_script_file_invalid"], ["directory", join(planningProject, "NotAFile.cs"), "run_script_file_invalid"], ["missing", join(planningProject, "Missing.cs"), "run_script_path_unavailable"]] as const) {
     if (label === "sibling") { await mkdir(`${planningProject}Sibling`, { recursive: true }); await writeFile(file, "class Attack {}"); }
     if (label === "directory") await mkdir(file);
@@ -538,7 +591,7 @@ try {
       assert(!result.message.includes("secret"));
     }
   }
-  const scriptResponse = { result: { success: false }, diagnostics: [], compileMs: 1, executeMs: 0, assemblyName: "Script" };
+  const scriptResponse = { success: true, result: { success: false }, diagnostics: [], compileMs: 1, executeMs: 0, assemblyName: "Script" };
   for (const [label, envelope, expected] of [
     ["legacy transport failure", { success: true, data: { success: false, result: scriptResponse } }, "rejected"],
     ["legacy opaque user result", { success: true, data: { success: true, result: scriptResponse } }, "dispatched"],
@@ -554,6 +607,83 @@ try {
   }
   assert.equal(redactUnityPlanningOutput("token=abc123def456ghijkl and sk_abcdefghijklmnop"), "token= [redacted] and [redacted]");
   assert.equal(disconnected.outcome, "rejected");
+
+  // Source-derived Pipeline 0.10 payloads; these are not live Editor captures.
+  const nativeInspections: Array<[string, unknown]> = [
+    ["get_authoring_root", { root: "Assets" }],
+    ["get_build_settings", { "active-build-target": "StandaloneWindows64", scenes: [] }],
+    ["get_player_settings", { success: true, group: "player", values: { "product-name": "Fixture" } }],
+    ["get_runtime_pipeline_settings", { success: true, group: "runtime_pipeline", values: { port: 7900 } }],
+    ["get_scene_hierarchy", { sceneName: "Untitled", roots: [] }],
+    ["list_open_scenes", { count: 0, scenes: [] }],
+    ["list_build_targets", [{ name: "StandaloneWindows64", isInstalled: true }]],
+    ["editor_status", { status: "ready", playMode: "stopped", compiling: false }],
+  ];
+  for (const [command, payload] of nativeInspections) {
+    const native = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command }, {
+      inspect: async () => planningCapabilities(42, [command]),
+      execute: async (_command, args) => {
+        assert(args.includes("--result-only") && args.includes(unityPipelineCommandName(command)));
+        return { stdout: JSON.stringify(payload), stderr: "" };
+      },
+    });
+    assert.equal(native.outcome, "dispatched", `Native ${command} evidence`);
+    for (const malformed of [{}, { success: true }, { success: false }, { success: "true" }, { unrelated: [] }]) {
+      const rejected = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command }, {
+        inspect: async () => planningCapabilities(42, [command]), execute: async () => ({ stdout: JSON.stringify(malformed), stderr: "" }),
+      });
+      assert.equal(rejected.outcome, "rejected", `${command} must require its own positive payload`);
+    }
+  }
+  for (const payload of [{ success: true, result: 7, diagnostics: [] }, { diagnostics: [] }, { success: false, diagnostics: [] }]) {
+    const native = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command: "eval", evalSnippet: "return 7;" }, {
+      inspect: async () => planningCapabilities(42), execute: async () => ({ stdout: JSON.stringify(payload), stderr: "" }),
+    });
+    assert.equal(native.outcome, payload.success === true ? "dispatched" : "rejected", "Raw eval requires explicit native success");
+  }
+  for (const payload of [{ success: true, result: null, diagnostics: [], compileMs: 1, executeMs: 0 }, { diagnostics: [] }, { success: "true", diagnostics: [] }]) {
+    const native = await dispatchUnityPipelineRunScript({ projectRoot: planningProject, unityVersion: "6000", file: scriptFile, dryRun: true }, {
+      inspect: async () => planningCapabilities(42, ["run_script"]), execute: async (_command, args) => {
+        assert(args.includes("script run") && args.includes("--dry-run") && args.includes("--result-only"));
+        assert.equal(args.filter(arg => arg === "--timeout").length, 1, "No duplicate native timeout flag");
+        return { stdout: JSON.stringify(payload), stderr: "" };
+      },
+    });
+    assert.equal(native.outcome, payload.success === true ? "dispatched" : "rejected", "Raw script response needs explicit native success");
+  }
+  // Retain the already-supported flat server surface under the same beta.17 CLI.
+  const flatCapabilities = (): UnityCliProjectCapabilities => ({ ...planningCapabilities(42), advertisedCommands: ["eval", "run_script", "get_authoring_root"], pipelineSupportsExecArgv: true, verifiedCommandParameters: { eval: [{ name: "code", type: "String", required: true }, { name: "timeout", type: "Int32", required: false, defaultValue: 5000 }] } });
+  const flatEval = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command: "eval", evalSnippet: "return 1;", handlerTimeoutMilliseconds: 321 }, {
+    inspect: async () => flatCapabilities(), execute: async (_command, args) => {
+      assert.deepEqual(args.slice(args.indexOf("eval")), ["eval", "return 1;", "321"], "Existing flat handler uses milliseconds without a new file slot");
+      assert(args.includes("--timeout"), "Existing flat dispatcher retains its separate CLI timeout");
+      return { stdout: '{"success":true,"diagnostics":[],"result":1}', stderr: "" };
+    },
+  });
+  assert.equal(flatEval.outcome, "dispatched");
+  const flatScript = await dispatchUnityPipelineRunScript({ projectRoot: planningProject, unityVersion: "6000", file: scriptFile, dryRun: true }, {
+    inspect: async () => flatCapabilities(), execute: async (_command, args) => {
+      assert(args.includes("run_script") && args.includes("--dry_run") && args.includes("--timeout_ms"));
+      assert(!args.includes("--dry-run"));
+      return { stdout: '{"success":true,"diagnostics":[],"result":null}', stderr: "" };
+    },
+  });
+  assert.equal(flatScript.outcome, "dispatched");
+  let changedSurfaceInspections = 0;
+  let changedSurfaceDispatches = 0;
+  const changedSurface = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command: "eval", evalSnippet: "return 1;" }, {
+    inspect: async () => ++changedSurfaceInspections === 1 ? planningCapabilities(42) : flatCapabilities(),
+    execute: async () => { changedSurfaceDispatches++; return { stdout: "{}", stderr: "" }; },
+  });
+  assert.equal(changedSurface.outcome, "rejected");
+  assert.equal(changedSurfaceDispatches, 0, "A same-PID grouped-to-flat identity change cannot silently switch dispatch contracts");
+
+  for (const stdout of ['{"success":true,"diagnostics":[]}\n{"success":true,"diagnostics":[]}', '{"success":true,"diagnostics":[]']) {
+    const rejected = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command: "eval", evalSnippet: "return 1;" }, {
+      inspect: async () => planningCapabilities(42), execute: async () => ({ stdout, stderr: "" }),
+    });
+    assert.equal(rejected.outcome, "rejected", "Extra/truncated result-only frames cannot pass");
+  }
   if (disconnected.outcome === "rejected") assert.equal(disconnected.code, "pipeline_not_reachable");
 } finally {
   await rm(planningProject, { recursive: true, force: true });
