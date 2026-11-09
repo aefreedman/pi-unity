@@ -311,7 +311,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(handlerEvalResult.details.pipelineEval.outcome, "dispatched", "The registered native eval tool forwards a legitimately advertised handler timeout.");
     const handlerEvalCall = calls.find((args) => args.includes(handlerEvalCode));
     const handlerEvalIndex = handlerEvalCall!.indexOf("script eval");
-    assert.deepEqual(handlerEvalCall!.slice(handlerEvalIndex), ["script eval", handlerEvalCode, "", "0.321"], "Registered eval preserves code as one argv token and preserves the empty file slot before the fractional-second server timeout.");
+    assert.deepEqual(handlerEvalCall!.slice(handlerEvalIndex), ["script eval", "--", handlerEvalCode, "", "0.321"], "Registered eval preserves code as one argv token and preserves the empty file slot before the fractional-second server timeout.");
     assert.equal(handlerEvalCall!.filter(arg => arg === "--timeout").length, 0, "The grouped native timeout must not be overridden by a CLI request timeout.");
     malformedEvalDescriptor = true;
     const evalDispatchCount = calls.filter(args => args.includes("script eval") && args.includes("--result-only")).length;

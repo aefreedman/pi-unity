@@ -910,7 +910,7 @@ export async function dispatchUnityPlanningInspection(
     // verified handler override; the executor still owns the separate host deadline.
     ...(isEval && nativeCommand !== "eval" && request.handlerTimeoutMilliseconds !== undefined ? [] : ["--timeout", String(Math.max(1, Math.ceil((options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS) / 1000)))]),
     "--result-only", nativeCommand,
-    ...(isEval ? [request.evalSnippet!.trim(), ...(request.handlerTimeoutMilliseconds === undefined ? [] : (nativeCommand === "eval" ? [String(request.handlerTimeoutMilliseconds)] : ["", String(request.handlerTimeoutMilliseconds / 1000)]))] : request.args ?? []),
+    ...(isEval ? [...(nativeCommand === "eval" ? [] : ["--"]), request.evalSnippet!.trim(), ...(request.handlerTimeoutMilliseconds === undefined ? [] : (nativeCommand === "eval" ? [String(request.handlerTimeoutMilliseconds)] : ["", String(request.handlerTimeoutMilliseconds / 1000)]))] : request.args ?? []),
   ];
   const execution = await options.execute(command, args, { timeout: options.timeout ?? UNITY_CLI_DISCOVERY_TIMEOUT_MS, signal: options.signal });
   const raw = [execution.stdout, execution.stderr].filter(Boolean).join("\n");

@@ -11,7 +11,7 @@ and this project follows semantic versioning for public package releases.
 
 - Restore connected workflows with Unity CLI beta.17 discovery, complete listings, grouped command names and explicit machine-readable results. Retain existing flat Pipeline commands when the exact project advertises them, without upgrading the project package.
 - Preserve current dialog, Safe Mode and busy failures as blocking uncertainty; reject incomplete or malformed command evidence without retrying or launching another Editor.
-- Forward current test/script arguments and verified eval timeout units correctly, keeping handler overrides separate from the host deadline.
+- Forward current test/script arguments and verified eval timeout units correctly, keeping handler overrides separate from the host deadline. Protect grouped eval code from being interpreted as command flags.
 - Accept current official documentation URLs and report requested/resolved versions, fallback warnings and unversioned searches accurately.
 - Use current Cloud listing arguments and canonical result identities while retaining partial, paging and output-truncation evidence.
 - Use the current asset project-path option and validate operation-specific result identities.

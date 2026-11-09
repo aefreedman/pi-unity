@@ -398,6 +398,22 @@ try {
   const defaultEvalArgs = dispatched.at(-1)!;
   assert.equal(defaultEvalArgs.at(-1), "var s = UnityEngine.Application.dataPath; return s.Length;", "Omitted handler timeout preserves the existing eval argv exactly.");
 
+  // Published CommandLineBinder treats --flag and code=... as argument syntax
+  // unless the code positionals follow its end-of-flags delimiter.
+  for (const evalSnippet of ["--UnityEngine.Application.targetFrameRate; return UnityEngine.Application.targetFrameRate;", "code=1; return code;"]) {
+    let calls = 0;
+    const protectedCode = await dispatchUnityPlanningInspection({ projectRoot: planningProject, unityVersion: "6000", command: "eval", evalSnippet }, {
+      inspect: async () => planningCapabilities(42),
+      execute: async (_command, args) => {
+        calls++;
+        assert.deepEqual(args.slice(args.indexOf("script eval")), ["script eval", "--", evalSnippet]);
+        return { stdout: '{"success":true,"diagnostics":[],"result":1}', stderr: "" };
+      },
+    });
+    assert.equal(protectedCode.outcome, "dispatched");
+    assert.equal(calls, 1, "Ambiguous C# remains one code token, without retry.");
+  }
+
   const evalTimeoutCapabilities = (): UnityCliProjectCapabilities => ({
     ...planningCapabilities(42),
     pipelineSupportsExecArgv: true,
@@ -421,7 +437,7 @@ try {
   assert.equal(handlerTimeoutCalls.length, 1, "Handler timeout forwarding must dispatch exactly once.");
   const handlerTimeoutArgs = handlerTimeoutCalls[0]!;
   const evalIndex = handlerTimeoutArgs.indexOf("script eval");
-  assert.deepEqual(handlerTimeoutArgs.slice(evalIndex), ["script eval", "return \"--not-a-flag\";", "", "0.321"], "The optional file slot is explicitly empty and the server timeout is fractional seconds.");
+  assert.deepEqual(handlerTimeoutArgs.slice(evalIndex), ["script eval", "--", "return \"--not-a-flag\";", "", "0.321"], "The optional file slot is explicitly empty and the server timeout is fractional seconds.");
   assert.equal(handlerTimeoutArgs.filter(arg => arg === "--timeout").length, 0, "Do not send a colliding duplicate --timeout flag.");
   assert(!handlerTimeoutArgs.includes("--timeout"), "No request timeout may override the verified native parameter.");
 
