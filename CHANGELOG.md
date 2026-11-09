@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.16.6 - 2026-11-09
+
 ### Fixed
 
 - Restore connected workflows with Unity CLI beta.17 discovery, complete listings, grouped command names and explicit machine-readable results. Retain existing flat Pipeline commands when the exact project advertises them, without upgrading the project package.
