@@ -7,6 +7,8 @@ description: Diagnose Unity Editor, runtime, package, asset, lifecycle, callback
 
 Use the narrowest observable explanation first. Preserve the exact Unity project copy and establish the Unity and relevant package versions before relying on documentation or implementation details.
 
+For live work, read [native targeting and fleet guidance](../unity-pipeline-workflows/references/native-cli-fleet.md). Use native CLI/Pipeline discovery, purpose-built inspection and bounded console evidence normally; Pi tools are optional adapters, not compulsory gateways. Pass the explicit absolute project selector and give each child the exact target and allowed role. In a same-copy fleet, only the designated operator changes Editor state through completion and evidence capture; diagnostic reads do not authorize eval side effects, lifecycle changes or persistent settings.
+
 ## Feature activation debugging
 
 When a Unity feature does not activate:

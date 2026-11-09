@@ -1,145 +1,54 @@
 ---
 name: unity-batchmode-tests
-description: Run isolated/report-producing Unity Test Framework EditMode/PlayMode tests through Unity CLI or direct Editor batchmode. Use for CI, NUnit XML evidence, closed projects, or when connected Pipeline testing is unavailable; not the default for an already-open reachable Pipeline Editor.
+description: Run isolated/report-producing Unity Test Framework EditMode/PlayMode tests through native Unity CLI or explicit direct Editor fallback. Use for CI, NUnit XML evidence, closed projects or unavailable connected testing; not the default for an already-open reachable Pipeline Editor.
 ---
 
 # Unity Batchmode Tests
 
-Run Unity Test Framework tests from the command line without opening the Editor GUI.
+Use native Unity CLI for isolated tests and custom headless execution. Read [native targeting and fleet guidance](../unity-pipeline-workflows/references/native-cli-fleet.md) first. Pass the exact absolute project path, give every child an explicit target/role/authorization, and keep one same-copy Editor-changing operator through completion and evidence capture. Project context is not automatically inherited or enforced.
 
-## Critical Warnings
+## Choose the route before launch
 
-- **Inspect the exact project copy first** - call `unity_project_status`; if that copy is already open with reachable Pipeline test commands, prefer the connected workflow instead of closing it for batchmode.
-- **Never pass `-quit` with `-runTests`** - Unity exits immediately before tests complete, producing no results file.
-- **Use absolute paths** for `-testResults` and `-logFile` to ensure logs are easy to find. For Unity CLI batchmode, native `logFilePath` must be project-contained and cannot be combined with forwarded `-logFile`; `tailLog: false` disables native tailing. Neither native option works on the direct Editor route.
-- **Unity allows only one process per project folder** - GUI Editor and batchmode/headless both count as that one process.
-- **Do not open the GUI editor for the same project before or during batchmode runs** - `/unity-open` and `unity_open_editor` launch the full Unity Editor GUI and are not equivalent to headless batchmode.
-- **Do not close a reachable Pipeline Editor merely to run tests** - call `unity_run_tests`; it selects connected Pipeline for supported requests and rejects isolated-only options rather than closing the Editor.
-- **Only close a blocking Unity Editor through `unity_launch_batchmode` safeguards after deliberately choosing isolated execution** - this is limited to cases such as required NUnit XML, unsupported connected filters/commands, or explicit isolation. Use `closeBlockingUnityProcess: true` only when `unity_project_status` shows `piUnity.allowCloseRunningUnityProcess` is enabled or the user explicitly says it is enabled; pi-unity re-scans the resolved project and never accepts arbitrary PIDs.
-- **Use `unity_launch_batchmode` when you want to run headless Unity directly** - keep test-specific flags deliberate, especially around `-runTests` and `-quit`.
-- **Bundle tests into one Unity batchmode turn whenever practical** - starting/stopping Unity, importing assets, and domain reloads dominate runtime. A broader single run is usually faster than many sequential one-test Unity launches, and same-project runs cannot use useful parallelism.
-- **Default to headless/no-graphics validation** - `unity_launch_batchmode` adds `-nographics` by default to reduce focus stealing and unnecessary graphics initialization.
-- **Distinguish graphics-agnostic test runs from graphics-required visual runs** - screenshot, render-texture, and other visual-capture tests require an active graphics device and must not use `-nographics`.
-- **Only request graphics when required by the user's work** - set `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent PlayMode tests.
-- **Do not treat a graphics-disabled run as valid evidence for screenshot workflows** - graphics-required tests should fail clearly or be excluded from that run.
+1. Inspect the exact copy with native `unity status --project-path "<absolute-project-root>" --format json` and bounded Pipeline discovery; `unity_project_status` remains an optional combined snapshot.
+2. If the copy is open, reachable and advertises the needed tests, use `unity-pipeline-workflows`. Do not close it merely for convenience or start a second Editor.
+3. Choose isolated native `unity test` when the copy is verified closed and isolation/CI, connected limitations or requested NUnit/JUnit/log evidence justify that route. If state is uncertain, stop. An isolated-only option does not authorize closing the running Editor.
+4. Use native `unity run` for project-owned custom headless methods/arguments, not as an automatic fallback from uncertain connected work. Direct Editor execution is an explicit compatibility/unavailable-CLI fallback, not the unconditional primary route.
 
-## Validation Scope and Stop Rules
+Unity permits only one process per project folder. GUI and batchmode both count. Do not launch the GUI before or during an isolated run, remove locks speculatively, terminate an arbitrary PID or silently substitute another Editor version.
 
-- Explicit user instructions and project guidance to skip PlayMode tests override generic validation defaults. Record PlayMode as intentionally skipped; do not launch it anyway to seek extra evidence.
-- Treat project-required compile validation and relevant EditMode tests as the baseline when they apply. PlayMode is additional evidence only when the user requests it, project/review guidance requires it, or the behavior cannot be validated honestly outside PlayMode.
-- Plan and bundle the applicable evidence before launching Unity. Do not turn validation into an open-ended sequence of one-test processes.
-- After a timeout, hang, missing-results infrastructure failure, or killed Unity process, call `unity_inspect_artifacts` once with the exact current-run `-testResults`/`-logFile` paths and `latestFromLogs: false`, then stop relaunching. Do not use an older "latest" artifact as evidence for the failed run. Retry only when there is a new, stated hypothesis that changes the command/environment, or the user explicitly requests another attempt.
-- A failing product assertion may justify a targeted rerun after an implementation change. An unchanged infrastructure failure does not.
-- Treat a completed test run as passing evidence only when its parsed results report a known positive executed-test count and no failures. Zero, omitted, or otherwise unknown totals are non-passing even when Unity exits zero.
-- Report required evidence as passed, failed, intentionally skipped, or blocked. Never imply an unrun PlayMode check passed.
+## Native test execution
 
-## Workflow
+Inspect installed `unity test --help` and the project's `ProjectSettings/ProjectVersion.txt`. Let Unity CLI resolve that declared Editor rather than adding a different version. Substitute absolute project/result/log paths and the intended filter in this project-authoritative template:
 
-### 1. Prefer the packaged Unity tools
-
-Use the `pi-unity` tools first instead of forming raw Unity CLI commands on the fly:
-- `unity_project_status` to inspect lockfile/process state without launching Unity
-- `unity_inspect_artifacts` to summarize existing Unity logs/test XML without launching Unity
-- `unity_run_tests` for isolated/report-producing Unity Test Framework runs with one platform and bundled filters/categories
-- `unity_launch_batchmode` for custom headless Unity execution that needs raw Editor arguments
-- `unity_open_editor` only when the user explicitly wants the GUI Editor
-- `/unity-open` as the user-facing GUI launcher helper
-
-`unity_run_tests` is the one ordinary Unity Test Framework tool. Isolated runs pin NUnit for normalized evidence, reject missing/malformed reports and nonzero exits, and reconcile JSON-only retry sidecars; request 0–10 retries. Unity CLI may inherit `test.coverage` or `test.timeout` from configuration: inspect reported effective-source provenance when available; `coverage: false` does not turn off an inherited enabled coverage setting, and `timeoutSeconds` is a host deadline. Do not alter CLI configuration as a testing shortcut. It routes supported requests to a reachable exact-copy Pipeline Editor or a closed-project isolated `unity test` run, writes a durable normalized JSON artifact, and retains native NUnit/JUnit reports when requested. It never silently switches after uncertain dispatch.
-
-`unity_launch_batchmode` remains the default for custom agent-run headless Unity work because it already:
-- resolves the Unity project from a direct project root, a coordination root, or another nearby folder
-- reads `ProjectSettings/ProjectVersion.txt`
-- treats installed `unity run` as authoritative when available: it receives the project path without `--editor-version` and reads the declared version itself, falling back only when Unity CLI is unavailable
-- uses OS-aware standard install probing
-- resolves only exact project-version standard installation candidates when direct Editor fallback is required
-- strips direct-Editor flags managed by `unity run` (`-batchmode`, `-projectPath`, `-quit`) before forwarding args in Unity CLI mode
-- supports `launcher: "editor-executable"` when Unity CLI argument forwarding differs from direct Editor executable behavior
-- checks Unity CLI status and running Unity processes before launch
-- can close same-project blocking Unity processes only when `closeBlockingUnityProcess: true` is set and `piUnity.allowCloseRunningUnityProcess` is enabled in Pi settings; by default this is limited to Unity Test Framework runs
-- may remove the exact resolved project's stale `Temp/UnityLockfile` after a guarded same-call process close, but only after verifying no matching Unity process remains
-- delegates stale native `Temp/UnityLockfile` handling to `unity run` when the Unity CLI launcher is selected; direct Editor executable mode still blocks on native lockfiles for safety unless pi-unity just created the stale-lockfile condition through a guarded close
-- uses a Pi-side project mutex so duplicate packaged batchmode calls fail before spawning Unity
-- can summarize Unity Test Framework results compactly when `-testResults` and `-logFile` are provided
-
-After a failed run, prefer `unity_inspect_artifacts` for follow-up inspection of existing result XML/log files instead of ad hoc `bash`/`sed`/Python parsing. This avoids shell quoting mistakes and does not start another Unity process.
-
-If a launch is blocked by a native Unity lockfile, call `unity_project_status` before asking the user to remove anything. Only fall back to direct CLI commands if the packaged Unity tools are unavailable or fail to resolve the environment correctly.
-
-### 2. Get the Project's Unity Version
-
-Before direct Editor fallback, read `ProjectSettings/ProjectVersion.txt` in the Unity project root:
-
-```
-m_EditorVersion: ####.#.#f#
+```text
+unity test "<absolute-project-root>" --mode <EditMode|PlayMode> --filter "<Full.Test.Name>" --output "<absolute-results-path>" -- -logFile "<absolute-log-path>"
 ```
 
-### 3. Resolve the exact-version Unity Editor
+Keep report destinations distinct and current-run-specific. Confirm format, filter/category and report flags from installed help; do not infer native semantics from Pi parameter names. CLI configuration may supply coverage, timeout or Accelerator settings. Inspect effective configuration when it matters; do not rewrite it as a shortcut.
 
-For direct Editor fallback, use only the standard locations constructed from the version declared in `ProjectVersion.txt`:
+Plan the relevant validation batch before launch. Bundle intended filters/categories that share a platform and graphics mode into one run when native semantics support it, without broadening requested scope. Avoid repeated one-test launches or pre-queued runs; inspect the first result before deciding another is needed. A targeted rerun after a product change is different from blindly repeating an unchanged infrastructure failure.
 
-**Windows:**
-```
-C:\Program Files\Unity\Hub\Editor\<version>\Editor\Unity.exe
-C:\Program Files\Unity\<version>\Editor\Unity.exe
-C:\UnityInstalls\<version>\Editor\Unity.exe
-```
+### Graphics and scope
 
-**macOS:**
-```
-/Applications/Unity/Hub/Editor/<version>/Unity.app/Contents/MacOS/Unity
-/Applications/Unity/<version>/Unity.app/Contents/MacOS/Unity
-```
+- Honor project/user instructions to skip PlayMode; report it intentionally skipped rather than running it for extra evidence.
+- Use no-graphics execution for graphics-agnostic checks. Select graphics-enabled execution only when screenshots, rendering or graphics-dependent tests require it; confirm the native flags. The optional batchmode adapter adds `-nographics` by default and uses `useGraphics: true` to opt out.
+- Do not treat no-graphics results as screenshot evidence. Use project categories such as `RequiresGraphics`/`VisualCapture` when available; do not silently exclude requested tests.
+- An active graphics device does not make a batchmode-incompatible wait valid. Check exact-version Game View/`WaitForEndOfFrame` prerequisites in `unity-pipeline-workflows`.
 
-If the exact declared version is not found, do not use an arbitrary Editor path or a nearby version. Ask the user to install the declared version through their normal Unity installation workflow, or use Unity CLI after it can resolve that exact version.
+## Completion and recovery
 
-### 4. Choose the execution route, then run tests
+Require a parsed current-run terminal result with a known positive executed count and zero failures before reporting a pass. Exit zero, empty selection, unknown totals, missing/malformed reports and contradictory evidence are not passes. Preserve native reports and exact paths for follow-up; a historical "latest" file cannot establish current-run identity.
 
-Route before planning a batch:
-1. Call `unity_project_status` for the exact project copy.
-2. If that copy is already open, Pipeline is reachable, and `run_tests` plus `test_status` are advertised, use `unity-pipeline-workflows`; do not close the Editor or invoke `unity_run_tests` merely because the test tool is more convenient.
-3. Choose isolated `unity_run_tests` only when the Editor is closed, connected testing is unavailable, CI/isolation is intentional, required filters are unsupported, or NUnit XML/log artifacts are required. State the reason.
-4. If project state is uncertain, stop rather than closing the Editor or starting batchmode.
+After timeout, hang, missing-results infrastructure failure or killed process, inspect the exact current-run reports/logs once, then stop relaunching. `unity_inspect_artifacts` is an optional reader: supply exact paths and `latestFromLogs: false`. Native evidence may also be read directly with bounded output. Report passed, failed, intentionally skipped or blocked evidence separately; never imply an unrun check passed. Cancellation/timeout does not prove underlying work stopped, so resolve uncertainty before handing the Editor-changing role to another child.
 
-After choosing the isolated route:
-- plan the full validation batch before launching Unity
-- bundle all tests that can share the same project, `-testPlatform`, and graphics mode into one `unity_launch_batchmode` call
-- when several specific tests are relevant, prefer a broader class/namespace/suite/category filter, or no `-testFilter` for the affected platform, over separate Unity launches
-- use a single-test launch only for a quick smoke check or to isolate/rerun a known failure; do not use one-test launches as the default validation strategy
-- do not queue multiple `unity_launch_batchmode` calls back-to-back in one agent turn; wait for the structured summary, inspect failures, and only then decide whether another Unity launch is necessary
-- call `unity_run_tests` for isolated/report-producing tests; use `unity_launch_batchmode` only when custom raw Unity arguments are required
-- pass one `testPlatform` (`EditMode` or `PlayMode`) and bundle applicable `testFilters`/`testCategories`; empty arrays mean all tests on that platform
-- use the generated exact result/log paths from the tool report for any follow-up artifact inspection
-- pass `closeBlockingUnityProcess: true` only after connected testing was ruled out or isolated evidence was explicitly required, a same-project Unity process is blocking the chosen run, and Pi settings enable `piUnity.allowCloseRunningUnityProcess`
-- prefer `launcher: "auto"` or `launcher: "unity-cli"` when using `closeBlockingUnityProcess: true`; force `launcher: "editor-executable"` only when direct Editor execution is explicitly required
-- pass the explicit test arguments needed for the bundled run
-- rely on the tool to remove direct-Editor lifecycle flags (`-batchmode`, `-projectPath`, `-quit`) before forwarding args through `unity run`
-- use `launcher: "editor-executable"` if the installed `unity run` wrapper rejects or changes another argument that works with direct Editor batchmode
-- always provide absolute `-testResults` and `-logFile` paths when practical so the tool can summarize results compactly for the agent
-- keep test-specific flags deliberate, especially around `-runTests` and `-quit`
-- decide up front whether the run is graphics-agnostic or graphics-required
-- rely on the default `useGraphics: false` / `-nographics` mode for ordinary EditMode, non-visual PlayMode, asset import, build, and CI-style checks
-- set `useGraphics: true` only when the requested work requires an active graphics device
-- exclude graphics-required screenshot/visual-capture tests from no-graphics runs
-- prefer project test categories such as `RequiresGraphics` / `VisualCapture` when the project exposes them
+## Optional Pi adapters and direct Editor fallback
 
-Unity CLI project-authoritative template:
-```
-unity test "<ProjectPath>" --mode <EditMode|PlayMode> --filter "<Full.Test.Name>" --output "<ResultsPath>" -- -logFile "<LogPath>"
-```
+- `unity_run_tests` supplies automatic compatible connected/isolated routing and normalized JSON evidence under `Logs/`; it does not silently close an open Editor to obtain isolated-only features. Those routing/selection limits are not restrictions on native commands.
+- `unity_launch_batchmode` supplies custom raw-Editor argument forwarding, exact-version direct fallback, process checks and a participating per-project launch mutex. The mutex is not an operation lock for arbitrary CLI callers.
+- In these adapters, `timeoutSeconds` is a host deadline; native log controls are `logFilePath`/`tailLog`, not direct Editor flags. `coverage: false` does not override inherited enabled CLI coverage. Inspect the adapter result and effective-source provenance when available.
+- Guarded closure is available only after deliberately choosing isolation, explicitly authorizing closure, setting `closeBlockingUnityProcess: true`, and enabling `piUnity.allowCloseRunningUnityProcess` (plus any test-only restriction). The adapter selects and revalidates the exact process; never pass a guessed PID or assume these settings constrain native calls.
+- `unity_open_editor` and `/unity-open` remain optional GUI helpers, only when GUI opening is requested. They are not batchmode execution or proof of readiness.
 
-For direct Editor fallback, use `unity_launch_batchmode` with its project path and test parameters; it resolves only the declared project's exact-version standard candidates.
+For direct Editor fallback, resolve the exact declared version from standard installed locations or native Editor discovery; never guess a nearby version. If unavailable, report the missing prerequisite rather than upgrading. Raw Editor test arguments use absolute `-projectPath`, `-testResults`, `-logFile` and the intended `-testPlatform`/`-testFilter`/`-testCategory`. **Never combine `-runTests` with `-quit`: Unity can exit before tests finish and reports are written.** Do not duplicate lifecycle flags when forwarding through native CLI; follow its installed help.
 
-Fallback parameters:
-- `-testPlatform`: `EditMode` or `PlayMode`
-- `-testFilter`: Full test name (e.g., `MyNamespace.MyTests.TestMethodName`)
-- `-testCategory`: Optional category filter when the project uses NUnit categories for routing runs such as `RequiresGraphics`
-- `-testResults`: Absolute path for XML results (e.g., `<ProjectPath>/Logs/test-results.xml`)
-- `-logFile`: Absolute path for log output (e.g., `<ProjectPath>/Logs/test-run.log`)
-
-## Project-Specific Configuration
-
-Check the project's `AGENTS.md` for:
-- Recommended log output locations
-- Common test namespaces/filters
-- Any project-specific testing notes
+Check project `AGENTS.md` for test scope, filters, graphics requirements and artifact locations. Preserve valid CI/direct-Editor requirements rather than replacing them merely to prefer a Pi tool.

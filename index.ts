@@ -1570,7 +1570,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Inspect an exact Unity project copy's lockfile, running processes, and Unity CLI/Pipeline capabilities without launching Unity.",
     promptSnippet: "Show whether a Unity project copy is busy and whether its connected Pipeline instance advertises commands such as recompile or run_tests.",
     promptGuidelines: [
-      "Use unity_project_status when Unity launch attempts are blocked, when you need to know whether an exact project copy is open, or before choosing a connected Pipeline workflow.",
+      "Native Unity CLI/Pipeline commands are normal routes with explicit absolute project targeting. unity_project_status is an optional combined process/lock/capability snapshot, not a prerequisite to native commands.",
       "Do not delete Unity lockfiles automatically; report the status and safe next action to the user.",
       "Treat Pipeline reachability and command discovery as a point-in-time snapshot; warnings or unknown state are not evidence that a capability is absent.",
     ],
@@ -1600,7 +1600,8 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Run Unity Test Framework tests through one intent-oriented workflow. It reuses a reachable exact-copy Pipeline Editor when compatible, otherwise uses isolated `unity test` execution.",
     promptSnippet: "Run Unity EditMode or PlayMode tests through one safe routed workflow with durable normalized evidence.",
     promptGuidelines: [
-      "Use unity_run_tests for ordinary Unity Test Framework runs. It selects connected Pipeline only for compatible requests and isolated unity test only when the exact project copy is closed.",
+      "Use native Unity CLI/Pipeline tests normally with explicit absolute project targeting. unity_run_tests is an optional adapter for compatible connected/isolated routing and normalized evidence; its selector limits are not native limits.",
+      "For a same-copy fleet, designate one Editor-changing operator through underlying completion and result capture. Async startup or detached-start job completion is not test completion; jobs can disappear across domain reloads. Give each child its exact target, role and authorization; guidance does not enforce native shell calls.",
       CONNECTED_TEST_SELECTOR_GUIDANCE,
       "Do not use unity_launch_batchmode for ordinary tests; raw test flags there are an unsupported escape hatch.",
       "A reachable Editor is never closed merely to obtain isolated-only options. Requests needing retries, sharding, reruns, coverage, multiple selectors, or XML reports are rejected before dispatch when it is open.",
@@ -1622,7 +1623,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Recompile an already-open exact Unity project copy through its reachable advertised Pipeline, with internal bounded polling and compact compiler evidence.",
     promptSnippet: "Recompile an already-open Unity Pipeline project in one bounded connected call without shell polling.",
     promptGuidelines: [
-      "Use unity_pipeline_recompile for connected recompilation of an already-open exact Unity project copy instead of raw Unity CLI status loops.",
+      "Native unity recompile with an explicit absolute --project-path is a normal connected route. unity_pipeline_recompile remains an optional bounded-polling adapter for an already-open exact copy; do not duplicate either route's completion handling unnecessarily.",
       "unity_pipeline_recompile never sends editor_stop. In Play Mode it honors Unity's Script Changes While Playing policy, including policies that may exit Play Mode.",
       "unity_pipeline_recompile never launches, closes, saves, retries, cancels Unity, or overrides Unity's script-change policy; its timeout means the operation may still be running.",
     ],
@@ -1649,7 +1650,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Execute one bounded C# snippet through advertised eval in an already-open exact Unity Pipeline Editor. timeoutSeconds bounds pi-unity and Unity CLI waits; optional handlerTimeoutMilliseconds selects the verified native timeout independently of the host deadline and cannot cancel code already started on Unity's main thread.",
     promptSnippet: "Query or operate on an already-open exact Unity project through Pipeline's Roslyn C# REPL.",
     promptGuidelines: [
-      "Use unity_pipeline_eval for project-specific properties, APIs, and operations that advertised typed commands do not cover. It revalidates exact-copy identity and advertised eval immediately before dispatch.",
+      "Advertised native eval and purpose-built commands are normal project-specific execution routes. unity_pipeline_eval is an optional bounded adapter that revalidates exact-copy identity and advertised eval immediately before dispatch.",
       "Pipeline eval compiles arbitrary C# with Roslyn on the Editor main thread. Include an explicit return value for observable evidence; normal property reads and local-variable snippets are supported.",
       "Eval is not statically read-only. Follow user intent and project guidance, and obtain explicit authorization before lifecycle, persistent-setting, destructive, asset, scene-save, package, build, or test mutations.",
       "timeoutSeconds bounds the host deadline. Without a handler override it also sets the CLI request timeout. A verified handlerTimeoutMilliseconds override instead selects native Pipeline seconds; a shorter host deadline may still win, and timeout cannot cancel code already started on Unity's main thread.",
@@ -1733,8 +1734,8 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Dispatch one advertised package-owned inspection command in an already-open exact Unity Pipeline Editor.",
     promptSnippet: "Inspect an already-open exact Unity project through an advertised package-owned Pipeline command.",
     promptGuidelines: [
-      "Use unity_pipeline_inspect when one of its package-owned commands provides structured connected evidence. It revalidates exact-copy identity and advertised commands immediately before dispatch and never launches or closes Unity.",
-      "Use unity_pipeline_eval instead for regular project-specific C# properties, queries, or operations not covered by the inspection commands.",
+      "Use advertised native purpose-built inspections normally with explicit absolute project targeting. unity_pipeline_inspect is an optional package-owned subset with exact-copy revalidation; it never launches or closes Unity.",
+      "For other project-specific C# work, native advertised eval or the optional unity_pipeline_eval adapter remains available under user intent and authorization.",
       "A rejected or timed-out command is uncertainty, not evidence of absence; do not silently retry it through another route.",
     ],
     parameters: PIPELINE_INSPECTION_PARAMS,
@@ -1783,7 +1784,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     promptSnippet: "Inspect existing Unity normalized test evidence, XML or logs without launching Unity.",
     promptGuidelines: [
       "Use unity_inspect_artifacts after Unity failures when existing -testResults or -logFile artifacts need concise parsing without another Unity launch.",
-      "Prefer unity_inspect_artifacts over ad hoc bash parsing of Unity XML/log files when paths are known or Logs/ contains recent artifacts.",
+      "unity_inspect_artifacts is optional concise parsing of existing evidence; bounded native report/log reading is also valid. Use exact current-run paths rather than treating a recent file as current-run identity.",
       "unity_inspect_artifacts does not launch Unity and is safe to use even when the Unity project is busy.",
       "Inspect details.testOutcome, not inspection status, for test success. Passing evidence needs consistent positive passing counts; missing explicit paths and conflicting artifacts fail inspection. With all paths omitted, latest selection uses one JSON and its contained declared links, otherwise XML alone then log context; explicit paths disable selection/link expansion. Latest files are not current-run identity.",
     ],
@@ -1877,13 +1878,13 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     description: "Run Unity via CLI in batchmode for a resolved Unity project copy.",
     promptSnippet: "Launch Unity via CLI in batchmode for a resolved Unity project when the user explicitly asks for batchmode or when a Unity workflow needs it.",
     promptGuidelines: [
-      "Use this tool for Unity CLI batchmode execution, not for opening the GUI editor.",
+      "Native unity run/test are normal isolated routes with an explicit absolute project path. This tool is an optional batchmode adapter for its documented forwarding and safety controls, not for opening the GUI editor.",
       "Unity allows only one process per project folder; GUI and batchmode both count.",
       "Never run batchmode against a project that is already open in the GUI editor or already running in batchmode unless closeBlockingUnityProcess=true and piUnity.allowCloseRunningUnityProcess is enabled for that exact project.",
       "Only set closeBlockingUnityProcess=true for a same-project Unity Test Framework run when connected testing is unavailable or isolated/report-producing evidence is explicitly required and the user/project has enabled piUnity.allowCloseRunningUnityProcess; pi-unity selects the matching Unity process itself and does not accept arbitrary PIDs.",
       "When closeBlockingUnityProcess=true, prefer launcher='auto' or launcher='unity-cli' unless direct Editor execution is explicitly required; Unity CLI mode is safer around stale native lockfiles.",
       "If pi-unity closes the matching Unity process during the same guarded batchmode call, it may remove that exact project's stale Temp/UnityLockfile after verifying no matching Unity process remains; do not remove Unity lockfiles yourself.",
-      "If a launch is blocked by a Unity lockfile, call unity_project_status before asking the user to remove anything.",
+      "If a launch is blocked by a Unity lockfile, inspect the exact copy with native status or optional unity_project_status before proposing any explicit recovery; do not remove it speculatively.",
       "By default, pi-unity adds -nographics to batchmode launches to avoid unnecessary graphics initialization and focus stealing.",
       "Leave useGraphics=false for ordinary EditMode, non-visual PlayMode, asset import, build, and CI-style validation runs.",
       "Set useGraphics=true only when the requested work requires an active graphics device, such as screenshots, render-texture checks, visual capture, or graphics-dependent PlayMode tests.",

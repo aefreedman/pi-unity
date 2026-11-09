@@ -8,7 +8,7 @@ The skill is primarily a **preference skill**: it should make migrations conform
 
 1. **Triggering** — relevant audit/migration prompts load the skill; unrelated Unity implementation/test tasks and unrelated coding work do not.
 2. **Outcomes** — audits call the deterministic tool without mutation; migrations produce usable guidance while preserving project constraints and project/package files.
-3. **Instruction fidelity** — exact-copy routing, connected and isolated routes, explicit Pipeline installation, current project version, CI/report, PlayMode, and graphics requirements.
+3. **Instruction fidelity** — native-first exact-copy routing with optional Pi adapters, connected and isolated routes, explicit Pipeline installation, current project version, CI/report, PlayMode, and graphics requirements. Deterministic package tests also check shared fleet guidance; this eval's existing cases do not establish same-project concurrency or automatic child context propagation.
 4. **Efficiency** — bounded tool calls, duration, input/output tokens, reported provider cost, changed paths, and no unnecessary Unity launch.
 
 Checks grade observable output and filesystem state rather than requiring one exact sequence of agent actions.

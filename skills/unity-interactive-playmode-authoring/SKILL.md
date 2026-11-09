@@ -9,10 +9,12 @@ Use this skill only when the user explicitly requests inspection or temporary mu
 
 Do not activate this skill for ordinary source edits, serialized-asset authoring, planning inspection, compilation, tests, screenshots alone, or opening Unity. Use the owning Unity workflow for those operations.
 
+Read [native targeting and fleet guidance](../unity-pipeline-workflows/references/native-cli-fleet.md). Use native commands normally; Pi adapters remain optional. A shared-copy fleet designates one Editor-changing operator through actual completion and result capture, with explicit absolute target, role and authorization in every child brief. Other agents must not change lifecycle or trigger reloads during the experiment.
+
 ## Preconditions
 
-1. Resolve the exact Unity project path; never route by display name or a similarly named workspace.
-2. Call `unity_project_status` and require a verified matching Editor process, a reachable exact-copy Pipeline instance, and the advertised commands needed for the intended operation.
+1. Resolve the exact absolute Unity project path; pass its explicit selector on each native call, never route by display name or inherited context alone.
+2. Inspect native status and the exact copy's advertised catalog; require a matching Editor process, reachable Pipeline and the commands needed for the intended operation. `unity_project_status` is an optional combined snapshot.
 3. Inspect the advertised `editor status` (or its existing flat name) and require Play Mode to be active for a live-runtime experiment. If Play Mode is not active, do not enter it unless the user explicitly requested that lifecycle change.
 4. Revalidate exact project path and Editor/Pipeline process identity before each mutation. Stop on unknown, stale, unreachable, or changed identity.
 5. Establish the target object, requested temporary effect, and expected observation before mutation. Do not explore by changing unrelated live objects.
@@ -32,8 +34,8 @@ GameObject transform and component commands do not operate on every runtime obje
 
 ## Command Discovery
 
-- Prefer the command inventory returned by `unity_project_status`; do not fan out across CLI help, shell, and trial dispatch when availability is already known.
-- If raw discovery is exceptionally needed, use `unity command --project-path <path> --detail full --format json`. Read full command identities and signatures from the returned catalog; do not use the removed `unity list` command or guess a leaf name's group.
+- Use bounded native discovery such as `unity command --project-path "<absolute-project-root>" --tag <relevant-tag> --detail full --limit 20 --format json`; inspect the needed full identities/signatures rather than guessing a leaf name's group or trialing mutations.
+- An already verified catalog, including the optional `unity_project_status` snapshot, can avoid duplicate discovery. Do not use the removed `unity list` command.
 - Inspect one exact command schema before dispatch rather than repeatedly trialing argument forms against the live Editor.
 - For named commands, request `--result-only` to avoid formatted streaming output. Require successful CLI completion and valid command-specific payload evidence, including any nested `success`, diagnostics, status, and result fields; valid JSON alone is not success.
 
@@ -50,7 +52,7 @@ Pipeline `eval` compiles C# with Roslyn and runs it on the connected Editor's ma
 - Fully qualify APIs when extension-method or namespace ambiguity is likely.
 - Treat any compiler diagnostic, nested failure, null target, malformed result, or identity change as failure. Do not retry mutations speculatively.
 
-Use `unity_pipeline_eval` for exact-copy connected C# queries and operations. Use `unity_pipeline_inspect` when one of its package-owned purpose-built inspection commands provides better evidence.
+Use the advertised native eval or purpose-built inspection command with explicit project targeting. `unity_pipeline_eval` and `unity_pipeline_inspect` remain optional bounded adapters when their evidence handling fits; they are not exclusive gateways and their limits are not native requirements.
 
 ## Live Tuning Loop
 

@@ -441,7 +441,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
   const recipe = [...skill.matchAll(/```json\r?\n([^`]+)\r?\n```/g)].map(match => JSON.parse(match[1]!));
   assert.equal(recipe.length, 2);
   assert.deepEqual(recipe.map(params => params.testFilters), [["Synthetic.InventoryFixture"], ["Synthetic.DialogueFixture"]], "The recipe must not duplicate or broaden fixtures.");
-  assert(recipe.every(params => params.path === "./SyntheticGame" && params.testPlatform === "EditMode" && params.execution === "connected" && !params.testCategories));
+  assert(recipe.every(params => params.path === "/absolute/path/SyntheticGame" && params.testPlatform === "EditMode" && params.execution === "connected" && !params.testCategories));
   const root = await mkdtemp(join(tmpdir(), "pi-unity-selector-recipe-"));
   try {
     const project = join(root, "SyntheticGame");
@@ -476,7 +476,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       assert.match(tool.promptGuidelines.join(" "), /Stop the remaining sequence/);
       const results: any[] = [];
       for (const params of recipe) {
-        const result = await nativeToolResult(pi, tool, params, ctx);
+        const result = await nativeToolResult(pi, tool, { ...params, path: project }, ctx);
         results.push(result);
         if (result.isError || result.details?.testResult?.outcome !== "passed") break;
         assert.equal(result.details.route, "connected");
@@ -509,7 +509,7 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
           }
         }
         const before = commands.length;
-        const semicolon = await nativeToolResult(pi, tool, { ...recipe[0], testFilters: ["Synthetic.A;Synthetic.B"] }, ctx);
+        const semicolon = await nativeToolResult(pi, tool, { ...recipe[0], path: project, testFilters: ["Synthetic.A;Synthetic.B"] }, ctx);
         assert.equal(semicolon.isError, true);
         assert.match(semicolon.content[0].text, /semicolons/);
         assert.equal(commands.length, before);

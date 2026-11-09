@@ -112,7 +112,34 @@ assert(debuggingSkillText.includes("exact-version documentation") && debuggingSk
 assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.includes("known positive executed-test count"));
 assert(pipelineSkillText.includes("WaitForEndOfFrame") && pipelineSkillText.includes("Play Unfocused") && pipelineSkillText.includes("different prerequisites"), "Distinguish rendering from focus-policy prerequisites.");
 assert(pipelineSkillText.includes("obtain user authorization") && !pipelineSkillText.includes("Set it to Play Unfocused for the test run"), "Do not authorize automatic Editor setting changes for tests.");
-assert(pipelineSkillText.includes("shorter host wait can still win") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("converts it to seconds") && pipelineSkillText.includes("omits the CLI request-timeout override") && pipelineSkillText.includes("never retry an uncertain prior mutation"), "Distinguish host and verified native handler deadlines without encouraging replay.");
+assert(pipelineSkillText.includes("shorter host wait can still win") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("converts it to seconds") && pipelineSkillText.includes("omits the CLI request-timeout override") && /never retry an uncertain prior mutation/i.test(pipelineSkillText), "Distinguish host and verified native handler deadlines without encouraging replay.");
+
+const fleetReference = new URL("../skills/unity-pipeline-workflows/references/native-cli-fleet.md", import.meta.url);
+const fleetText = readFileSync(fleetReference, "utf8");
+const interactiveSkillText = readFileSync(new URL("../skills/unity-interactive-playmode-authoring/SKILL.md", import.meta.url), "utf8");
+const migrationText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/references/migration-policy.md", import.meta.url), "utf8");
+const templateText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/assets/mixed-workflow-template.md", import.meta.url), "utf8");
+for (const [name, text] of Object.entries({ readmeText, pipelineSkillText, skillText, debuggingSkillText, interactiveSkillText, migrationText })) {
+  assert(text.includes("native-cli-fleet.md"), `${name} must address the shared native/fleet contract.`);
+}
+for (const [name, text] of Object.entries({ readmeText, pipelineSkillText, skillText, interactiveSkillText, migrationText, templateText, indexText })) {
+  assert(!/Normally call the typed tools|Prefer the packaged Unity tools|Refer to packaged tools first|Only fall back to direct CLI|raw discovery is exceptionally|Use unity_run_tests for ordinary Unity Test Framework runs/i.test(text), `${name} must not require wrappers or reserve native use for troubleshooting.`);
+}
+assert.match(fleetText, /explicit project selector on every project-targeted native call/i);
+assert.match(fleetText, /absolute path, allowed work, mutation authorization and the designated Editor operator in every child brief/i);
+assert.match(fleetText, /until the underlying operation really completes and its results are captured/i);
+assert.match(fleetText, /does not automatically propagate.*target to children or enforce their shell commands/i);
+assert.match(fleetText, /detached async-start job completing does not mean the tests completed or passed/i);
+assert.match(fleetText, /do not survive domain reloads/i);
+assert.match(fleetText, /Reads need not be immediate or parallel/i);
+assert.match(fleetText, /auto-refresh\/import\/reload/i);
+assert.match(fleetText, /one writer per shared checkout/i);
+assert.match(fleetText, /Cloud inventory is an intended authenticated remote read/i);
+assert.match(indexText, /guidance does not enforce native shell calls/i);
+assert.match(migrationText, /Pi-native.*native CLI\/Pipeline commands are normal/is);
+assert.match(templateText, /Optional Pi adapters/i);
+assert.match(interactiveSkillText, /Persisting an Accepted Runtime Result/);
+
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
 assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
 

@@ -1,76 +1,59 @@
 ---
 name: unity-pipeline-workflows
-description: Recompile code or run focused Unity tests through a reachable com.unity.pipeline Editor without launching, closing, or manually polling another Unity process.
+description: Recompile code or run focused Unity tests through a reachable exact-copy com.unity.pipeline Editor using native CLI commands, with optional Pi adapters for bounded polling and durable evidence.
 ---
 
 # Unity Pipeline Workflows
 
-Use this workflow only for an already-running exact project copy with `com.unity.pipeline` installed and reachable.
+Use this workflow for an already-running exact project copy with reachable `com.unity.pipeline`. Start with [native CLI targeting and fleet guidance](references/native-cli-fleet.md): explicit absolute project paths, exact advertised schemas, one same-copy Editor-changing operator through completion and result capture. Native commands are the normal route, not a troubleshooting-only fallback.
 
-## Preferred typed tools
+## Native connected workflow
 
-Use one typed tool call for each supported connected operation:
+1. Inspect the exact Editor with native `unity status --project-path "<absolute-project-root>" --format json` and bounded command discovery. Require live reachability and advertised operation signatures; package presence alone is insufficient.
+2. Use native `unity recompile --project-path "<absolute-project-root>"` for compilation when it fits. Follow its completion/diagnostics rather than recreating a polling loop. Raw advertised `script recompile` plus `script recompile_status` is also available when needed; tolerate expected reload disconnects under a fixed deadline, without replaying the mutation.
+3. For tests, inspect that copy's `test run` and `test status` schemas. Preserve the intended platform and selectors. Current grouped tests use `--mode editor|playmode`, `--filter`, `--filter-type` and `--async-tests true`; existing flat names may advertise underscore spellings. Async startup is nonterminal; observe status through verified completion and capture results before any other run starts. Connected PlayMode testing needs the advertised async route because entering Play Mode can reload the domain.
+4. Passing evidence requires successful terminal execution, a known positive executed-test count, and zero failures. `Total: 0` with `result: running` is valid startup, not a pass. Nested `success:false`, displaced results, malformed evidence and timeout are non-passing uncertainty.
+5. Inspect Play Mode and Unity's Script Changes While Playing policy before changing state. A defer policy can wait until Play Mode ends. Obtain authorization for lifecycle changes; do not preemptively stop Play Mode or close the Editor merely to compile/test.
 
-- `unity_pipeline_recompile` for connected script compilation.
-- `unity_run_tests` for one compatible `EditMode` or `PlayMode` test-name or category selection.
+Do not broaden, combine or split selectors into different semantics just to fit an adapter. Multiple independent fixtures can run serially in the same Editor when explicitly intended, capturing each result before the next; stop on failure or uncertainty. Required NUnit XML, coverage, retries or other isolated-only features need a deliberate isolation decision, not argument stripping or closing an open Editor automatically.
 
-These tools resolve the exact copy, require advertised commands, inspect lifecycle state, dispatch once, validate identity, and poll internally with a fixed deadline. Do not recreate their wait loops with `bash`, `unity command script recompile_status`, or `unity command test status` calls.
+## Render-dependent prerequisites
 
-A timeout, malformed response, or busy response is uncertain: the Unity operation may still be running or blocked by a modal dialog. Do not cancel, retry, launch batchmode, close the Editor, or claim a result without a new user-authorized decision. Pipeline 0.6 uses busy for modal blocks and no source-verified discriminator is available through this transport, so pi-unity does not blindly retry it.
+An active rendering Game View and **Play Unfocused** are different prerequisites. Unity's [`WaitForEndOfFrame` documentation](https://docs.unity3d.com/6000.6/Documentation/ScriptReference/WaitForEndOfFrame.html) explains that switching from Game View to Scene View can freeze that wait until Game View is selected again, and that it does not run in Editor batchmode. Verify the exact Unity version and actual wait used by the project; do not assume every UniTask or Awaitable overload has identical requirements. A hidden Game View can explain an end-of-frame stall even when Play Unfocused is configured.
 
-## Preconditions and boundaries
+Check rendering/focus prerequisites before increasing timeouts or changing product code. Report unmet prerequisites and obtain user authorization before changing Editor layout, focus policy, persistent settings or lifecycle. Record prior state and restore any authorized temporary change afterward. Ordinary logic tests do not require graphics merely because they run in PlayMode; graphics-enabled batchmode does not make a batchmode-incompatible wait compatible.
 
-1. Pass an explicit `path` when multiple project copies may be found; paths identify copies, not display names.
-2. The typed tools require a reachable exact-copy Pipeline and advertised `editor status` plus operation commands (or their existing flat Pipeline names). A different connected client is not itself a project lock.
-3. `unity_pipeline_recompile` never sends `editor.playmode stop` or overrides Unity's Script Changes While Playing preference. Known recompile-and-continue, stop-and-recompile, and defer policies proceed according to Unity's configured behavior. If the Pipeline does not expose that preference, the tool reports the unavailable policy and respects the session's Play Mode exit authorization. `unity_run_tests` may dispatch advertised `editor.playmode stop` (or its flat name) when needed, then verifies Edit Mode before running tests. The tools never enter Play Mode, pause, save, launch, or close Unity; recompilation may perform Unity's normal asset refresh/import and script-change behavior.
-4. Test success requires a well-formed terminal result, a known positive executed count, and zero failures. An asynchronous initiation with `Total: 0` and `running` is nonterminal.
-5. Routine tool output remains compact. Complete bounded terminal test records are persisted immediately in the durable normalized JSON artifact before Pipeline status can be displaced.
+## Optional Pi adapters
 
-## Compile
+Use these when their documented orchestration fits the task, not as compulsory gateways to native commands:
 
-Call `unity_pipeline_recompile` with optional `path` and `timeoutSeconds` (default 180, maximum 3600). It reports either up-to-date scripts or a compact completion summary, including whether an explicit agent exit, Unity-policy-driven behavior, or unavailable policy applied. A defer policy can mean recompilation waits until Play Mode ends. Compiler failures, identity changes, cancellation, malformed evidence, and deadline expiry are tool errors.
+- `unity_project_status`: combined exact-copy process/lock/capability snapshot.
+- `unity_pipeline_recompile`: exact-copy preflight and bounded internal polling (default 180 seconds, maximum 3600). It follows Unity's script-change policy rather than preemptively sending an Editor stop.
+- `unity_run_tests`: compatible connected or deliberate isolated execution with durable normalized evidence (default 600 seconds, maximum 3600). Connected selection accepts one test-name filter or category, not both. It checks for pre-existing tests and detects displaced status when correlation permits; this is not atomic fleet exclusion. It may exit Play Mode when needed under its session policy, then verify Edit Mode.
+- `unity_pipeline_inspect`, `unity_pipeline_eval`, `unity_pipeline_run_script`: bounded adapters over advertised inspections, C# eval and an explicitly requested existing script. Native purpose-built commands and bounded eval remain available directly.
 
-## Focused tests
+The adapters retain their own limits and failure semantics. `/unity-playmode-exit` controls package behavior only; it does not govern native commands. Their normalized JSON persistence is an adapter feature, not a native execution prerequisite.
 
-Call `unity_run_tests` with:
+### Optional adapter recipe: two independent fixtures
 
-- required `testPlatform`: `EditMode` or `PlayMode`;
-- optional `testFilters` or `testCategories`: at most one selector family and one selector for connected execution;
-- optional `execution`, `path`, and `timeoutSeconds` (default 600, maximum 3600).
-- for render-dependent PlayMode tests, verify the exact-version Game View prerequisites below; do not change focus/settings automatically.
-
-### Render-dependent prerequisites
-
-An active rendering Game View and **Play Unfocused** are different prerequisites. Unity's [`WaitForEndOfFrame` documentation](https://docs.unity3d.com/6000.6/Documentation/ScriptReference/WaitForEndOfFrame.html) explains that switching from Game View to Scene View can freeze that wait until Game View is selected again, and that it does not run in Editor batchmode. Verify the exact Unity version and the actual wait used by the project; do not assume every UniTask or Awaitable overload has identical requirements. A hidden Game View can explain an end-of-frame stall even when Play Unfocused is configured.
-
-Check the documented rendering/focus prerequisites before increasing timeouts or changing product code. Report an unmet prerequisite and obtain user authorization before changing Editor layout, focus policy, persistent settings, or lifecycle. If a temporary change is authorized, record the prior state and restore it afterward. Ordinary logic tests do not require graphics or a focus change merely because they run in PlayMode; `useGraphics: true` also does not make a batchmode-incompatible wait compatible.
-
-The tool treats `no_tests`, idle, and not-started statuses as safe inactivity, detects a pre-existing active connected test before dispatch, and stops rather than claiming or replacing active work. It captures returned mode/filter/run identity fields when available and stops as uncertain if status is clearly displaced by another run.
-
-### Two independent fixtures in an open Editor
-
-Keep the Editor open. For an authorized request for two known non-overlapping fixtures, use the same explicit exact-copy `path` and platform, one selector per call. For example, replace `./SyntheticGame` with the selected project path and issue this `unity_run_tests` call:
+Replace `/absolute/path/SyntheticGame` below with the selected absolute project root. Use one designated operator and two known non-overlapping fixtures, awaiting and inspecting each complete result and exact artifact path before issuing the next call:
 
 ```json
-{"path":"./SyntheticGame","testPlatform":"EditMode","execution":"connected","testFilters":["Synthetic.InventoryFixture"]}
+{"path":"/absolute/path/SyntheticGame","testPlatform":"EditMode","execution":"connected","testFilters":["Synthetic.InventoryFixture"]}
 ```
 
-Await the completed tool result and inspect its outcome and exact normalized artifact path. Only after a passing result, issue the second call (not in parallel or pre-queued in the same turn):
+Only after a passing first result:
 
 ```json
-{"path":"./SyntheticGame","testPlatform":"EditMode","execution":"connected","testFilters":["Synthetic.DialogueFixture"]}
+{"path":"/absolute/path/SyntheticGame","testPlatform":"EditMode","execution":"connected","testFilters":["Synthetic.DialogueFixture"]}
 ```
 
-Stop the remaining sequence on failure, timeout, cancellation, malformed evidence, displaced identity, or any uncertainty; report the first result and the remaining fixture as not run. Do not retry, close the Editor, switch to isolated execution, or broaden to a parent suite/category or empty selectors. Empty/omitted selectors select all tests. Keep each result's artifact separately; do not treat one fixture's evidence as covering the other.
+Stop the remaining sequence on failure, timeout, cancellation, malformed evidence, displaced identity or any uncertainty. Report the other fixture as not run; do not retry, broaden to a parent suite/category, omit selectors or switch routes. For one category use `testCategories` instead. Never join selectors with semicolons or split an unclear intersection/overlap into separate calls. This adapter recipe does not limit richer native selector capabilities.
 
-For a single category use `testCategories: ["SyntheticCategory"]` and omit `testFilters`. Never combine the two families or join selectors with semicolons. Multiple-selector rejection means no test was dispatched: use the serial recipe only for independent, non-overlapping selections without other isolated-only requirements. If overlap or intended filter/category intersection semantics are unclear, stop for clarification rather than split, duplicate, or broaden tests. Required XML, retries, coverage, or other isolated-only options still need a deliberate isolation decision, not argument stripping.
+### Eval and existing-file execution
 
-## Bounded raw CLI troubleshooting only
+Native eval compiles arbitrary C# with Roslyn on the Editor main thread; properties and local-variable snippets are valid, but not reliably statically read-only. Use bounded target-specific code and explicit mutation intent. Research unfamiliar APIs and prefer a purpose-built command when it supplies clearer evidence, not merely to avoid eval.
 
-Normally call the typed tools, not raw CLI commands. If a typed tool is unavailable in an older installed package and a user specifically authorizes troubleshooting, first use `unity_project_status` and require advertised `script recompile_status` or `test run` and `test status`. Discover full schemas with `unity command --project-path <path> --detail full --format json`; use the exact names and flags that copy advertises. Current grouped tests use `--async-tests true` and `--filter-type`; existing flat commands may advertise underscore spellings. Request `--result-only` for a named operation, use one fixed deadline and bounded backoff, and validate the operation payload as well as the CLI exit status. `Total: 0` with `result: running` is a valid nonterminal initiating response. Passing evidence reports successful completion, a known positive executed-test count, and zero failures; nested `success:false`, changed exact-copy identity, or polling timeout is non-passing uncertainty. Do not silently fall back to batchmode after uncertain connected dispatch. Connected work does not guarantee NUnit XML.
+The optional `unity_pipeline_eval` adapter's `timeoutSeconds` bounds its host wait plus, by default, CLI wait. `handlerTimeoutMilliseconds` is forwarded only for verified advertised signatures. Grouped eval converts it to seconds with an empty positional file argument and omits the CLI request-timeout override; flat eval retains its millisecond signature. A shorter host wait can still win. These are adapter controls, not native flag names. Never retry an uncertain prior mutation just to extend a timeout; expiry cannot cancel arbitrary code already running on the main thread.
 
-## When not to use connected tools
-
-Use `unity_run_tests` with `execution: "isolated"` for a closed project, intentional isolation/CI, multiple selectors in one run, retries, sharding, coverage, or required NUnit/JUnit evidence. Multiple independent fixtures alone do not require closing a reachable Editor: use the serial recipe above. A single category is supported connected when Pipeline advertises the command; do not claim broader connected selector support. Do not use batchmode as an automatic fallback after an uncertain connected dispatch.
-
-Use the typed compile/test tools when their polling and terminal evidence fit the task. For an explicitly requested existing C# builder file, `unity_pipeline_run_script` uses advertised ephemeral in-memory compilation with bounded JSON arguments or compile-only dry run; it never enables hotpatch and remains arbitrary code execution requiring explicit mutation authorization. Advertised Pipeline `eval` remains available through `unity_pipeline_eval` for bounded project-specific inspection or operations outside those typed workflows. Its `timeoutSeconds` range is 1–86,400 seconds and bounds the host wait plus, by default, the CLI wait. Optional `handlerTimeoutMilliseconds` (1–86,400,000) is forwarded only when the exact reachable Pipeline advertises raw argv and a verified eval signature. Grouped eval converts it to seconds with an empty positional file argument and omits the CLI request-timeout override; existing flat eval retains its verified millisecond signature. A shorter host wait can still win. Do not assume a larger host deadline alone changes every Pipeline's handler wait. For a newly authorized bounded operation, use the separately verified handler control when needed; never retry an uncertain prior mutation just to supply a longer timeout. A dispatcher expiry cannot cancel code already started on Unity's main thread, so the effect remains uncertain and no retry or fallback is allowed. It is an assistance surface, not a forbidden fallback or a substitute for the typed tools' completion protocol. Eval compiles arbitrary C# with Roslyn on the Editor main thread, so ordinary properties and local-variable snippets are valid; it is not expression-only or reliably statically read-only. Prefer typed tools for their stronger evidence, but let user intent and project guidance govern mutations. Lifecycle, persistent-setting, destructive, asset, scene-save, package, build, and test mutations require explicit authorization.
+`unity_pipeline_run_script` uses only ephemeral in-memory mode for one existing project `.cs` file; `dryRun` compiles without loading/executing and it does not expose hotpatch. Native script modes and parameters must be discovered and authorized independently. Lifecycle, persistent-setting, destructive, asset, scene-save, package, build and test mutations require intent regardless of route.

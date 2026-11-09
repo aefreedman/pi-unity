@@ -7,6 +7,12 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Changed
+
+- Make native Unity CLI/Pipeline use the normal documented route; retain existing tools as optional adapters with their own scoped guarantees.
+- Add explicit project/role guidance for same-copy fleets: one Editor-changing operator through real completion and result capture, with async test, detached-job, reload and timeout caveats.
+- Align guidance-audit migration profiles/templates with native-first workflows without changing execution, registrations or locking behavior.
+
 ## 0.16.6 - 2026-11-09
 
 ### Fixed

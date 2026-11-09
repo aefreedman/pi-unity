@@ -26,3 +26,7 @@ The audit tool reports evidence, not automatic rewrite instructions.
 - Graphics-enabled PlayMode or screenshot workflows.
 - Project guidance that intentionally skips PlayMode tests.
 - Absolute project-local artifact paths and bounded failure inspection.
+- Native CLI/Pipeline commands as the normal route, with exact absolute targeting and discovered signatures; Pi adapters are optional rather than mandatory prerequisites.
+- Explicit child targets/roles and one designated same-copy Editor-changing operator through completion and result capture. This is cooperative guidance, not a lock or permission grant.
+
+The scanner does not prove a fleet is coordinated or enforce these policies. Review async startup, terminal evidence and handoff wording in context; a zero-finding scan is not proof of runtime safety.

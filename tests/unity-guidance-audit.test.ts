@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditUnityGuidance, auditUnityGuidanceText } from "../src/unity-guidance-audit";
@@ -52,6 +52,11 @@ for (const ruleId of [
 ]) {
   assert(!guardedLifecycleAndDiscovery.some((finding) => finding.ruleId === ruleId), `Expected guarded guidance not to trigger: ${ruleId}`);
 }
+
+const nativeTemplate = await readFile(new URL("../skills/auditing-unity-agent-guidance/assets/mixed-workflow-template.md", import.meta.url), "utf8");
+assert.equal(auditUnityGuidanceText("AGENTS.md", nativeTemplate).filter(finding => finding.level === "error").length, 0, "The native-first starter must preserve exact targeting and safety prohibitions.");
+const nativeGuidance = "Use native CLI/Pipeline commands normally. Run unity command --project-path /workspace/Game --tag tests --limit 20 --format json for bounded advertised schemas. Pi adapters are optional. Give each child an exact absolute target and allowed role; one designated operator captures completion before handoff.";
+assert.equal(auditUnityGuidanceText("AGENTS.md", nativeGuidance).length, 0, "Native commands do not require a Pi wrapper prerequisite.");
 
 const sanitized = auditUnityGuidanceText("AGENTS.md", "Unity Version: 6000.3.0f1\u001b[31m\u202e");
 assert(sanitized[0].evidence.includes("�") && !sanitized[0].evidence.includes("\u001b"));
