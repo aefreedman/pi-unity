@@ -17,13 +17,16 @@ export function boundedCliData(value: unknown, depth = 0, budget = { nodes: 0 })
   return Object.fromEntries(Object.entries(obj).slice(0, 50).map(([key, item]) => [safeText(key, 80), /secret|token|password|credential|api[_-]?key|authorization|private[_-]?key/i.test(key) ? "[redacted]" : boundedCliData(item, depth + 1, budget)]));
 }
 export function checkCliResult(result: UnityCliExecResult, expected: string, alternate?: string): Record<string, unknown> {
+  return validateCliResult(result, expected, alternate);
+}
+function validateCliResult(result: UnityCliExecResult, expected: string, alternate?: string, acceptWarning?: (warning: unknown, data: unknown) => boolean): Record<string, unknown> {
   if (result.error) throw new Error(`Unity ${expected} failed${result.error.code === "ETIMEDOUT" || result.error.killed ? " (timeout)" : ""}; result is uncertain.`);
   if (result.stdout.length > 2_000_000) throw new Error(`Unity ${expected} response exceeded size limit; result is uncertain.`);
   let parsed: unknown;
   try { parsed = JSON.parse(result.stdout); } catch { throw new Error(`Unity ${expected} returned malformed JSON; result is uncertain.`); }
   const envelope = record(parsed);
   if (!envelope || (envelope.command !== expected && envelope.command !== alternate) || typeof envelope.success !== "boolean" || !Array.isArray(envelope.errors) || !Array.isArray(envelope.warnings)) throw new Error(`Unity ${expected} returned an invalid envelope; result is uncertain.`);
-  if (!envelope.success || envelope.errors.length || envelope.warnings.length) {
+  if (!envelope.success || envelope.errors.length || envelope.warnings.some(warning => !acceptWarning?.(warning, envelope.data))) {
     const diagnostics = [...envelope.errors, ...envelope.warnings].slice(0, 3).map(item => {
       const entry = record(item);
       return safeText(String(entry?.code ?? ""), 50) + ": " + safeText(String(entry?.message ?? ""), 180);
@@ -101,13 +104,24 @@ export async function unityDocsUrl(params: { topic: string; path?: string; kind?
     versionSource = "explicit";
   }
   const args = [...flags, "docs", "--url", ...(params.kind === "manual" ? ["--manual"] : params.kind === "search" ? ["--search"] : []), ...(version ? ["--editor-version", version] : []), topic];
-  const envelope = checkCliResult(await execute(resolveUnityCliCommand(), args, { timeout: 10000, signal }), "docs");
+  const envelope = validateCliResult(await execute(resolveUnityCliCommand(), args, { timeout: 10000, signal }), "docs", undefined, (warning, raw) => {
+    const data = record(raw);
+    // beta.17 emits this string only when the requested docs release is unavailable.
+    return typeof data?.requestedVersion === "string" && /^\d{4}\.\d+$/.test(data.requestedVersion)
+      && typeof data.version === "string" && /^\d{4}\.\d+$/.test(data.version) && data.version !== data.requestedVersion
+      && warning === `Unity ${data.requestedVersion} isn't on docs.unity.com, so this uses the Unity ${data.version} documentation.`;
+  });
   const data = record(envelope.data);
-  if (typeof data?.url !== "string" || data.opened !== false || (version && data.version !== version)) throw new Error("Unity docs returned invalid URL evidence; result is uncertain.");
+  const requestedVersion = version?.match(/^\d{4}\.\d+/)?.[0];
+  const docsVersion = (value: unknown) => value === null || typeof value === "string" && /^\d{4}\.\d+$/.test(value);
+  if (typeof data?.url !== "string" || data.opened !== false || !docsVersion(data.version) || !docsVersion(data.requestedVersion) || (requestedVersion && data.requestedVersion !== requestedVersion) || !["index", "search"].includes(String(data.resolvedBy)) || (data.resolvedBy === "search" ? data.version !== null : data.version === null)) throw new Error("Unity docs returned invalid URL evidence; result is uncertain.");
+  const fallback = data.version !== null && data.requestedVersion !== null && data.version !== data.requestedVersion;
+  if (fallback !== ((envelope.warnings as unknown[]).length > 0)) throw new Error("Unity docs returned inconsistent fallback evidence; result is uncertain.");
   let url: URL;
   try { url = new URL(data.url); } catch { throw new Error("Unity docs returned invalid URL evidence; result is uncertain."); }
-  if (url.protocol !== "https:" || url.hostname !== "docs.unity3d.com" || url.port || url.username || url.password || url.href.length > 2048) throw new Error("Unity docs returned unsafe URL evidence; result is uncertain.");
-  return { url: url.href, topic, kind: params.kind ?? "api", editorVersion: version, versionSource };
+  if (url.protocol !== "https:" || url.hostname !== "docs.unity.com" || url.port || url.username || url.password || url.href.length > 2048) throw new Error("Unity docs returned unsafe URL evidence; result is uncertain.");
+  if (data.resolvedBy === "search" ? url.pathname !== "/en-us/search" : !url.pathname.startsWith(`/en-us/engine/${data.version}/`)) throw new Error("Unity docs returned inconsistent URL version evidence; result is uncertain.");
+  return { url: url.href, topic, kind: params.kind ?? "api", editorVersion: version, versionSource, requestedVersion: data.requestedVersion, resolvedVersion: data.version, fallback, versionMatch: data.version !== null && data.version === data.requestedVersion, warnings: boundedCliData(envelope.warnings) };
 }
 export function registerUnityInformationTools(pi: Pick<ExtensionAPI, "registerTool">, execute: UnityCliExecutor) {
   pi.registerTool({ name: "unity_cli_info", label: "Unity CLI information", description: "Bounded read-only global command manifest and installed changelog; never connected Editor commands.", parameters: unityCliInfoParameters, execute: async (_id, params, signal) => resultText(await unityCliInfo(params, execute, signal)) });
