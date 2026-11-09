@@ -13,7 +13,7 @@ Do not activate this skill for ordinary source edits, serialized-asset authoring
 
 1. Resolve the exact Unity project path; never route by display name or a similarly named workspace.
 2. Call `unity_project_status` and require a verified matching Editor process, a reachable exact-copy Pipeline instance, and the advertised commands needed for the intended operation.
-3. Inspect the advertised `editor_status` and require Play Mode to be active for a live-runtime experiment. If Play Mode is not active, do not enter it unless the user explicitly requested that lifecycle change.
+3. Inspect the advertised `editor status` (or its existing flat name) and require Play Mode to be active for a live-runtime experiment. If Play Mode is not active, do not enter it unless the user explicitly requested that lifecycle change.
 4. Revalidate exact project path and Editor/Pipeline process identity before each mutation. Stop on unknown, stale, unreachable, or changed identity.
 5. Establish the target object, requested temporary effect, and expected observation before mutation. Do not explore by changing unrelated live objects.
 
@@ -33,9 +33,9 @@ GameObject transform and component commands do not operate on every runtime obje
 ## Command Discovery
 
 - Prefer the command inventory returned by `unity_project_status`; do not fan out across CLI help, shell, and trial dispatch when availability is already known.
-- If raw `unity list` is exceptionally needed, parse the outer JSON envelope and read command records from `data.tools`, not a guessed top-level `commands` field.
+- If raw discovery is exceptionally needed, use `unity command --project-path <path> --detail full --format json`. Read full command identities and signatures from the returned catalog; do not use the removed `unity list` command or guess a leaf name's group.
 - Inspect one exact command schema before dispatch rather than repeatedly trialing argument forms against the live Editor.
-- Treat outer CLI success as transport evidence only. Parse nested `success`, diagnostics, status, and result fields before claiming success.
+- For named commands, request `--result-only` to avoid formatted streaming output. Require successful CLI completion and valid command-specific payload evidence, including any nested `success`, diagnostics, status, and result fields; valid JSON alone is not success.
 
 ## Bounded Eval Rules
 
@@ -71,7 +71,7 @@ A request to persist authorizes the durable source/asset edit, but lifecycle cha
 1. Capture the final runtime values and the owning coordinate space, dimensions, scale, or other context needed to convert them into authored values.
 2. Identify the authoritative source or serialized field and trace how it becomes the runtime value. Do not write a visual coordinate into a guessed representation.
 3. Determine whether persistence triggers asset import, script compilation, domain reload, or runtime reconstruction, and whether the current instance can consume the change.
-4. Inspect `editor_status`. If Play Mode must stop, dispatch the advertised `editor_stop` and verify Play Mode exited.
+4. Inspect advertised `editor status`. If Play Mode must stop, dispatch the advertised `editor.playmode stop` (or that copy's existing flat names) and verify Play Mode exited.
 5. Apply the durable edit with the owning file/asset tool.
 6. Use the `unity-pipeline-workflows` skill for any required connected compilation and terminal status validation.
 7. Re-enter Play Mode only when requested. Report temporary live confirmation and durable verification as separate evidence.

@@ -18,13 +18,16 @@ Always resolve and pass the exact Unity project-copy path. Do not route by proje
 ### Portable CLI
 
 ```powershell
-$ProjectPath = (Resolve-Path "<workspace>/nor-unity").Path
+$ProjectPath = (Resolve-Path "<workspace>/<project>").Path
+# Open only when explicitly requested and that exact project is verified closed.
 unity open "$ProjectPath"
-unity command --project-path "$ProjectPath" editor_status
-unity command --project-path "$ProjectPath" recompile
-unity command --project-path "$ProjectPath" recompile_status
+# Verify the exact running copy and its advertised schemas before dispatch.
+unity command --project-path "$ProjectPath" --detail full --format json
+unity command --project-path "$ProjectPath" --result-only editor status
+unity command --project-path "$ProjectPath" --result-only script recompile
+unity command --project-path "$ProjectPath" --result-only script recompile_status
 ```
 
-Connected PlayMode tests must be asynchronous and followed by `test_status`. Use `unity test "$ProjectPath" --mode <EditMode|PlayMode> --output <absolute-results-path>` when report artifacts or an isolated run are required.
+These examples use current grouped commands; use only names and signatures advertised by the exact copy. Named `--result-only` responses still require successful CLI completion and command-specific result validation. Connected PlayMode tests must use advertised `test run --async-tests true` and be followed by `test status` until a verified terminal result, under a fixed deadline. Use `unity test "$ProjectPath" --mode <EditMode|PlayMode> --output <absolute-results-path>` when report artifacts or an isolated run are required.
 
 Keep direct Editor `-batchmode` commands only as explicit fallbacks. Raw `-runTests` commands require absolute result/log paths and must not include `-quit`.

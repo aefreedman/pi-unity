@@ -112,7 +112,7 @@ assert(debuggingSkillText.includes("exact-version documentation") && debuggingSk
 assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.includes("known positive executed-test count"));
 assert(pipelineSkillText.includes("WaitForEndOfFrame") && pipelineSkillText.includes("Play Unfocused") && pipelineSkillText.includes("different prerequisites"), "Distinguish rendering from focus-policy prerequisites.");
 assert(pipelineSkillText.includes("obtain user authorization") && !pipelineSkillText.includes("Set it to Play Unfocused for the test run"), "Do not authorize automatic Editor setting changes for tests.");
-assert(pipelineSkillText.includes("timeoutSeconds` alone does not extend") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("never retry an uncertain prior mutation"), "Distinguish host and dispatcher deadlines without encouraging replay.");
+assert(pipelineSkillText.includes("shorter host wait can still win") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("converts it to seconds") && pipelineSkillText.includes("omits the CLI request-timeout override") && pipelineSkillText.includes("never retry an uncertain prior mutation"), "Distinguish host and verified native handler deadlines without encouraging replay.");
 assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
 assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
 
