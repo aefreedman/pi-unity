@@ -1,6 +1,6 @@
 ---
 name: unity-pipeline-workflows
-description: Use native Unity CLI and the live Pipeline catalog to find, open, inspect, close, compile, or test an exact Unity project copy. Use for Unity Editor automation, isolated tests, and coordination across workspaces or agents sharing an Editor.
+description: Use native Unity CLI and the live Pipeline catalog to find, open, inspect, close, compile, or test an exact Unity project copy, or look up Unity Agent Skills on demand. Use for Unity Editor automation, isolated tests, and coordination across workspaces or agents sharing an Editor.
 ---
 
 # Unity CLI and Pipeline Workflows
@@ -8,6 +8,8 @@ description: Use native Unity CLI and the live Pipeline catalog to find, open, i
 Resolve the intended absolute project root first. If unknown, use `unity_find_projects` from the containing workspace. A result is a path, not proof of Editor readiness or permission to mutate. If targeting is ambiguous, resolve it rather than selecting the first match. Pass the root explicitly to every project-targeted call; a project name or inherited working directory can select the wrong copy.
 
 Use the installed `unity` CLI, or invoke its configured absolute executable path if it is not on PATH. On a shared copy, assign one Editor-changing operator through terminal evidence capture. Give each child the exact root, role and authorized work. Read [targeting and fleet details](references/native-cli-fleet.md) when coordinating multiple agents or copies.
+
+If asked for a Unity-owned Agent Skill, or a specialized Unity task needs upstream workflow guidance, read [Unity Agent Skills on demand](references/unity-agent-skills.md). Skip the skill catalog for routine lifecycle, compile, or test work.
 
 ## Routine Editor lifecycle
 

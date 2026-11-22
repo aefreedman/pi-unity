@@ -10,6 +10,7 @@ and this project follows semantic versioning for public package releases.
 ### Added
 
 - `unity_find_projects` lists bounded, canonical project-copy candidates without launching or selecting an Editor.
+- Document how to find and read Unity-maintained Agent Skills on demand without installing or bundling the catalog.
 
 ### Changed
 
