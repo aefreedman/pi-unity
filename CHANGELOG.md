@@ -7,6 +7,8 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+## 0.17.0 - 2026-11-22
+
 ### Added
 
 - `unity_find_projects` lists bounded, canonical project-copy candidates without launching or selecting an Editor.
@@ -14,6 +16,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Changed
 
+- Validate against Pi 1.6.0.
 - Use native Unity CLI and the live Pipeline catalog for lifecycle, compilation, testing, inspection, and other operations. Keep guidance for multi-copy coordination, testing, graphics, debugging, and live authoring.
 - Prefer official Unity versioned docs and agent indexes, with supplemental docsets and offline caches as optional routes.
 
