@@ -51,13 +51,17 @@ export default function registerUnity(pi: ExtensionAPI): void {
       const result = await resolveUnityProjectCandidates(ctx.cwd, path, signal);
       const lines = [
         result.strategy === "ancestor"
-          ? "Nearest Unity project containing the starting directory (other copies not searched):"
+          ? result.incomplete
+            ? "Could not verify the nearest containing Unity project; no project root was selected or inferred."
+            : "Nearest Unity project containing the starting directory (other copies not searched):"
           : `Unity projects found near ${result.startDirectory}:`,
         ...result.candidates.map(({ projectRoot }) => `- ${projectRoot}`),
       ];
-      if (!result.candidates.length) lines.push("No Unity project found in the searched scope.");
-      if (result.truncated) lines.push("Search reached a limit; additional copies may exist.");
-      if (result.incomplete) lines.push("Some filesystem entries could not be checked; additional copies may exist.");
+      if (result.strategy === "descendants") {
+        if (!result.candidates.length) lines.push("No Unity project found in the searched scope.");
+        if (result.truncated) lines.push("Search reached a limit; additional copies may exist.");
+        if (result.incomplete) lines.push("Some filesystem entries could not be checked; additional copies may exist.");
+      }
       return { content: [{ type: "text", text: lines.join("\n") }], details: result };
     },
   });

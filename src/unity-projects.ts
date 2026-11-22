@@ -13,6 +13,7 @@ export type UnityProjectDiscoveryResult = {
 
 const MAX_DEPTH = 4;
 const MAX_DIRECTORIES = 400;
+const MAX_ENTRIES = 4_096;
 const MAX_CANDIDATES = 20;
 const SKIPPED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".vs", ".idea", ".pi", "library", "temp", "logs",
@@ -39,24 +40,33 @@ export async function resolveUnityProjectCandidates(
 ): Promise<UnityProjectDiscoveryResult> {
   signal?.throwIfAborted();
   if (requestedPath !== undefined && !requestedPath.trim()) throw new Error("Supply a nonblank existing starting directory.");
-  const startDirectory = await fs.realpath(path.resolve(cwd, requestedPath ?? "."));
+  if (process.platform === "win32" && requestedPath && /^(?:[a-z]:(?![\\/])|[\\/](?![\\/]))/i.test(requestedPath)) {
+    throw new Error("Supply a fully qualified Windows path or a path relative to the session directory.");
+  }
+  // Do not collapse '..' lexically: the filesystem must resolve link components first.
+  const startPath = requestedPath === undefined ? cwd
+    : path.isAbsolute(requestedPath) ? requestedPath : `${cwd}${path.sep}${requestedPath}`;
+  const startDirectory = await fs.realpath(startPath);
   if (!(await fs.stat(startDirectory)).isDirectory()) throw new Error("The Unity project search must start at a directory.");
   const result: UnityProjectDiscoveryResult = {
     startDirectory, strategy: "ancestor", candidates: [], visitedDirectories: 0, truncated: false, incomplete: false,
   };
-  async function isProject(root: string): Promise<boolean> {
+  async function isProject(root: string): Promise<boolean | undefined> {
     signal?.throwIfAborted();
     result.visitedDirectories++;
     try { return await checkProject(root); }
-    catch { result.incomplete = true; return false; }
+    catch { result.incomplete = true; return undefined; }
   }
   function addProject(root: string): void {
     result.candidates.push({ projectRoot: root, projectName: path.basename(root) });
   }
 
   for (let root = startDirectory; ; root = path.dirname(root)) {
-    if (await isProject(root)) {
-      signal?.throwIfAborted();
+    const match = await isProject(root);
+    signal?.throwIfAborted();
+    // A closer, unchecked project must not be replaced by a readable outer one.
+    if (match === undefined) return result;
+    if (match) {
       addProject(root);
       return result;
     }
@@ -65,6 +75,7 @@ export async function resolveUnityProjectCandidates(
 
   result.strategy = "descendants";
   const queue = [{ root: startDirectory, depth: 0 }];
+  let entriesExamined = 0;
   for (let index = 0; index < queue.length; index++) {
     signal?.throwIfAborted();
     const { root, depth } = queue[index];
@@ -78,10 +89,19 @@ export async function resolveUnityProjectCandidates(
       continue;
     }
 
+    if (entriesExamined >= MAX_ENTRIES) {
+      result.truncated = true;
+      continue;
+    }
     try {
-      const entries = await fs.readdir(root, { withFileTypes: true });
-      entries.sort((left, right) => left.name.localeCompare(right.name));
-      for (const entry of entries) {
+      const directory = await fs.opendir(root);
+      for await (const entry of directory) {
+        signal?.throwIfAborted();
+        if (entriesExamined === MAX_ENTRIES) {
+          result.truncated = true;
+          break;
+        }
+        entriesExamined++;
         if (!entry.isDirectory() || entry.isSymbolicLink() || SKIPPED_DIRECTORIES.has(entry.name.toLowerCase())) continue;
         if (depth === MAX_DEPTH || queue.length === MAX_DIRECTORIES) {
           result.truncated = true;
@@ -89,7 +109,10 @@ export async function resolveUnityProjectCandidates(
         }
         queue.push({ root: path.join(root, entry.name), depth: depth + 1 });
       }
-    } catch { result.incomplete = true; }
+    } catch {
+      signal?.throwIfAborted();
+      result.incomplete = true;
+    }
   }
   signal?.throwIfAborted();
   result.candidates.sort((left, right) => left.projectRoot.localeCompare(right.projectRoot));
