@@ -29,9 +29,10 @@ Use native `unity recompile --project-path "<root>"` and read its terminal diagn
 
 Read the project's test scope and graphics requirements. Preserve the requested platform and selection; do not silently broaden a filter or run a skipped platform. Choose reachable connected testing for an open copy, or deliberately use `unity test` on a closed copy for isolation/CI or native XML reports. Do not automatically close or open a second Editor to switch routes.
 
-- **Connected, Pipeline 1.0.1:** inspect native `test run` and `test status` help. EditMode supports synchronous execution; PlayMode and `all` need `--async-tests` because entering Play Mode can reload the domain. Check shared status before starting: a second run can cancel the first. A successful async start can return no result (including JSON `null`); that is not a verdict. Poll formatted `test status` through terminal evidence and capture it before handing off or starting another run. For example:
+- **Connected, Pipeline 1.0.1:** inspect native `test run` and `test status` help. EditMode supports synchronous execution; PlayMode and `all` need `--async-tests` because entering Play Mode can reload the domain. Check shared status before starting: a second run can cancel the first. An earlier terminal failure is not an active run. A successful async start can return no result (including JSON `null`); that is not a verdict. Poll formatted `test status` through terminal evidence and capture it before handing off or starting another run. For example, after checking that the target Editor advertises these flags:
 
   ```text
+  unity --non-interactive --format json command --project-path "<root>" test run --mode playmode --filter "<test-name>" --filter-type TestName --async-tests true
   unity --non-interactive --format json command --project-path "<root>" test status --detail failures
   ```
 

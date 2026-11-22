@@ -16,6 +16,10 @@ Install [Unity CLI](https://docs.unity.com/en-us/unity-cli/use-unity-cli) separa
 
 Use native `unity open <root>`, `unity status --project-path <root>`, and `unity close <root>` for Editor lifecycle. Requested close exits without saving; the user owns the save decision. When multiple agents share a copy, designate one operator through actual operation completion and evidence capture.
 
+## Upgrade from the wrapper-based package
+
+Update project agent instructions or scripts that refer to removed Pi tools or slash commands. Use native CLI and Pipeline commands for execution, `unity_find_projects` for copy discovery, and native test results or reports instead of `pi-unity-tests-*.json`. The old launch and close settings no longer apply. See [Unreleased changes](CHANGELOG.md#unreleased) for the removal list and the [workflow skill](skills/unity-pipeline-workflows/SKILL.md) for replacements.
+
 ## Included skills
 
 - [Unity CLI and Pipeline Workflows](skills/unity-pipeline-workflows/SKILL.md): targeting, lifecycle, compilation, testing, and shared-copy coordination.

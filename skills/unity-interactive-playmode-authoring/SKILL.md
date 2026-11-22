@@ -37,7 +37,7 @@ GameObject transform and component commands do not operate on every runtime obje
 - Use bounded native discovery such as `unity command --project-path "<absolute-project-root>" --tag <relevant-tag> --detail full --limit 20 --format json`; inspect the needed full identities/signatures rather than guessing a leaf name's group or trialing mutations.
 - Reuse a catalog verified for the same instance if still current.
 - Inspect one exact command schema before dispatch rather than repeatedly trialing argument forms against the live Editor.
-- For named commands, request `--result-only` to avoid formatted streaming output. Use the CLI outcome and command diagnostics. Eval returns user data, not a success envelope.
+- Match the output format to the command. `--result-only` can be useful for a successful single-value result, but it can hide failure details. Use the CLI outcome and command diagnostics; eval returns user data, not a success envelope. For test status use formatted JSON as described in [the native workflow](../unity-pipeline-workflows/SKILL.md#choose-and-verify-tests).
 
 ## Bounded Eval Rules
 
