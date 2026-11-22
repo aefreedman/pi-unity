@@ -1,287 +1,32 @@
 # Pi Unity
 
-Native-first Unity CLI/Pipeline guidance for Pi, optional execution/evidence adapters, and Unity-aware Pi integrations.
+Use Unity's own CLI and Pipeline from Pi. This package helps agents find the right Unity project copy; it does not launch, close, test, or mutate the Editor itself.
 
 ## Install
 
-From npm:
-
-```bash
+```sh
 pi install npm:@aefree/pi-unity
 ```
 
-From GitHub:
+Install [Unity CLI](https://docs.unity.com/en-us/unity-cli/use-unity-cli) separately. If it is not on PATH, invoke its absolute executable path in the shell; `pi-unity` no longer applies `UNITY_CLI_PATH`. The native guidance targets Unity CLI and `com.unity.pipeline` 1.0.1. Use installed help and the exact Editor's advertised commands rather than assuming every project runs the same Pipeline version.
 
-```bash
-pi install git:git@github.com:aefreedman/pi-unity.git
-```
+## Find a project copy
 
-For local development:
+`unity_find_projects` searches from the current directory or a supplied existing directory. It returns the nearest containing Unity project if found; otherwise it searches nearby descendants, excluding common generated directories and directory links and stopping at project roots. A candidate has a `ProjectVersion.txt` file plus an `Assets` directory or package manifest. Results contain canonical absolute roots, not a persistent selection or running Editor status. Descendant discovery is bounded to depth 4, 400 directories, and 20 candidates. A truncated or incomplete search cannot establish uniqueness. Skip discovery if the exact root is already known.
 
-```bash
-pi install <path-to-pi-unity>
-pi install -l <path-to-pi-unity> # project-local
-```
-
-Pi discovers the extension from `index.ts` and packaged skills from `skills/`. In UI sessions, pi-unity warns once per Pi runtime when Unity CLI is unavailable or `UNITY_CLI_PATH` is invalid. The warning never displays configured paths; install Unity CLI, then restart or reload Pi.
-
-## Development checks
-
-Run `npm ci`, then `npm test` from the package repository. Tests first run the strict production-source type check (`index.ts` and `src/`) using the pinned TypeScript compiler and Node 22 types. Run `npm run typecheck` for that check alone. Tests and eval harnesses execute separately through `tsx`; they are outside this type-check scope.
-
-## Tool presentation
-
-In Pi's terminal UI, Unity tools use compact action headers and project names. Collapsed results show test counts, timing and route when available, plus failures and uncertainty. Expand using Pi's configured tool-details shortcut to see the full project path, highlighted eval code, formatted JSON results, bounded evidence, and artifact paths. Inspection success and test outcomes are displayed separately.
-
-For a local, offline text preview, run `npm run preview:tools` from this package. The preview exercises the renderers without launching Unity; Pi supplies the surrounding tool box and configured keybinding hints in a live session.
-
-## Native-first workflows and fleets
-
-Use native Unity CLI and the exact project's advertised `com.unity.pipeline` commands normally. Existing Pi tools remain optional adapters when their documented orchestration or evidence fits.
-
-Use native [`open`, `status`, and `close`](skills/unity-pipeline-workflows/references/native-cli-fleet.md#editor-lifecycle) for routine Editor lifecycle actions. `close` exits without saving; the user is responsible for saving before requesting closure. Read [native targeting and fleet guidance](skills/unity-pipeline-workflows/references/native-cli-fleet.md) for multi-copy coordination. Pass an explicit absolute project selector on every project-targeted call and the exact target, role and authorization in every child brief. Do not assume selected context, shell variables or permission automatically propagate to subagents.
-
-Independent project copies can proceed independently. For a fleet sharing one copy, the supervisor designates one Editor-changing operator through actual completion and result capture. Other agents may do suitable source analysis/read-only inspections, without assuming reads are parallel or snapshot-consistent. Coordinate source edits before validation: auto-refresh/import/reload can disturb work even without a CLI call.
-
-Pipeline command serialization is not workflow ownership. Async test startup can return before tests complete and later runs can replace shared status/collectors. A detached-start job completing does not mean tests passed; native jobs do not survive domain reloads. Timeout, disconnect, cancellation or child exit does not prove underlying work stopped. Inspect exact current-run evidence and resolve uncertainty before conflicting work or handoff. Fleet guidance and participating launch mutexes do not enforce arbitrary native shell actions.
-
-## Optional tools
-
-### Connected Pipeline
-
-The current native workflow guidance targets Unity CLI and Pipeline 1.0.1. The optional adapters' last compatibility pass was for Unity CLI `1.0.0-beta.17`; do not assume all adapter results match stable Pipeline. Connected tools select the exact command spelling advertised by the project's Pipeline: grouped names such as `script recompile` or the existing flat names. A CLI update does not implicitly upgrade the project's Pipeline package. Discovery uses `pipeline editors` and rejects partial listings as capability evidence; named operations request `--result-only` to avoid formatted streaming output.
-
-Use these tools with an already-open exact Unity project copy that has a reachable `com.unity.pipeline` instance:
-
-- `unity_project_status` — inspect lockfiles, matching Unity processes, Pipeline reachability, package version, and advertised commands without launching Unity. `STATUS_BLOCKED_BY_DIALOG` and its specific dialog-code variants are reported with manual-resolution guidance and bounded, credential-redacted dialog level/title details from exact-project instance rows only. Missing/malformed details remain blocking uncertainty, never safe-to-launch absence; no automatic dismissal, retry, or Editor launch. The instance-row `blockedBy` location is a synthetic contract assumption pending live envelope verification; other locations retain generic coded blocking guidance, not dialog titles.
-- `unity_pipeline_recompile` — recompile through Pipeline with exact-copy preflight, bounded polling, and compact compiler evidence.
-- `unity_run_tests` — one intent-oriented EditMode or PlayMode workflow. It reuses compatible connected Pipeline execution or selects isolated `unity test` when the exact project copy is closed.
-- `unity_pipeline_eval` — execute bounded project-specific C# through Pipeline's Roslyn REPL. `timeoutSeconds` bounds the host wait (1–86,400 seconds) and, by default, the Unity CLI wait. Optional `handlerTimeoutMilliseconds` is forwarded only when the exact reachable Pipeline advertises raw argv plus the verified eval timeout signature; it bounds that Pipeline dispatcher wait, not code already running on Unity's main thread. A timeout is uncertain and does not cancel or retry Editor work.
-- `unity_pipeline_inspect` — dispatch supported package-owned inspection commands (including read-only `get_runtime_pipeline_settings`) and return structured evidence. Runtime settings are refused by Pipeline in Play Mode; pi-unity never exits Play Mode to read them.
-- `unity_pipeline_run_script` — compile one existing project `.cs` file in Pipeline's ephemeral in-memory mode and invoke a named static entry point; supports bounded JSON arguments and compile-only `dryRun`. It deliberately does not expose hotpatch.
-
-Connected recompilation follows Unity's Script Changes While Playing policy and never preemptively sends `editor_stop`. Connected tests may exit Play Mode through advertised `editor_stop` when necessary, then verify Edit Mode before dispatch.
-
-A timeout is uncertain: work may still be running. The tools do not silently cancel, retry, launch another Editor, or switch to batchmode. Pipeline 0.6 can report busy for a modal dialog as well as startup settling, so ambiguous busy responses are surfaced and never blindly retried. Pipeline 0.7 improves recovery of standing compile errors and console output. For non-development Player builds, Pipeline also requires the `ENABLE_RUNTIME_PIPELINE` scripting define; enabling its runtime setting alone is insufficient.
-
-### Editor and batchmode
-
-- `unity_open_editor` — open the Unity Editor GUI. Pass `automated: true` to add the Unity Editor `-automated` flag; this is distinct from the Unity CLI's own `--non-interactive` option. Unity CLI launches (also `/unity-open`) observe CLI completion for at most 30 seconds, reporting bounded, credential-redacted diagnostics and failures such as `PROJECT_UPGRADE_REQUIRED`. Successful CLI completion does not verify Editor readiness; the launcher PID is not an Editor PID. Timeout/cancellation leaves completion uncertain and never kills a possibly running Editor: inspect the exact project copy before launching again. CLI refusal never triggers retry, direct fallback, or upgrade; direct executable launch remains available only when CLI is unavailable or explicitly selected.
-- `unity_launch_batchmode` — run a bounded batchmode command through Unity CLI or the direct Editor executable.
-- `unity_inspect_artifacts` — validate existing normalized JSON test artifacts, Unity Test Framework XML and Unity logs without launching Unity. `details.status` describes inspection; `details.testOutcome` describes the tests, including failures and uncertainty. A valid failed-test artifact is a successful inspection, not a passing run.
-  Credential redaction is shared across returned text/details, diagnostics, log excerpts, and durable normalized test evidence, before output truncation. It covers common token/password flags (including Android signing passwords), assignments, and JSON fields; original Editor logs and backend reports remain unmodified. This is best-effort protection for recognized credential forms, not a guarantee that arbitrary secrets are safe to share.
-
-Pass `normalizedResultPath` for standalone JSON evidence. Any explicit artifact path disables implicit latest-file selection and link expansion; missing requested files fail inspection. With all paths omitted, `latestFromLogs` selects one newest top-level JSON (mtime then filename) and only its contained declared NUnit/log links. Without JSON it selects XML alone, then log context. Historical selection cannot establish current-run identity. Mixed JSON/XML evidence must agree; without an explicit native artifact link, matching counts alone leave correlation uncertain.
-
-The optional `unity_run_tests` adapter handles ordinary Unity Test Framework work when its routing and evidence contract fits. It writes a durable normalized JSON result under `Logs/`; isolated `unity test` runs retain requested native reports. Connected Pipeline is selected only for compatible requests. A reachable Editor is never closed automatically to obtain isolated-only features.
-
-Isolated tests pin NUnit reports for normalized evidence; missing/malformed reports or nonzero CLI exits cannot pass. `retries` accepts 0–10; JSON-only retry evidence is reconciled to final outcomes. An omitted `coverage` setting may inherit from Unity CLI configuration (including enabled coverage); `coverage: false` does not override an inherited CLI setting. Where available the result reports read-only resolver provenance for effective `test.coverage` and `test.timeout`; no config is written. `timeoutSeconds` is a host deadline, not a CLI configuration override. Native batchmode `logFilePath` requires a project-contained absolute destination and conflicts with forwarded `-logFile`; `tailLog: false` disables native log tailing. Native log options require Unity CLI, not direct Editor execution. The connected recompile adapter remains available alongside native `unity recompile`; its controls do not define native command requirements.
-
-Batchmode and isolated-test runs drain stdout/stderr without cancelling the process for log volume. Diagnostic capture is bounded; overflowing streams are omitted with an explicit notice, while exit outcomes and native log/report files remain authoritative and unchanged. Structured CLI information and probes remain fail-closed on capture overflow.
-
-Packaged batchmode runs use `-nographics` by default. Set their `useGraphics: true` only for screenshots, visual capture, render checks, or graphics-dependent tests. Unity permits only one process per project folder; participating package launch routes verify the exact copy and use a per-project launch mutex. Direct native calls do not acquire that mutex.
-
-### Unity CLI information, Cloud inventory, and asset packages
-
-- `unity_cli_info` reads the bounded global CLI command manifest or installed changelog. The manifest does **not** grant connected Pipeline commands; use exact-copy capability checks for those.
-- `unity_docs_url` returns a validated official HTTPS URL without opening a browser. Supply an explicit Unity project root or Editor version; the result distinguishes the requested and resolved documentation versions, known fallback warnings, and unversioned search URLs on `docs.unity.com`. A fallback is not an exact version match. For content, prefer Unity’s official documentation and native `unity docs --content`; see the documentation skill below.
-- `unity_cloud_build_inventory` and `unity_pipeline_automation_inventory` perform one authenticated **remote read** (list/get) only when called. They never log in, write, or automatically page; filters and page/limit are explicit. Without organization/project IDs, Unity CLI environment or saved defaults choose the scope. Verify the returned selection and completeness before acting. Listing results preserve partial/continuation metadata and indicate bounded-output truncation separately; a single page is not claimed as a complete inventory.
-- `unity_inspect_unitypackage` reads an existing local archive's declared entries, not import completion. `unity_import_unitypackage` and `unity_export_unitypackage` mutate only on an explicit request and absolute exact project root; they fail closed on busy/unknown process state, native lockfile, or an existing mutex, never close an Editor, clear locks, overwrite an export, or retry. Success means the CLI reported success, **not** independently verified asset state. Import/export success JSON schemas have not been observed in a real mutation; inspect project/artifact effects separately. An external writer may race an export destination check.
-
-Cloud Build and Pipeline Automation are remote services; `unity_pipeline_automation_inventory` does not inspect the local `com.unity.pipeline` Editor package. Native remote inventory commands are available directly when remote access is intended, not as routine local diagnosis.
-
-Unity Accelerator settings may also be inherited from CLI environment or saved configuration. Check the effective settings before attributing download/cache behavior to a project; these tools do not reconfigure Accelerator.
-
-Unity CLI telemetry is governed by its own controls: inspect `unity telemetry --help` and the CLI's current settings before choosing whether to enable or disable telemetry. Pi-unity does not change telemetry consent or persist CLI settings. Read-only Cloud calls still contact the service and may be subject to CLI telemetry; use them only when remote access is intended. Issue Tracker MCP is an external integration, **not** a pi-unity tool: consult the installed Unity CLI's Issue Tracker/MCP documentation and preview available commands explicitly before use; this package does not auto-enable MCP or infer connected permissions.
-
-### Guidance audit
-
-- `unity_guidance_audit` — inspect AGENTS.md, CLAUDE.md, Copilot, and Cursor instructions for outdated or unsafe Unity automation guidance without editing them.
-
-### Commands
-
-- `/unity-open` — open the current Unity project copy or choose a nearby copy.
+Use native `unity open <root>`, `unity status --project-path <root>`, and `unity close <root>` for Editor lifecycle. Requested close exits without saving; the user owns the save decision. When multiple agents share a copy, designate one operator through actual operation completion and evidence capture.
 
 ## Included skills
 
-Each skill owns a distinct workflow:
+- [Unity CLI and Pipeline Workflows](skills/unity-pipeline-workflows/SKILL.md): targeting, lifecycle, compilation, testing, and shared-copy coordination.
+- [Unity Debugging](skills/unity-debugging/SKILL.md): diagnose activation, prerequisites and observable behavior before diving into internals.
+- [Interactive Play Mode Authoring](skills/unity-interactive-playmode-authoring/SKILL.md): distinguish temporary live tuning from durable source or asset changes.
+- [Consulting Unity Documentation](skills/consulting-unity-documentation/SKILL.md): use Unity's official versioned docs and agent indexes first. `pi-unity-docs` is optional for supplemental docsets or explicit offline lookup.
 
-- [`consulting-unity-documentation`](skills/consulting-unity-documentation/SKILL.md) — Unity’s [official agent index](https://docs.unity.com/llms.txt), versioned Markdown, and native docs lookup first; `pi-unity-docs` is optional for supplemental docsets and explicit offline lookup.
-- `unity-debugging` — evidence-first diagnosis of Editor, runtime, package, asset, lifecycle, callback, and feature-activation problems.
-- `unity-pipeline-workflows` — connected compilation and focused tests through an already-running exact-copy Pipeline Editor.
-- `unity-batchmode-tests` — isolated or report-producing Unity Test Framework execution.
-- `unity-interactive-playmode-authoring` — temporary live runtime inspection and tuning followed by deliberate persistence when requested.
-- `auditing-unity-agent-guidance` — review and migration of project-local Unity automation instructions.
+## Optional Pi integrations
 
-Operation-specific recovery belongs to the operational skill. `unity-debugging` supplies the reusable diagnostic strategy rather than duplicating every workflow's failure handling.
+With `pi-file-discovery`, broad searches exclude Unity-generated directories; explicitly targeted generated directories remain searchable. With `pi-project-artifacts`, Unity fields such as Editor version, package list and render pipeline are available for indexing and validation of solution and memory artifacts. These integrations register per session; neither is required for project discovery.
 
-## Choosing a workflow
+## Development
 
-| Situation | Native route / optional Pi assistance |
-| --- | --- |
-| Open exact-copy Editor with reachable Pipeline | Discover advertised commands; native `unity recompile` and connected tests; optional compile/test adapters |
-| Closed project, intentional CI isolation or report evidence | Native `unity test`/`unity run`; optional `unity_run_tests`/batchmode adapter |
-| Existing failed-run artifacts | Bounded current-run report/log reading; optional `unity_inspect_artifacts` |
-| Project-specific C# query or operation | Advertised native eval/script command; optional bounded adapters |
-| Supported structured project inspection | Advertised purpose-built native read; optional `unity_pipeline_inspect` |
-| Open the GUI explicitly | Native `unity open` with readiness options when intended; optional GUI tool or `/unity-open` |
-
-Discover exact installed flags and Pipeline schemas; do not treat adapter selection limits as native limits. Keep project targeting explicit and stop rather than silently switching copies or execution routes after uncertain work.
-
-## Optional adapter safety and evidence
-
-The connected compile and test tools:
-
-- require advertised commands before dispatch;
-- verify the exact project copy and Pipeline identity;
-- poll internally with fixed deadlines and bounded backoff;
-- reject malformed or semantically failing nested results;
-- require a known positive test count and zero failures before reporting a pass;
-- keep routine tool output compact while preserving connected test records in durable normalized JSON evidence;
-- detect pre-existing or clearly displaced test runs when available correlation fields permit it.
-
-Another connected client is not a project lock. When Pipeline returns stable correlation fields, conflicting status is reported as displaced and uncertain. If Pipeline omits stable run identity, a competing same-mode, same-filter run may be indistinguishable from the requested run; the tool cannot prove exclusive ownership from shared Editor status alone.
-
-### Pipeline eval
-
-`unity_pipeline_eval` compiles C# with Roslyn and runs it on the connected Editor main thread. It is a live REPL, not an expression-only or statically read-only evaluator.
-
-```text
-{ code: "return UnityEditor.EditorSettings.scriptChangesDuringPlay;" }
-{ code: "var s = UnityEngine.Application.dataPath; return s.Length;" }
-```
-
-`timeoutSeconds` bounds the host wait and, by default, the CLI wait. On exact copies that advertise raw argv and a verified eval signature, `handlerTimeoutMilliseconds` (1–86,400,000) separately sets the handler wait. Grouped eval converts milliseconds to native seconds and leaves the intervening file argument empty; it omits the CLI request-timeout override so that override cannot replace the handler setting. Existing flat eval retains its verified millisecond signature. A shorter host timeout may still win. This server wait can prevent queued work from starting, but cannot cancel eval code that already began on Unity's main thread; treat expiry as uncertain and never retry or fall back.
-
-Use advertised native purpose-built inspection or bounded eval that matches the user's intent. The Pi inspection/eval adapters are optional when their validation or evidence handling fits, not compulsory gateways to Pipeline.
-
-### Pipeline run_script
-
-`unity_pipeline_run_script` is arbitrary code execution, not a sandbox or read-only inspection. Use it only when the user explicitly asks to run that existing file; obtain explicit authorization for lifecycle, settings, asset, build, test, or destructive mutations. It validates the exact project copy and advertised command twice, accepts a single existing `.cs` file inside the project, uses only `mode: ephemeral`, and never launches, saves, cancels, retries, falls back, hotpatches, or exits Play Mode. `dryRun: true` compiles without loading or executing the assembly.
-
-Rejected eval and inspection results are native Pi tool failures (`isError: true`) via the documented `tool_result` middleware, with structured rejection codes and bounded diagnostics retained. Pre-dispatch rejection does not execute the command; a timeout or dispatch failure can leave effects uncertain and never triggers retry or fallback.
-
-## Launch and process safeguards
-
-`unity_open_editor` and batchmode tools treat Unity CLI as the authoritative launcher: `unity open`, `unity run`, and `unity test` receive only the selected project and let Unity CLI read `ProjectVersion.txt`. The direct Editor executable is an exceptional compatibility fallback used only when Unity CLI is unavailable. Set `launcher` to `auto`, `unity-cli`, or `editor-executable` when explicit routing is needed.
-
-These safeguards belong to packaged launch adapters; native CLI use remains available directly under the workflow guidance. Before those adapters launch, pi-unity checks:
-
-- running Unity processes targeting the exact project;
-- Unity CLI status and Pipeline instances;
-- native `Temp/UnityLockfile` state;
-- the package-owned per-project launch mutex.
-
-Unknown process state blocks launch. Direct Editor execution blocks native lockfiles. Unity CLI may handle a stale lockfile only after pi-unity verifies that no matching Unity process remains.
-
-A batchmode call may close a matching Unity process only when all of the following are true:
-
-1. isolated execution was deliberately selected;
-2. the call sets `closeBlockingUnityProcess: true`;
-3. `piUnity.allowCloseRunningUnityProcess` is enabled;
-4. any configured test-only restriction permits the operation.
-
-The package selects and revalidates the process itself; it never accepts a model-supplied PID. It may remove only the exact project's stale lockfile after a same-call guarded closure and verification that no matching process remains.
-
-## Settings
-
-Pi-unity reads optional settings from global `~/.pi/agent/settings.json` and, for trusted projects, project `.pi/settings.json`:
-
-```json
-{
-  "piUnity": {
-    "allowCloseRunningUnityProcess": false,
-    "closeRunningUnityProcessOnlyForTests": true,
-    "closeRunningUnityProcessTimeoutMs": 30000
-  }
-}
-```
-
-These settings govern package-controlled calls only, not native CLI commands or fleet-wide authorization.
-
-- `allowCloseRunningUnityProcess` defaults to `false`.
-- `closeRunningUnityProcessOnlyForTests` defaults to `true`.
-- `closeRunningUnityProcessTimeoutMs` defaults to `30000` and is clamped from 1000 to 120000 milliseconds.
-
-## Optional integrations
-
-`@aefree/pi-project-artifacts` and `@aefree/pi-file-discovery` are optional peer integrations. Core Unity tools work without them.
-
-Pi-unity uses a global registry rendezvous so independently installed Git, local, or npm packages can compose without sibling source paths:
-
-- The project-artifacts integration contributes an optional Unity profile for solution and memory metadata.
-- The file-discovery integration recommends excluding generated Unity directories from broad searches while preserving exact searches inside those directories.
-
-The optional peer integrations are session-scoped, reverse-load-order safe, and transactional. A malformed advertised integration contract fails visibly; an unavailable optional package does not prevent the Unity extension from loading.
-
-### Optional artifact metadata
-
-When project artifacts are active, solution and memory Markdown may use:
-
-```yaml
----
-engine: unity
-unity_version: "6000.0"
-unity_packages:
-  - com.unity.inputsystem
-render_pipeline: urp
-platforms:
-  - windows
-  - android
----
-```
-
-Supported `render_pipeline` values are `builtin`, `urp`, `hdrp`, `custom`, and `agnostic`. All fields are optional, and undeclared project metadata remains open and raw-filterable.
-
-### File-discovery filtering
-
-Broad Unity project searches may exclude `Library`, `Temp`, `Logs`, `obj`, `Build`, `Builds`, `UserSettings`, and `.vs`. An exact generated root—including `Library/PackageCache/...`—remains searchable. Filter failures degrade filtering rather than blocking inspection.
-
-## Package layout
-
-```text
-pi-unity/
-  index.ts
-  src/
-    unity-artifact-profile.ts
-    unity-batchmode.ts
-    unity-cli.ts
-    unity-core.ts
-    unity-file-discovery-filter.ts
-    unity-guidance-audit.ts
-    unity-launch.ts
-    unity-pipeline.ts
-    unity-processes.ts
-    unity-project-lock.ts
-    unity-projects.ts
-    unity-test-batch.ts
-  skills/
-    auditing-unity-agent-guidance/
-    unity-batchmode-tests/
-    unity-debugging/
-    unity-interactive-playmode-authoring/
-    unity-pipeline-workflows/
-  tests/
-```
-
-## Development and validation
-
-```bash
-npm ci
-npm test
-npm pack --dry-run --json
-```
-
-The auditing skill also has an opt-in provider-backed behavioral eval under `evals/auditing-unity-agent-guidance/`; it is intentionally not part of `npm test`.
-
-The registry-clean `package-lock.json` is committed. Optional development packages resolve from the public registry, and the npm archive contains no copied dependency tree, sibling `file:` dependency, or workspace link.
-
-## Unity Pipeline project side effect
-
-Legacy Pipeline releases (including `0.3.1-exp.1`) assigned `Application.runInBackground = true`, which Unity persisted as `PlayerSettings.runInBackground` in `ProjectSettings/ProjectSettings.asset`. Pipeline 0.6 restores the original value around server start/stop. Review tracked settings changes when installing older releases; Pipeline 0.6 reports non-automated Editor state as descriptor `info` rather than a console warning.
-
-Pipeline 0.6 records local editor eval usage in `Library/Pipeline/eval-usage.jsonl`; raw source is not stored unless the Pipeline **Store Eval Source** setting is enabled. `UNITY_NO_CLI_INVOKED_TELEMETRY=1` opts out only of Unity CLI's per-invocation telemetry event; analytics and crash-reporting controls are separate and unchanged. Pipeline compact HTTP responses are accepted whether returned directly or inside the CLI's documented `data` wrapper; this does not assert that CLI wrapping has changed. For installed CLI/skill information, use read-only `unity skill show --list` or `unity skill show --path <path>`.
-
-## License
-
-MIT. See `LICENSE`.
+From this package root, run `npm ci`, `npm test`, and `npm pack --dry-run`. The manifest and lockfile pin Pi validation dependencies. Package tests do not start Unity.

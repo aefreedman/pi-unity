@@ -7,14 +7,18 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Added
+
+- `unity_find_projects` lists bounded, canonical project-copy candidates without launching or selecting an Editor.
+
 ### Changed
 
-- Route documentation questions to Unity's official versioned pages and agent indexes first, with supplemental docsets and existing offline caches as optional routes.
-- Document native Editor open, status and close, and use Pipeline's current native test completion rules.
+- Use native Unity CLI and the live Pipeline catalog for lifecycle, compilation, testing, inspection, and other operations. Keep guidance for multi-copy coordination, testing, graphics, debugging, and live authoring.
+- Prefer official Unity versioned docs and agent indexes, with supplemental docsets and offline caches as optional routes.
 
 ### Removed
 
-- Remove `/unity-playmode-exit` and its persisted Pi session setting. Existing connected adapters keep their former default behavior.
+- Retire `/unity-open`, `/unity-playmode-exit`, and the former execution, status, information, asset, Cloud, test artifact, and guidance-audit tools. Use `unity open`, `status`, `close`, `recompile`, `test`, and advertised commands directly. The package no longer probes Unity CLI on startup, falls back to direct Editor execution, closes Editors for batchmode, takes launch mutexes, or writes normalized `pi-unity-tests-*.json` reports. Retain native reports when evidence is needed.
 
 ## 0.16.7 - 2026-11-09
 

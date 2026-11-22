@@ -18,12 +18,6 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 const indexText = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const changelogText = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-const skillText = readFileSync(new URL("../skills/unity-batchmode-tests/SKILL.md", import.meta.url), "utf8");
-const guidanceSkillText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/SKILL.md", import.meta.url), "utf8");
-const pipelineSkillText = readFileSync(new URL("../skills/unity-pipeline-workflows/SKILL.md", import.meta.url), "utf8");
-const debuggingSkillText = readFileSync(new URL("../skills/unity-debugging/SKILL.md", import.meta.url), "utf8");
-const testBatchText = readFileSync(new URL("../src/unity-test-batch.ts", import.meta.url), "utf8");
-const batchmodeSourceText = readFileSync(new URL("../src/unity-batchmode.ts", import.meta.url), "utf8");
 
 assert.equal(packageJson.private, undefined, "The prepared public release must not retain npm's private publication guard.");
 assert.equal(changelogText.match(/^## (\d+\.\d+\.\d+) - /m)?.[1], packageJson.version, "The prepared release version must match the latest finalized changelog.");
@@ -34,7 +28,7 @@ assert(packageJson.pi?.extensions?.includes("./index.ts"));
 assert(packageJson.pi?.skills?.includes("./skills"));
 assert(!packageJson.exports?.["./contracts/v1"], "The removed migration service must not retain a public contract export.");
 assert(!packageJson.scripts?.["migrate:unity-docs"], "The removed migration script must not retain an npm command.");
-for (const test of ["unity-core.test.ts", "unity-registration.test.ts", "unity-optional-integrations.test.ts", "release-registry-preflight.test.ts", "unity-package-validation.test.ts"]) {
+for (const test of ["unity-projects.test.ts", "pi-host-compatibility.test.ts", "unity-optional-integrations.test.ts", "release-registry-preflight.test.ts", "unity-package-validation.test.ts"]) {
   assert(packageJson.scripts?.test?.includes(test), `Expected npm test to run ${test}.`);
 }
 assert(!packageJson.scripts?.test?.includes("unity-docs-migration.test.ts"));
@@ -51,7 +45,7 @@ assert.equal(packageJson.dependencies?.typebox, undefined, "Pi supplies TypeBox;
 assert.equal(packageJson.peerDependencies?.typebox, "*");
 assert.equal(packageJson.peerDependenciesMeta?.typebox?.optional, true);
 assert.equal(packageJson.devDependencies?.typebox, "1.3.8");
-for (const name of ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+for (const name of ["@earendil-works/pi-coding-agent"]) {
   assert.equal(packageJson.peerDependencies?.[name], "*");
   assert.match(packageJson.devDependencies?.[name] ?? "", /^\d+\.\d+\.\d+$/, "Pi validation dependencies must be exact versions");
   assert.equal(JSON.parse(readFileSync(new URL(`../node_modules/${name}/package.json`, import.meta.url), "utf8")).version, packageJson.devDependencies?.[name], "installed Pi must match the manifest");
@@ -73,28 +67,11 @@ for (const forbidden of ["unity_migrate_solution_docs", "UnityMigrationServiceV1
 }
 assert(!indexText.includes('from "@aefree/pi-project-artifacts/contracts/v1"'));
 assert(!indexText.includes('from "@aefree/pi-file-discovery/contracts/v1"'));
-assert(indexText.includes("name: \"unity_pipeline_eval\"") && indexText.includes("name: \"unity_pipeline_inspect\""));
-assert(indexText.includes("name: \"unity_run_tests\"") && indexText.includes("name: \"unity_launch_batchmode\""));
-assert(!indexText.includes("name: \"unity_run_test_batch\"") && !indexText.includes("name: \"unity_pipeline_run_tests\""));
-assert(indexText.includes("pi.registerCommand(\"unity-open\"") && indexText.includes("piUnity.allowCloseRunningUnityProcess"));
-assert(!indexText.includes("canUseUnityCli("), "All launch routes must use the tri-state Unity CLI availability helper.");
-
-assert(!existsSync(new URL("../contracts/v1.ts", import.meta.url)));
-assert(!existsSync(new URL("../src/unity-docs-migration.ts", import.meta.url)));
-assert(!existsSync(new URL("../scripts/migrate-unity-docs-schema.ts", import.meta.url)));
-assert(!existsSync(new URL("../skills/unity-docs", import.meta.url)));
-assert(!existsSync(new URL("../prompts/cg-migrate-unity-docs-schema.md", import.meta.url)));
-assert(!existsSync(new URL("../references", import.meta.url)));
-for (const skillName of ["unity-debugging", "unity-pipeline-workflows", "unity-batchmode-tests", "unity-interactive-playmode-authoring", "auditing-unity-agent-guidance"]) {
-  assert(readmeText.includes(`- \`${skillName}\``), `Expected README skill boundary for ${skillName}.`);
+for (const skill of ["unity-pipeline-workflows", "unity-debugging", "unity-interactive-playmode-authoring", "consulting-unity-documentation"]) {
+  assert(readmeText.includes(`skills/${skill}/SKILL.md`));
+  assert(existsSync(new URL(`../skills/${skill}/SKILL.md`, import.meta.url)));
 }
-assert(!readmeText.includes("unity_migrate_solution_docs"));
-assert(readmeText.includes("`pi-unity-docs` is optional"), "The sibling documentation package must remain an optional supplement.");
-assert(readmeText.includes("global registry rendezvous") && readmeText.includes("optional peer integrations"));
-assert(readmeText.includes("registry-clean `package-lock.json` is committed"));
-assert(changelogText.includes("without selecting schemas or rewriting project documents"));
-assert(!changelogText.includes("archive/unpublished-pi-unity-docs-migration"));
-assert(changelogText.includes("transactional"));
+assert(readmeText.includes("`pi-unity-docs` is optional"));
 
 const lockPath = new URL("../package-lock.json", import.meta.url);
 assert(existsSync(lockPath), "A registry-clean lockfile is required for reproducible validation.");
@@ -107,43 +84,6 @@ if (existsSync(lockPath)) {
     assert.notEqual(entry.link, true, `Lockfile must not contain a workspace link: ${path}`);
   }
 }
-assert(skillText.includes("unity_project_status") && skillText.includes("one process per project folder"));
-assert(guidanceSkillText.includes("unity_guidance_audit") && guidanceSkillText.includes("untrusted evidence"));
-assert(debuggingSkillText.includes("exact-version documentation") && debuggingSkillText.includes("observable activation signal"));
-assert(pipelineSkillText.includes("unity_pipeline_eval") && pipelineSkillText.includes("known positive executed-test count"));
-assert(pipelineSkillText.includes("WaitForEndOfFrame") && pipelineSkillText.includes("Play Unfocused") && pipelineSkillText.includes("different prerequisites"), "Distinguish rendering from focus-policy prerequisites.");
-assert(pipelineSkillText.includes("obtain user authorization") && !pipelineSkillText.includes("Set it to Play Unfocused for the test run"), "Do not authorize automatic Editor setting changes for tests.");
-assert(pipelineSkillText.includes("shorter host wait can still win") && pipelineSkillText.includes("handlerTimeoutMilliseconds") && pipelineSkillText.includes("converts it to seconds") && pipelineSkillText.includes("omits the CLI request-timeout override") && /never retry an uncertain prior mutation/i.test(pipelineSkillText), "Distinguish host and verified native handler deadlines without encouraging replay.");
-
-const fleetReference = new URL("../skills/unity-pipeline-workflows/references/native-cli-fleet.md", import.meta.url);
-const fleetText = readFileSync(fleetReference, "utf8");
-const interactiveSkillText = readFileSync(new URL("../skills/unity-interactive-playmode-authoring/SKILL.md", import.meta.url), "utf8");
-const migrationText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/references/migration-policy.md", import.meta.url), "utf8");
-const templateText = readFileSync(new URL("../skills/auditing-unity-agent-guidance/assets/mixed-workflow-template.md", import.meta.url), "utf8");
-for (const [name, text] of Object.entries({ readmeText, pipelineSkillText, skillText, debuggingSkillText, interactiveSkillText, migrationText })) {
-  assert(text.includes("native-cli-fleet.md"), `${name} must address the shared native/fleet contract.`);
-}
-for (const [name, text] of Object.entries({ readmeText, pipelineSkillText, skillText, interactiveSkillText, migrationText, templateText, indexText })) {
-  assert(!/Normally call the typed tools|Prefer the packaged Unity tools|Refer to packaged tools first|Only fall back to direct CLI|raw discovery is exceptionally|Use unity_run_tests for ordinary Unity Test Framework runs/i.test(text), `${name} must not require wrappers or reserve native use for troubleshooting.`);
-}
-assert.match(fleetText, /explicit project selector on every project-targeted native call/i);
-assert.match(fleetText, /absolute path, allowed work, mutation authorization and the designated Editor operator in every child brief/i);
-assert.match(fleetText, /until the underlying operation really completes and its results are captured/i);
-assert.match(fleetText, /does not automatically propagate.*target to children or enforce their shell commands/i);
-assert.match(fleetText, /detached async-start job completing does not mean the tests completed or passed/i);
-assert.match(fleetText, /do not survive domain reloads/i);
-assert.match(fleetText, /Reads need not be immediate or parallel/i);
-assert.match(fleetText, /auto-refresh\/import\/reload/i);
-assert.match(fleetText, /one writer per shared checkout/i);
-assert.match(fleetText, /Cloud inventory is an intended authenticated remote read/i);
-assert.match(indexText, /guidance does not enforce native shell calls/i);
-assert.match(migrationText, /Pi-native.*native CLI\/Pipeline commands are normal/is);
-assert.match(templateText, /Optional Pi adapters/i);
-assert.match(interactiveSkillText, /Persisting an Accepted Runtime Result/);
-
-assert(testBatchText.includes("createUnityTestBatchPlan") && testBatchText.includes("randomUUID"));
-assert(batchmodeSourceText.includes("hasKnownPositiveExecutedTestCount") && batchmodeSourceText.includes("isPassingUnityTestEvidence"));
-
 for (const workflow of ["macos.yml", "windows.yml"]) {
   const workflowText = readFileSync(new URL(`../.github/workflows/${workflow}`, import.meta.url), "utf8");
   assert(workflowText.includes("npm ci --ignore-scripts --no-audit --no-fund"), `${workflow} must validate the committed lockfile.`);

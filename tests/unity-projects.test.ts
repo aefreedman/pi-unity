@@ -1,61 +1,47 @@
-import { strict as assert } from "node:assert";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import {
-  discoverUnityProjects,
-  findAncestorUnityProject,
-  isUnityProjectRoot,
-  resolveUnityProjectCandidates,
-} from "../src/unity-projects.ts";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveUnityProjectCandidates } from "../src/unity-projects";
 
-function ensureDir(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
+const root = await realpath(await mkdtemp(join(tmpdir(), "pi-unity-projects-")));
+async function project(...segments: string[]): Promise<string> {
+  const directory = join(root, ...segments);
+  await mkdir(join(directory, "ProjectSettings"), { recursive: true });
+  await mkdir(join(directory, "Assets"));
+  await writeFile(join(directory, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.6.8f1\n");
+  return directory;
 }
-
-function createUnityProject(root: string, version: string): void {
-  ensureDir(path.join(root, "Assets"));
-  ensureDir(path.join(root, "ProjectSettings"));
-  ensureDir(path.join(root, "Packages"));
-  fs.writeFileSync(path.join(root, "ProjectSettings", "ProjectVersion.txt"), `m_EditorVersion: ${version}\n`);
-  fs.writeFileSync(path.join(root, "Packages", "manifest.json"), "{}\n");
-}
-
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-unity-projects-"));
-
 try {
-  const projectRoot = path.join(tempRoot, "workspace", "game-copy");
-  createUnityProject(projectRoot, "2022.3.18f1");
+  const first = await project("workspace", "one", "Game");
+  const second = await project("workspace", "two", "Game");
+  await project("workspace", "one", "library", "Ignored");
+  await project("workspace", "one", "Game", "Nested");
+  await mkdir(join(root, "workspace", "Fake", "ProjectSettings", "ProjectVersion.txt"), { recursive: true });
+  await mkdir(join(root, "workspace", "Fake", "Assets"));
+  const alias = join(root, "workspace", "alias");
+  await symlink(first, alias, process.platform === "win32" ? "junction" : "dir");
+  const nearby = await resolveUnityProjectCandidates(root, "workspace");
+  assert.equal(nearby.strategy, "descendants");
+  assert.deepEqual(nearby.candidates.map(({ projectRoot }) => projectRoot), [first, second]);
+  assert(!nearby.truncated && !nearby.incomplete);
+  const containing = await resolveUnityProjectCandidates(root, join(alias, "Assets"));
+  assert.equal(containing.strategy, "ancestor");
+  assert.deepEqual(containing.candidates, [{ projectName: "Game", projectRoot: first }]);
+  await assert.rejects(resolveUnityProjectCandidates(root, "missing"), { code: "ENOENT" });
+  await assert.rejects(resolveUnityProjectCandidates(root, join(first, "ProjectSettings", "ProjectVersion.txt")), /start at a directory/);
+  await assert.rejects(resolveUnityProjectCandidates(root, " "), /nonblank/);
+  await assert.rejects(resolveUnityProjectCandidates(root, "workspace", AbortSignal.abort()), { name: "AbortError" });
 
-  assert.equal(await isUnityProjectRoot(projectRoot), true);
-  assert.equal(await isUnityProjectRoot(path.join(tempRoot, "workspace")), false);
-
-  const nestedDir = path.join(projectRoot, "Assets", "Scripts", "Gameplay");
-  ensureDir(nestedDir);
-  const ancestor = await findAncestorUnityProject(nestedDir);
-  assert(ancestor, "Expected ancestor Unity project to be found.");
-  assert.equal(ancestor.projectRoot, projectRoot);
-  assert.equal(ancestor.unityVersion, undefined, "Project identity discovery must not eagerly parse ProjectVersion.txt.");
-
-  const coordinationRoot = path.join(tempRoot, "coordination-root");
-  createUnityProject(path.join(coordinationRoot, "ws1", "client"), "2021.3.40f1");
-  createUnityProject(path.join(coordinationRoot, "ws2", "client"), "2022.3.18f1");
-
-  const discovered = await discoverUnityProjects(coordinationRoot, { maxDepth: 3, maxDirectories: 50, maxCandidates: 10 });
-  assert.equal(discovered.candidates.length, 2);
-  assert.equal(discovered.truncated, false);
-
-  const resolvedFromCoordination = await resolveUnityProjectCandidates(coordinationRoot);
-  assert.equal(resolvedFromCoordination.candidates.length, 2);
-
-  const explicitResolved = await resolveUnityProjectCandidates(tempRoot, path.join(coordinationRoot, "ws1"));
-  assert.equal(explicitResolved.candidates.length, 1);
-  assert.equal(explicitResolved.candidates[0].projectRoot, path.join(coordinationRoot, "ws1", "client"));
-
-  const emptyResolved = await resolveUnityProjectCandidates(path.join(tempRoot, "not-a-project"));
-  assert.equal(emptyResolved.candidates.length, 0);
-
-  console.log("pi-unity unity-project tests passed");
+  await project("depth", "a", "b", "c", "d", "Hidden");
+  const deep = await resolveUnityProjectCandidates(root, "depth");
+  assert.equal(deep.truncated, true);
+  assert.deepEqual(deep.candidates, []);
+  for (let i = 0; i < 21; i++) await project("count", `Game${String(i).padStart(2, "0")}`);
+  const capped = await resolveUnityProjectCandidates(root, "count");
+  assert.equal(capped.truncated, true);
+  assert.equal(capped.candidates.length, 20);
 } finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true });
 }
+console.log("Unity project discovery: filesystem markers, canonical aliases, exact copies and disclosed limits passed");

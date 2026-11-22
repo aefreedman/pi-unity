@@ -9,12 +9,12 @@ Use this skill only when the user explicitly requests inspection or temporary mu
 
 Do not activate this skill for ordinary source edits, serialized-asset authoring, planning inspection, compilation, tests, screenshots alone, or opening Unity. Use the owning Unity workflow for those operations.
 
-Read [native targeting and fleet guidance](../unity-pipeline-workflows/references/native-cli-fleet.md). Use native commands normally; Pi adapters remain optional. A shared-copy fleet designates one Editor-changing operator through actual completion and result capture, with explicit absolute target, role and authorization in every child brief. Other agents must not change lifecycle or trigger reloads during the experiment.
+Read [native targeting and fleet guidance](../unity-pipeline-workflows/references/native-cli-fleet.md). Use native commands. A shared-copy fleet designates one Editor-changing operator through actual completion and result capture, with explicit absolute target, role and authorization in every child brief. Other agents must not change lifecycle or trigger reloads during the experiment.
 
 ## Preconditions
 
 1. Resolve the exact absolute Unity project path; pass its explicit selector on each native call, never route by display name or inherited context alone.
-2. Inspect native status and the exact copy's advertised catalog; require a matching Editor process, reachable Pipeline and the commands needed for the intended operation. `unity_project_status` is an optional combined snapshot.
+2. Inspect native status and the exact copy's advertised catalog; require a matching Editor process, reachable Pipeline and the commands needed for the intended operation.
 3. Inspect the advertised `editor status` (or its existing flat name) and require Play Mode to be active for a live-runtime experiment. If Play Mode is not active, do not enter it unless the user explicitly requested that lifecycle change.
 4. Revalidate exact project path and Editor/Pipeline process identity before each mutation. Stop on unknown, stale, unreachable, or changed identity.
 5. Establish the target object, requested temporary effect, and expected observation before mutation. Do not explore by changing unrelated live objects.
@@ -35,9 +35,9 @@ GameObject transform and component commands do not operate on every runtime obje
 ## Command Discovery
 
 - Use bounded native discovery such as `unity command --project-path "<absolute-project-root>" --tag <relevant-tag> --detail full --limit 20 --format json`; inspect the needed full identities/signatures rather than guessing a leaf name's group or trialing mutations.
-- An already verified catalog, including the optional `unity_project_status` snapshot, can avoid duplicate discovery. Do not use the removed `unity list` command.
+- Reuse a catalog verified for the same instance if still current.
 - Inspect one exact command schema before dispatch rather than repeatedly trialing argument forms against the live Editor.
-- For named commands, request `--result-only` to avoid formatted streaming output. Require successful CLI completion and valid command-specific payload evidence, including any nested `success`, diagnostics, status, and result fields; valid JSON alone is not success.
+- For named commands, request `--result-only` to avoid formatted streaming output. Use the CLI outcome and command diagnostics. Eval returns user data, not a success envelope.
 
 ## Bounded Eval Rules
 
@@ -50,9 +50,9 @@ Pipeline `eval` compiles C# with Roslyn and runs it on the connected Editor's ma
 - Research unfamiliar Unity/C# APIs when needed, but do not add a purpose-built wrapper solely to avoid `eval`.
 - Avoid obsolete APIs; evaluator diagnostics may treat obsolete usage as a compilation failure.
 - Fully qualify APIs when extension-method or namespace ambiguity is likely.
-- Treat any compiler diagnostic, nested failure, null target, malformed result, or identity change as failure. Do not retry mutations speculatively.
+- Check error diagnostics, null targets, malformed results and changed identity; do not treat warnings or arbitrary returned data as a transport failure. Do not retry mutations speculatively.
 
-Use the advertised native eval or purpose-built inspection command with explicit project targeting. `unity_pipeline_eval` and `unity_pipeline_inspect` remain optional bounded adapters when their evidence handling fits; they are not exclusive gateways and their limits are not native requirements.
+Use the advertised native eval or purpose-built inspection command with explicit project targeting.
 
 ## Live Tuning Loop
 
@@ -86,7 +86,7 @@ Stop and report uncertainty instead of changing routes when:
 - Pipeline disconnects outside an expected, separately authorized compile/reload transition;
 - the target is ambiguous or disappears;
 - the required operation has no typed command and cannot be expressed as one bounded target-specific eval;
-- eval returns diagnostics, malformed output, or an unknown side effect;
+- eval fails, returns malformed output, or leaves effects uncertain;
 - persistence ownership or runtime conversion cannot be established;
 - a required Play Mode stop, restart, compile, save, or other lifecycle mutation is not authorized.
 

@@ -67,7 +67,7 @@ async function installedPeerRegister(name: "artifacts" | "file-discovery"): Prom
     registerUnity(pi as any);
     const scope = {};
     await emit(pi, "session_start", { cwd: root, sessionManager: scope, mode: "print", hasUI: false, ui: {} });
-    assert(pi.tools.some((tool) => tool.name === "unity_project_status"), "Optional integration absence must not suppress Unity tools.");
+    assert(pi.tools.some((tool) => tool.name === "unity_find_projects"), "Optional integration absence must not suppress Unity tools.");
     assert.equal(resolveArtifactProfilesV1(scope).outcome, "missing");
     assert.equal(resolveFileDiscoveryFiltersV1(scope).outcome, "missing");
   } finally {
