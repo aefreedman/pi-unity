@@ -7,6 +7,15 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Changed
+
+- Route documentation questions to Unity's official versioned pages and agent indexes first, with supplemental docsets and existing offline caches as optional routes.
+- Document native Editor open, status and close, and use Pipeline's current native test completion rules.
+
+### Removed
+
+- Remove `/unity-playmode-exit` and its persisted Pi session setting. Existing connected adapters keep their former default behavior.
+
 ## 0.16.7 - 2026-11-09
 
 ### Changed

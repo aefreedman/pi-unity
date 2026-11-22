@@ -103,7 +103,6 @@ export type UnityToolDetails = {
   forceClosedProcesses?: RunningUnityProcess[];
   removedLockfile?: string;
   piUnitySettings?: PiUnitySettings;
-  sessionSettings?: { allowAutonomousPlayModeExit: boolean };
   projectState?: { nativeLockfileExists: boolean; runningProcessCount: number; processVerificationIncomplete: boolean; staleLockSuspected: boolean };
   testBatch?: UnityTestBatchPlan;
   cliCapabilities?: UnityCliProjectCapabilities;
@@ -634,7 +633,6 @@ async function buildProjectStatusReport(
   ctx: ExtensionContext,
   candidate: UnityProjectCandidate,
   signal?: AbortSignal,
-  allowAutonomousPlayModeExit = true,
   execute?: UnityCliExecutor,
 ): Promise<{ text: string; details: UnityToolDetails }> {
   const lockState = await inspectUnityProjectBusyState(candidate.projectRoot);
@@ -662,7 +660,6 @@ async function buildProjectStatusReport(
     `- Pipeline command discovery: ${cliCapabilities.commandDiscoverySucceeded ? `${cliCapabilities.advertisedCommands.length}/${cliCapabilities.advertisedCommandCount} command(s) reported${cliCapabilities.advertisedCommandsTruncated ? " (bounded/truncated)" : ""}` : cliCapabilities.commandDiscovery}`,
     `- piUnity.allowCloseRunningUnityProcess: ${piUnitySettings.allowCloseRunningUnityProcess ? "enabled" : "disabled"}`,
     `- piUnity.closeRunningUnityProcessOnlyForTests: ${piUnitySettings.closeRunningUnityProcessOnlyForTests ? "enabled" : "disabled"}`,
-    `- Session Play Mode exit: ${allowAutonomousPlayModeExit ? "allowed" : "disabled"}`,
   ];
 
   if (runningProcesses.length > 0) {
@@ -708,7 +705,6 @@ async function buildProjectStatusReport(
       warning: combinedWarning,
       status: "passed",
       piUnitySettings,
-      sessionSettings: { allowAutonomousPlayModeExit },
       projectState: { nativeLockfileExists: lockState.nativeLockfileExists, runningProcessCount: runningProcesses.length, processVerificationIncomplete: Boolean(warning), staleLockSuspected },
       cliCapabilities,
       blockedBy: cliStatus.blockedBy,
@@ -1196,7 +1192,6 @@ async function runUnifiedUnityTests(
   raw: UnityRunTestsRequest,
   signal: AbortSignal | undefined,
   onUpdate?: AgentToolUpdateCallback<unknown>,
-  allowAutonomousExitPlayMode = true,
   executeLong: UnityLongExecutor = executeUnityLongCommand,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details: UnityToolDetails & { testResult: NormalizedUnityTestResult; artifactPath: string; route: "connected" | "isolated" } }> {
   const request = normalizeUnityRunTestsRequest(raw);
@@ -1224,7 +1219,7 @@ async function runUnifiedUnityTests(
   if (route === "connected") {
     let result;
     try {
-      result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), testPlatform: request.testPlatform, testFilter: request.testFilters[0], testCategory: request.testCategories[0], timeoutSeconds: request.timeoutSeconds, allowAutonomousExitPlayMode }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }], details: undefined }) });
+      result = await runUnityPipelineTests({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), testPlatform: request.testPlatform, testFilter: request.testFilters[0], testCategory: request.testCategories[0], timeoutSeconds: request.timeoutSeconds }, createPipelineDependencies(pi), { signal, onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }], details: undefined }) });
     } catch (error) {
       if (!(error instanceof UnityPipelineTerminalTestEvidenceError)) throw error;
       const outcome = error.evidence.outcome;
@@ -1400,19 +1395,6 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
   }>;
   // Lifecycle handles are session-scoped.
   const registrations = new WeakMap<object, ScopeRegistrations>();
-  const playModeExitAuthorization = new WeakMap<object, boolean>();
-  const sessionAllowsAutonomousPlayModeExit = (ctx: ExtensionContext): boolean => playModeExitAuthorization.get(ctx.sessionManager) ?? true;
-  const restoreSessionSettings = (ctx: ExtensionContext): void => {
-    let allowed = true;
-    const getBranch = (ctx.sessionManager as { getBranch?: () => Array<{ type: string; customType?: string; data?: unknown }> }).getBranch;
-    for (const entry of getBranch?.call(ctx.sessionManager) ?? []) {
-      if (entry.type !== "custom" || entry.customType !== "pi-unity-session-settings-v1") continue;
-      const data = entry.data as { allowAutonomousPlayModeExit?: unknown } | undefined;
-      if (typeof data?.allowAutonomousPlayModeExit === "boolean") allowed = data.allowAutonomousPlayModeExit;
-    }
-    playModeExitAuthorization.set(ctx.sessionManager, allowed);
-    ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? undefined : "Unity Play Mode exit: disabled");
-  };
   const unregisterScope = (current: ScopeRegistrations | undefined): boolean => {
     if (current === undefined) return false;
     return [
@@ -1422,7 +1404,6 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
   };
 
   pi.on("session_start", async (_event, ctx) => {
-    restoreSessionSettings(ctx);
     await warnWhenUnityCliUnavailable(pi, ctx);
     const scope = ctx.sessionManager;
     unregisterScope(registrations.get(scope));
@@ -1464,8 +1445,6 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     }
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    ctx.ui.setStatus?.("pi-unity-playmode-exit", undefined);
-    playModeExitAuthorization.delete(ctx.sessionManager);
     const scope = ctx.sessionManager;
     const current = registrations.get(scope);
     if (current === undefined) return;
@@ -1473,26 +1452,6 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     registrations.delete(scope);
     if (changed) pi.events.emit("pi-unity:capabilities-changed", { scope, contractVersion: 1, action: "unregistered" });
   });
-  pi.registerCommand("unity-playmode-exit", {
-    description: "Allow, disable, or show Play Mode exit behavior for this Pi session (default: allowed).",
-    getArgumentCompletions: (prefix: string) => ["allow", "disallow", "status"]
-      .filter((value) => value.startsWith(prefix.trim().toLowerCase()))
-      .map((value) => ({ value, label: value })),
-    handler: async (args, ctx) => {
-      const action = args.trim().toLowerCase() || "status";
-      if (action === "allow" || action === "enable" || action === "on") playModeExitAuthorization.set(ctx.sessionManager, true);
-      else if (action === "disallow" || action === "disable" || action === "off") playModeExitAuthorization.set(ctx.sessionManager, false);
-      else if (action !== "status") {
-        ctx.ui.notify("Usage: /unity-playmode-exit allow|disallow|status", "error");
-        return;
-      }
-      const allowed = sessionAllowsAutonomousPlayModeExit(ctx);
-      if (action !== "status") pi.appendEntry("pi-unity-session-settings-v1", { allowAutonomousPlayModeExit: allowed });
-      ctx.ui.setStatus?.("pi-unity-playmode-exit", allowed ? undefined : "Unity Play Mode exit: disabled");
-      ctx.ui.notify(`Unity Play Mode exit is ${allowed ? "allowed" : "disabled"} for this session.`, allowed ? "info" : "warning");
-    },
-  });
-
   pi.registerCommand("unity-open", {
     description: "Open the Unity Editor GUI for the current Unity project copy or choose one from nearby candidates.",
     handler: async (args, ctx) => {
@@ -1579,7 +1538,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
       throwIfAborted(signal);
-      const report = await buildProjectStatusReport(ctx, candidate, signal, sessionAllowsAutonomousPlayModeExit(ctx), createPlanningUnityCliExecutor(pi));
+      const report = await buildProjectStatusReport(ctx, candidate, signal, createPlanningUnityCliExecutor(pi));
       throwIfAborted(signal);
       return {
         content: [{ type: "text", text: report.text }],
@@ -1611,7 +1570,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate, discoveryWarning } = await resolveProjectCandidate(ctx, params.path);
-      return await runUnifiedUnityTests(pi, ctx, candidate, discoveryWarning, params as UnityRunTestsRequest, signal, onUpdate, sessionAllowsAutonomousPlayModeExit(ctx), guiDependencies.executeLong ?? executeUnityLongCommand);
+      return await runUnifiedUnityTests(pi, ctx, candidate, discoveryWarning, params as UnityRunTestsRequest, signal, onUpdate, guiDependencies.executeLong ?? executeUnityLongCommand);
     },
     renderCall(args, theme, context) { return renderUnityToolCall("unity_run_tests", args, theme, "tests", undefined, context); },
     renderResult(result, { expanded, isPartial }, theme, context) { return renderUnityToolResult(result, expanded, theme, context, isPartial); },
@@ -1631,7 +1590,7 @@ export default function freeUnityPi(pi: ExtensionAPI, guiDependencies: { spawn?:
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       throwIfAborted(signal);
       const { candidate } = await resolveProjectCandidate(ctx, params.path);
-      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), timeoutSeconds: params.timeoutSeconds, allowAutonomousExitPlayMode: sessionAllowsAutonomousPlayModeExit(ctx) }, createPipelineDependencies(pi), {
+      const result = await runUnityPipelineRecompile({ projectRoot: candidate.projectRoot, unityVersion: await requireManualUnityVersion(candidate), timeoutSeconds: params.timeoutSeconds }, createPipelineDependencies(pi), {
         signal,
         onUpdate: message => onUpdate?.({ content: [{ type: "text", text: message }], details: undefined }),
       });

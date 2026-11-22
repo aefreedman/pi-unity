@@ -284,16 +284,6 @@ try {
     inspect: async () => capabilities(root), canonicalize: async value => value, now: () => clock, sleep: async ms => { clock += ms; },
   }), /timed out/);
 
-  let lifecycleDispatch = false;
-  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: false }, {
-    execute: async (_command, args) => {
-      if (args.includes("editor status")) return { stdout: envelope({ status: "playing" }), stderr: "" };
-      lifecycleDispatch = true; return { stdout: envelope({ status: "up_to_date" }), stderr: "" };
-    },
-    inspect: async () => capabilities(root), canonicalize: async value => value,
-  }), /Play Mode exit is disabled/);
-  assert.equal(lifecycleDispatch, false, "An explicit lifecycle restriction must reject before dispatch.");
-
   const lifecycleCommands: string[] = []; clock = 0;
   const unknownPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
     execute: async (_command, args) => {
@@ -317,19 +307,12 @@ try {
     },
     inspect: async () => capabilities(root), canonicalize: async value => value,
   });
-  assert.equal(policyCommands.includes("editor.playmode stop"), false, "Continue-playing policy must not require exit authorization or editor_stop.");
+  assert.equal(policyCommands.includes("editor.playmode stop"), false, "Continue-playing policy must not send editor_stop.");
   assert.equal(policyRecompile.details.playModeHandling, "unity_policy_continue");
   assert.match(policyRecompile.text, /did not send editor_stop/);
 
-  await assert.rejects(() => runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: false }, {
-    execute: async (_command, args) => args.includes("editor status")
-      ? { stdout: envelope({ status: "playing", scriptChangesWhilePlaying: "StopPlayingAndRecompile" }), stderr: "" }
-      : { stdout: envelope({ status: "up_to_date" }), stderr: "" },
-    inspect: async () => capabilities(root), canonicalize: async value => value,
-  }), /policy may stop Play Mode.*disabled/);
-
   const stopPolicyCommands: string[] = [];
-  const stopPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000", allowAutonomousExitPlayMode: true }, {
+  const stopPolicyRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {
     execute: async (_command, args) => {
       const command = args[args.indexOf("--result-only") + 1]!; stopPolicyCommands.push(command);
       return { stdout: command === "editor status"
@@ -338,7 +321,7 @@ try {
     },
     inspect: async () => capabilities(root), canonicalize: async value => value,
   });
-  assert.equal(stopPolicyCommands.includes("editor.playmode stop"), false, "Authorized stop-and-recompile still leaves Play Mode exit to Unity's policy.");
+  assert.equal(stopPolicyCommands.includes("editor.playmode stop"), false, "Stop-and-recompile leaves Play Mode exit to Unity's policy.");
   assert.equal(stopPolicyRecompile.details.playModeHandling, "unity_policy_may_exit");
 
   const deferredRecompile = await runUnityPipelineRecompile({ projectRoot: root, unityVersion: "6000" }, {

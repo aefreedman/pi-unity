@@ -88,7 +88,8 @@ assert(!existsSync(new URL("../references", import.meta.url)));
 for (const skillName of ["unity-debugging", "unity-pipeline-workflows", "unity-batchmode-tests", "unity-interactive-playmode-authoring", "auditing-unity-agent-guidance"]) {
   assert(readmeText.includes(`- \`${skillName}\``), `Expected README skill boundary for ${skillName}.`);
 }
-assert(!readmeText.includes("unity-docs") && !readmeText.includes("unity_migrate_solution_docs"));
+assert(!readmeText.includes("unity_migrate_solution_docs"));
+assert(readmeText.includes("`pi-unity-docs` is optional"), "The sibling documentation package must remain an optional supplement.");
 assert(readmeText.includes("global registry rendezvous") && readmeText.includes("optional peer integrations"));
 assert(readmeText.includes("registry-clean `package-lock.json` is committed"));
 assert(changelogText.includes("without selecting schemas or rewriting project documents"));

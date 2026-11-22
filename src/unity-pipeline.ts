@@ -11,8 +11,8 @@ export const UNITY_PIPELINE_BACKOFF_SECONDS = Object.freeze([1, 2, 3, 5, 8]);
 export const UNITY_PIPELINE_MAX_DIAGNOSTICS = 8;
 export const UNITY_PIPELINE_MAX_STACK_CHARS = 600;
 
-export type UnityPipelineCompileRequest = { projectRoot: string; unityVersion: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
-export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; testCategory?: string; timeoutSeconds?: number; allowAutonomousExitPlayMode?: boolean };
+export type UnityPipelineCompileRequest = { projectRoot: string; unityVersion: string; timeoutSeconds?: number };
+export type UnityPipelineTestRequest = { projectRoot: string; unityVersion: string; testPlatform: "EditMode" | "PlayMode"; testFilter?: string; testCategory?: string; timeoutSeconds?: number };
 export type UnityPipelineProgress = (message: string) => void;
 /** Unity's EditorSettings.ScriptChangesWhilePlaying values when a future editor_status payload supplies one. */
 export type UnityScriptChangesWhilePlayingPolicy = "recompile_and_continue" | "stop_and_recompile" | "defer" | "unknown";
@@ -428,7 +428,7 @@ async function dispatchMainThreadCommand(deps: PipelineDependencies, projectRoot
   }
 }
 
-async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number, allowAutonomousExitPlayMode = true): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
+async function requirePreflight(deps: PipelineDependencies, projectRoot: string, unityVersion: string, commands: string[], operation: "recompile" | "tests", signal: AbortSignal | undefined, deadline: number, now: () => number): Promise<{ capabilities: UnityCliProjectCapabilities; exitedPlayMode: boolean; playModeHandling: UnityPipelinePlayModeHandling; scriptChangesWhilePlaying?: UnityScriptChangesWhilePlayingPolicy }> {
   const capabilities = await inspectWithDeadline(deps, projectRoot, unityVersion, signal, deadline, now, "preflight");
   const error = capabilityError(capabilities, commands); if (error) throw new Error(error + unityCapabilityDiagnosticSuffix(capabilities));
   let editor = await executeCommand(deps, projectRoot, "editor_status", [], signal, deadline, now, capabilities);
@@ -444,16 +444,11 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
     } else if (policy === "defer") {
       playModeHandling = "unity_policy_defer";
     } else {
-      const policyDescription = policy === "stop_and_recompile"
-        ? "Unity's Script Changes While Playing policy may stop Play Mode to recompile"
-        : "Pipeline editor_status does not expose Unity's Script Changes While Playing policy, so recompilation may continue, defer, or stop Play Mode";
-      if (!allowAutonomousExitPlayMode) throw new Error(`${policyDescription}; Play Mode exit is disabled for this session, so recompile was not started.`);
       // RecompileCommand owns AssetDatabase.Refresh. Do not preempt it with editor_stop or override Unity's policy.
       playModeHandling = policy === "stop_and_recompile" ? "unity_policy_may_exit" : "policy_unknown";
     }
   } else if (status.lifecycle !== "compatible") {
     // Test execution has separate lifecycle semantics: stop explicitly, then verify Edit Mode.
-    if (!allowAutonomousExitPlayMode) throw new Error("Unity Editor is in Play Mode or paused; Play Mode exit is disabled for this session, so tests were not started.");
     const stopError = capabilityError(capabilities, ["editor_stop"]); if (stopError) throw new Error(stopError);
     const stopped = await executeCommand(deps, projectRoot, "editor_stop", [], signal, deadline, now, capabilities);
     if (stopped.error) throw new Error("Unity Pipeline editor_stop failed; tests were not started and Play Mode state is uncertain.");
@@ -477,11 +472,11 @@ async function requirePreflight(deps: PipelineDependencies, projectRoot: string,
 }
 function playModeOutcomeText(preflight: { playModeHandling: UnityPipelinePlayModeHandling }): string {
   switch (preflight.playModeHandling) {
-    case "agent_exited": return "Pi-unity explicitly exited Play Mode under current session authorization.\n";
+    case "agent_exited": return "Pi-unity exited Play Mode before starting tests.\n";
     case "unity_policy_continue": return "Unity's Script Changes While Playing policy is recompile and continue; pi-unity did not send editor_stop.\n";
     case "unity_policy_may_exit": return "Unity's Script Changes While Playing policy may stop Play Mode during recompile; pi-unity did not send editor_stop.\n";
     case "unity_policy_defer": return "Unity's Script Changes While Playing policy defers recompilation until Play Mode ends; pi-unity did not send editor_stop.\n";
-    case "policy_unknown": return "Unity's Script Changes While Playing policy was unavailable; recompile was authorized because it may affect Play Mode, and pi-unity did not send editor_stop.\n";
+    case "policy_unknown": return "Unity's Script Changes While Playing policy was unavailable; recompilation may continue, defer, or exit Play Mode. Pi-unity did not send editor_stop.\n";
     default: return "";
   }
 }
@@ -532,7 +527,7 @@ export async function runUnityPipelineRecompile(request: UnityPipelineCompileReq
   const timeoutSeconds = request.timeoutSeconds ?? UNITY_PIPELINE_COMPILE_TIMEOUT_SECONDS;
   if (timeoutSeconds < 1 || timeoutSeconds > UNITY_PIPELINE_MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${UNITY_PIPELINE_MAX_TIMEOUT_SECONDS}.`);
   const projectRoot = await (deps.canonicalize ?? realpath)(request.projectRoot); const start = now(); const deadline = start + timeoutSeconds * 1000;
-  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "recompile", "recompile_status"], "recompile", signal, deadline, now, request.allowAutonomousExitPlayMode);
+  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "recompile", "recompile_status"], "recompile", signal, deadline, now);
   const identity = preflight.capabilities;
   const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "recompile before dispatch");
@@ -571,7 +566,7 @@ export async function runUnityPipelineTests(request: UnityPipelineTestRequest, d
   const timeoutSeconds = request.timeoutSeconds ?? UNITY_PIPELINE_TEST_TIMEOUT_SECONDS;
   if (timeoutSeconds < 1 || timeoutSeconds > UNITY_PIPELINE_MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${UNITY_PIPELINE_MAX_TIMEOUT_SECONDS}.`);
   const projectRoot = await (deps.canonicalize ?? realpath)(request.projectRoot); const start = now(); const deadline = start + timeoutSeconds * 1000;
-  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "run_tests", "test_status"], "tests", signal, deadline, now, request.allowAutonomousExitPlayMode);
+  const preflight = await requirePreflight(deps, projectRoot, request.unityVersion, ["editor_status", "run_tests", "test_status"], "tests", signal, deadline, now);
   const identity = preflight.capabilities;
   const lifecyclePrefix = playModeOutcomeText(preflight);
   ensureBeforeDeadline(deadline, now, "tests before dispatch");

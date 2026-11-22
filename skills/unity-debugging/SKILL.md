@@ -13,7 +13,7 @@ For live work, read [native targeting and fleet guidance](../unity-pipeline-work
 
 When a Unity feature does not activate:
 
-1. Search the exact-version Unity or package documentation for the feature's enablement, menu, preference, and prerequisites.
+1. Search the [version-matched official Unity or package documentation](../consulting-unity-documentation/SKILL.md) for the feature's enablement, menu, preference, and prerequisites.
 2. Check the documented user-facing setting before inspecting project code or Unity internals.
 3. Identify an observable activation signal and distinguish activation failure from callback failure:
    - If the expected event, callback, refresh, or version signal never changes, investigate feature enablement first.

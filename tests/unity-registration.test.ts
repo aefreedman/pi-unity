@@ -353,32 +353,16 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
       throw new Error(`Unexpected Pipeline command: ${String(command)}`);
     });
     registerUnity(pi as any);
-    const notifications: string[] = [];
-    const branch = () => pi.entries.map((entry, index) => ({ type: "custom", id: String(index), ...entry }));
-    const ctxA = { cwd: root, sessionManager: { getBranch: () => [] }, mode: "print", hasUI: false, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
-    const ctxB = { cwd: root, sessionManager: { getBranch: branch }, mode: "print", hasUI: false, ui: { setStatus() {}, notify(message: string) { notifications.push(message); } } };
-    await emit(pi, "session_start", ctxA);
-    await emit(pi, "session_start", ctxB);
+    const ctx = { cwd: root, sessionManager: {}, mode: "print", hasUI: false, ui: { setStatus() {}, notify() {} } };
+    await emit(pi, "session_start", ctx);
     const recompile = pi.tools.find((item) => item.name === "unity_pipeline_recompile");
     const tests = pi.tools.find((item) => item.name === "unity_run_tests");
     const projectStatus = pi.tools.find((item) => item.name === "unity_project_status");
-    const statusResult = await projectStatus.execute("status-call", { path: project }, undefined, undefined, ctxA);
+    const statusResult = await projectStatus.execute("status-call", { path: project }, undefined, undefined, ctx);
     assert.match(statusResult.content[0].text, /declared Unity 6000\.1\.0f1/, "Project status lazily loads the declared version required for Pipeline capability checks.");
-    const defaultTestResult = await tests.execute("default-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA);
-    assert.match(defaultTestResult.content[0].text, /21 executed/);
-    assert.equal(dispatched.includes("editor.playmode stop"), true, "Play Mode exit is allowed by default.");
-    const playModeCommand = pi.commands.find((item) => item.name === "unity-playmode-exit");
-    await playModeCommand.handler("disallow", ctxA);
-    assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: false } });
-    assert.match(notifications.at(-1) ?? "", /disabled/);
-    playMode = true;
-    await playModeCommand.handler("allow", ctxB);
-    assert.deepEqual(pi.entries.at(-1), { customType: "pi-unity-session-settings-v1", data: { allowAutonomousPlayModeExit: true } });
-    await assert.rejects(() => tests.execute("isolated-session-test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxA), /Play Mode exit is disabled/, "An explicit session restriction must not be changed by another session.");
-    await emit(pi, "session_shutdown", ctxA);
-    await emit(pi, "session_start", ctxB); // Session reload/resume reconstructs B's explicit toggle from its branch entries.
-    const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctxB);
-    const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctxB);
+    assert(!pi.commands.some(item => item.name === "unity-playmode-exit"), "The obsolete session toggle must not be registered.");
+    const compileResult = await recompile.execute("compile-call", { path: project }, undefined, undefined, ctx);
+    const testResult = await tests.execute("test-call", { path: project, testPlatform: "EditMode" }, undefined, undefined, ctx);
     assert.match(compileResult.content[0].text, /up to date/);
     assert.equal(compileResult.details.pipeline.exitedPlayMode, false, "Recompile leaves lifecycle to Unity when editor_status lacks script-change policy.");
     assert.equal(compileResult.details.pipeline.playModeHandling, "policy_unknown");
@@ -387,9 +371,9 @@ for (const order of ["artifacts-first", "unity-first"] as const) {
     assert.equal(testResult.details.pipeline.exitedPlayMode, true, "Connected tests retain their verified Play Mode exit path.");
     assert.equal(testResult.details.pipeline.playModeHandling, "agent_exited");
     assert.equal(JSON.stringify(testResult).includes("Passing.Record"), false, "Registered tool results must not retain passing test records.");
-    assert.equal(dispatched.filter((command) => command === "editor.playmode stop").length, 2);
+    assert.equal(dispatched.filter((command) => command === "editor.playmode stop").length, 1);
     assert.equal(dispatched.filter((command) => command === "script recompile").length, 1);
-    assert.equal(dispatched.filter((command) => command === "test run").length, 2);
+    assert.equal(dispatched.filter((command) => command === "test run").length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

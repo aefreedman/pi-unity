@@ -24,9 +24,9 @@ Native command serialization does not protect a multi-command workflow. In Pipel
 
 ## Lifecycle and profiles
 
-Opening is not readiness. Native `open --until-ready` can observe readiness when opening is authorized; status/readiness diagnosis does not authorize opening. Shutdown needs explicit intent and exact-copy process verification. Do not install/upgrade packages, upgrade projects, dismiss dialogs or change telemetry merely to complete migration.
+Opening is not readiness. Native `open --until-ready` can observe readiness when opening is authorized; status/readiness diagnosis does not authorize opening. Use native `unity close` with the exact absolute copy when closure is requested; it exits without saving. Do not save or scan for dirty files automatically, or add `--if-saved` or `--force` by default. Do not install/upgrade packages, upgrade projects, dismiss dialogs or change telemetry merely to complete migration.
 
-- **Pi-native:** native CLI/Pipeline commands are normal. Add optional Pi adapters and Pi-specific search/artifact integration where useful, not a mandatory tool-first gateway. Session settings and mutexes govern participating package calls only.
+- **Pi-native:** native CLI/Pipeline commands are normal. Add optional Pi adapters and Pi-specific search/artifact integration where useful, not a mandatory tool-first gateway. Pi launch mutexes govern participating package calls only.
 - **Portable:** supply native commands with explicit absolute selectors and discovered signatures, successful CLI outcomes and command-specific payload validation. Keep appropriate direct Editor/CI fallbacks.
 - **Mixed:** state one native-first routing/fleet policy, then identify optional adapters without duplicating project-specific expectations.
 

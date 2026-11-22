@@ -16,6 +16,20 @@ unity --no-banner --non-interactive command --project-path "<absolute-project-ro
 
 Grouped names and flags belong to that Pipeline version; do not guess them from a neighboring command. Use `--result-only` for a named command when a single result payload is needed; it is not combined with `--detach`. Validate the CLI outcome and command-specific payload, not JSON syntax alone. Global `unity commands` and `unity changelog` need no project selector. Cloud inventory is an intended authenticated remote read, not routine local diagnosis; remote Pipeline Automation is not the local Editor Pipeline package.
 
+## Editor lifecycle
+
+Use the installed CLI for routine Editor lifecycle actions on the resolved project copy:
+
+```text
+unity --non-interactive status --project-path "<absolute-project-root>" --format json
+unity --non-interactive open "<absolute-project-root>" --until-ready
+unity --non-interactive close "<absolute-project-root>"
+```
+
+Use `--until-ready` when subsequent work needs a command-ready Editor; plain `open` is enough when only launching is requested. Status is read-only. In CLI 1.0.1, `STATUS_NO_INSTANCES` means no connected instance matched, not that no Unity process is using the copy. An existing path is an exact status selector; a nonexistent path can be interpreted as a substring filter.
+
+When the user requests a close, use native `close` directly. It exits without saving: don't scan for dirty assets, save automatically, or make `--if-saved` a default gate. Use `--if-saved` only when requested. Do not add `--force` or close implicitly as recovery for an unrelated command. Keep the same-copy operator assigned through the lifecycle action.
+
 ## Fleet protocol
 
 1. Different project copies can proceed independently. For a shared copy, the supervisor designates one Editor-changing operator: supervisor or child, not a new execution gateway.
@@ -25,11 +39,11 @@ Grouped names and flags belong to that Pipeline version; do not guess them from 
 5. Coordinate a stable validation phase after edits. File writes can cause auto-refresh/import/reload even without a CLI call. Keep one writer per shared checkout or use isolated worktrees; an Editor-operator role does not protect files from concurrent writers.
 6. Report the exact project, operation/selection, native job ID where applicable, terminal evidence/artifact paths and any uncertainty. Handoff explicitly; do not infer availability from child exit or local timeout.
 
-This is cooperative guidance, not exclusion against users or other clients. Pi launch mutexes apply only to participating adapter calls and end with their callback; `/unity-playmode-exit` governs package-controlled behavior in that Pi session, not native CLI calls or a project-wide veto.
+This is cooperative guidance, not exclusion against users or other clients. Pi launch mutexes apply only to participating adapter calls and end with their callback.
 
 ## Completion and recovery
 
-- In Pipeline 0.10, ordinary non-immediate commands are serialized, but async tests return `running` before completion. Starting another test run can invalidate the previous collector and replace shared test status. Keep the operator through terminal result capture; do not claim another run's shared status as yours.
+- Pipeline serializes ordinary non-immediate commands, but async test startup finishes before the tests do. In 1.0.1 a successful start may have no structured result. Starting another test run can cancel the previous run and replace shared test status. Keep the operator through terminal result capture; do not claim another run's shared status as yours.
 - Native detached jobs identify command executions. A detached async-start job completing does not mean the tests completed or passed. Jobs are in Editor memory and do not survive domain reloads; a missing job is not proof of success or cancellation.
 - Require command-specific terminal evidence. Test passing evidence needs a known positive executed count and zero failures; zero, missing, malformed or conflicting results are non-passing. Keep exact current-run evidence rather than a historical "latest" file.
 - Timeouts, disconnects and cancellation leave effects uncertain. The newer protocol can request cancellation on disconnect/signals, but running work is only cooperatively cancellable; stopping a wait does not prove it stopped.
