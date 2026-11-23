@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getKeybindings } from "@earendil-works/pi-tui";
 import registerUnity from "../index";
 
 const hostManifest = fileURLToPath(new URL("../package.json", import.meta.resolve("@earendil-works/pi-coding-agent")));
@@ -68,50 +69,82 @@ try {
     },
   } satisfies Pick<ExtensionAPI, "registerTool" | "registerCommand" | "on" | "exec"> as ExtensionAPI);
 
-  const dialogs: { title: string; options: string[] }[] = [];
+  const enter = "\r";
+  const escape = "\x1b";
+  const down = "\x1b[B";
+  const tab = "\t";
+  let input: string[] = [];
+  let frames: string[][] = [];
+  const rpcSelections: (string | undefined)[] = [];
   const notifications: { message: string; level?: string }[] = [];
-  let selection: string | undefined;
-  const ui: Pick<ExtensionCommandContext["ui"], "select" | "notify"> = {
-    async select(title, options) {
-      dialogs.push({ title, options });
+  const ui: Pick<ExtensionCommandContext["ui"], "custom" | "select" | "notify"> = {
+    async custom(factory, options) {
+      const tui = { requestRender() {} } as Parameters<typeof factory>[0];
+      const theme = { fg: (_color: string, text: string) => text } as Parameters<typeof factory>[1];
+      let selection: { value: Parameters<Parameters<typeof factory>[3]>[0] } | undefined;
+      const component = await factory(tui, theme, getKeybindings(), (value) => { selection = { value }; });
+      assert.equal(options?.blocked?.kind, "question");
+      frames = [component.render(120)];
+      for (const key of input) {
+        component.handleInput?.(key);
+        frames.push(component.render(120));
+      }
+      assert(selection, "Picker did not finish after simulated input");
+      return selection.value;
+    },
+    async select(_title, options) {
+      const selection = rpcSelections.shift();
+      if (selection !== undefined) assert(options.includes(selection));
       return selection;
     },
     notify(message, level) { notifications.push({ message, level }); },
   };
-  const invoke = (cwd: string, args = "", hasUI = true) => open(args, { cwd, hasUI, ui } as ExtensionCommandContext);
+  const invoke = (cwd: string, keys: string[] = [], args = "", mode: ExtensionCommandContext["mode"] = "tui") => {
+    input = keys;
+    return open(args, { cwd, mode, hasUI: mode !== "print", ui } as ExtensionCommandContext);
+  };
   const alpha = join(root, "alpha", "Game");
   const beta = join(root, "beta workspace", "Game");
 
-  await invoke(join(alpha, "Assets"));
-  await invoke(join(root, "alpha"));
-  assert.equal(dialogs.length, 0);
-  assert.deepEqual(launches.splice(0), [join(alpha, "Assets"), join(root, "alpha")].map(cwd => ({
-    command: "unity", args: ["--no-banner", "--no-color", "--non-interactive", "open", alpha], cwd,
-  })));
+  await invoke(join(alpha, "Assets"), [enter]);
+  assert(frames[0].join("\n").includes(alpha));
+  assert.deepEqual(launches.shift(), {
+    command: "unity", args: ["--no-banner", "--no-color", "--non-interactive", "open", alpha], cwd: join(alpha, "Assets"),
+  });
 
-  await invoke(root);
-  assert.deepEqual(dialogs.pop()?.options, [join("alpha", "Game"), join("beta workspace", "Game")]);
-  assert.equal(launches.length, 0, "Cancelling the picker must not launch Unity.");
-  selection = join("beta workspace", "Game");
-  await invoke(root);
-  await invoke(join(root, "alpha"), `"${join("..", "beta workspace", "Game")}"`);
-  assert.deepEqual(launches.splice(0).map(({ args }) => args.slice(3)), [["open", beta], ["open", beta]]);
+  await invoke(root, [down, tab, escape]);
+  assert(frames[0].join("\n").includes(join("alpha", "Game")));
+  assert(frames[0].join("\n").includes(join("beta workspace", "Game")));
+  assert.equal(launches.length, 0, "Cancelling after changing modes must not launch Unity.");
+
+  await invoke(root, [down, tab, enter]);
+  assert(frames[2].includes("Mode: Automated (Tab to switch)"));
+  assert(frames[2].includes(`→ ${join("beta workspace", "Game")}`), "Switching modes keeps the highlighted project.");
+  await invoke(join(root, "alpha"), [tab, tab, enter], `"${join("..", "beta workspace", "Game")}"`);
+  assert(frames[0].includes("Mode: Normal (Tab to switch)"), "A new picker resets to Normal.");
+  assert.deepEqual(launches.splice(0).map(({ args }) => args.slice(3)), [["open", beta, "--args=-automated"], ["open", beta]]);
 
   await mkdir(join(root, "alpha", "nested", "a", "b", "c", "d"), { recursive: true });
-  selection = undefined;
-  await invoke(join(root, "alpha"));
-  assert.deepEqual(dialogs.pop(), { title: "Open a found Unity project (search was incomplete)", options: ["Game"] });
-  assert.equal(launches.length, 0, "A limited search with one match must not auto-open it.");
+  await invoke(join(root, "alpha"), [escape]);
+  assert.equal(frames[0][0], "Open a found Unity project (search was incomplete)");
+  assert.equal(launches.length, 0);
+
+  rpcSelections.push(join("beta workspace", "Game"), "Automated");
+  await invoke(root, [], "", "rpc");
+  assert.deepEqual(launches.shift()?.args.slice(3), ["open", beta, "--args=-automated"]);
+  rpcSelections.push(join("beta workspace", "Game"), undefined);
+  await invoke(root, [], "", "rpc");
+  assert.equal(launches.length, 0, "Cancelling the RPC mode prompt must not launch Unity.");
 
   const empty = join(root, "empty");
   await mkdir(empty);
   await invoke(empty);
   assert.equal(notifications.at(-1)?.level, "warning");
-  await assert.rejects(invoke(root, beta, false), /needs a Pi UI/);
+  await assert.rejects(invoke(root, [], beta, "print"), /needs a Pi UI/);
   assert.equal(launches.length, 0);
 
   cliResult = { ...cliResult, code: 1, stderr: "Native launch diagnostic" };
-  await invoke(beta);
+  await invoke(beta, [enter]);
   assert.equal(notifications.at(-1)?.level, "error");
   assert.match(notifications.at(-1)!.message, /Native launch diagnostic/);
 } finally {

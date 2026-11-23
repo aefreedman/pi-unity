@@ -12,9 +12,9 @@ Install [Unity CLI](https://docs.unity.com/en-us/unity-cli/use-unity-cli) separa
 
 ## Open the Editor from Pi
 
-Type `/unity-open` inside a Unity project or from its workspace directory. It opens the nearest containing project, or the only nearby project if the search was complete. From a directory with several workspace copies, it shows their relative paths (for example, `ws1/Game` and `ws2/Game`), so projects with the same name are easy to tell apart. If the search was cut short, it won't open any copy without a selection. Press Escape to cancel.
+Type `/unity-open` inside a Unity project or from its workspace directory to open the project picker. It highlights the first match, and shows nearby copies by relative path (for example, `ws1/Game` and `ws2/Game`) so projects with the same name are easy to tell apart. Use ↑/↓ to choose a copy, **Tab** to switch between Normal and Automated, **Enter** to open it, or **Esc** to cancel.
 
-To narrow the search or reach another workspace, supply a directory: `/unity-open ../ws2/Game` or `/unity-open "C:\Unity Workspaces\ws2\Game"`. Pi passes the chosen absolute project path to native `unity open`. It doesn't remember your selection, change Pi's working directory, wait for Editor readiness, or close other Editors. Use Unity CLI directly for launch flags or scripting.
+To narrow the search or reach another workspace, supply a directory: `/unity-open ../ws2/Game` or `/unity-open "C:\Unity Workspaces\ws2\Game"`. The picker starts in Normal mode each time. Automated passes Unity Editor’s `-automated` flag; it still opens a GUI, not batch mode. Pi passes the chosen absolute project path to native `unity open`. It doesn't remember your selection, change Pi's working directory, wait for Editor readiness, or close other Editors. Use Unity CLI directly for other launch options or scripting.
 
 ## Find a project copy
 

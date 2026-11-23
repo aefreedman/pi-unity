@@ -9,7 +9,7 @@ and this project follows semantic versioning for public package releases.
 
 ### Added
 
-- Restore `/unity-open` as a user shortcut: open the current workspace's Unity project or pick a copy by path, then let native `unity open` handle launch.
+- Restore `/unity-open` as a project picker for the current workspace and nearby copies, with a Tab switch between Normal and Automated Editor launch. Unity CLI handles the launch.
 
 ## 0.17.0 - 2026-11-22
 

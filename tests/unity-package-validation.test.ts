@@ -45,7 +45,8 @@ assert.equal(packageJson.dependencies?.typebox, undefined, "Pi supplies TypeBox;
 assert.equal(packageJson.peerDependencies?.typebox, "*");
 assert.equal(packageJson.peerDependenciesMeta?.typebox?.optional, true);
 assert.equal(packageJson.devDependencies?.typebox, "1.3.8");
-for (const name of ["@earendil-works/pi-coding-agent"]) {
+for (const name of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+  assert.equal(packageJson.dependencies?.[name], undefined, `Pi supplies ${name}; do not install a production copy.`);
   assert.equal(packageJson.peerDependencies?.[name], "*");
   assert.match(packageJson.devDependencies?.[name] ?? "", /^\d+\.\d+\.\d+$/, "Pi validation dependencies must be exact versions");
   assert.equal(JSON.parse(readFileSync(new URL(`../node_modules/${name}/package.json`, import.meta.url), "utf8")).version, packageJson.devDependencies?.[name], "installed Pi must match the manifest");
