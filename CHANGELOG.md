@@ -7,7 +7,9 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
-### Added
+## 0.17.1 - 2026-11-23
+
+### Fixed
 
 - Restore `/unity-open` as a project picker for the current workspace and nearby copies, with a Tab switch between Normal and Automated Editor launch. Unity CLI handles the launch.
 
