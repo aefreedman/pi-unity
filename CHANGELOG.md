@@ -7,6 +7,10 @@ and this project follows semantic versioning for public package releases.
 
 ## Unreleased
 
+### Added
+
+- Restore `/unity-open` as a user shortcut: open the current workspace's Unity project or pick a copy by path, then let native `unity open` handle launch.
+
 ## 0.17.0 - 2026-11-22
 
 ### Added

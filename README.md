@@ -1,6 +1,6 @@
 # Pi Unity
 
-Use Unity's own CLI and Pipeline from Pi. This package helps agents find the right Unity project copy; it does not launch, close, test, or mutate the Editor itself.
+Use Unity's own CLI and Pipeline from Pi. Agents get a read-only project finder; users get `/unity-open` to open the right workspace copy without typing its full path.
 
 ## Install
 
@@ -8,7 +8,13 @@ Use Unity's own CLI and Pipeline from Pi. This package helps agents find the rig
 pi install npm:@aefree/pi-unity
 ```
 
-Install [Unity CLI](https://docs.unity.com/en-us/unity-cli/use-unity-cli) separately. If it is not on PATH, invoke its absolute executable path in the shell; `pi-unity` no longer applies `UNITY_CLI_PATH`. The native guidance targets Unity CLI and `com.unity.pipeline` 1.0.1. Use installed help and the exact Editor's advertised commands rather than assuming every project runs the same Pipeline version.
+Install [Unity CLI](https://docs.unity.com/en-us/unity-cli/use-unity-cli) separately. `/unity-open` requires `unity` on PATH. Otherwise, invoke the CLI by its absolute executable path in the shell. The native guidance targets Unity CLI and `com.unity.pipeline` 1.0.1. Use installed help and the exact Editor's advertised commands rather than assuming every project runs the same Pipeline version.
+
+## Open the Editor from Pi
+
+Type `/unity-open` inside a Unity project or from its workspace directory. It opens the nearest containing project, or the only nearby project if the search was complete. From a directory with several workspace copies, it shows their relative paths (for example, `ws1/Game` and `ws2/Game`), so projects with the same name are easy to tell apart. If the search was cut short, it won't open any copy without a selection. Press Escape to cancel.
+
+To narrow the search or reach another workspace, supply a directory: `/unity-open ../ws2/Game` or `/unity-open "C:\Unity Workspaces\ws2\Game"`. Pi passes the chosen absolute project path to native `unity open`. It doesn't remember your selection, change Pi's working directory, wait for Editor readiness, or close other Editors. Use Unity CLI directly for launch flags or scripting.
 
 ## Find a project copy
 
@@ -18,7 +24,7 @@ Use native `unity open <root>`, `unity status --project-path <root>`, and `unity
 
 ## Upgrade from the wrapper-based package
 
-Update project agent instructions or scripts that refer to removed Pi tools or slash commands. Use native CLI and Pipeline commands for execution, `unity_find_projects` for copy discovery, and native test results or reports instead of `pi-unity-tests-*.json`. The old launch and close settings no longer apply. See [0.17.0 changes](CHANGELOG.md#0170---2026-11-22) for the removal list and the [workflow skill](skills/unity-pipeline-workflows/SKILL.md) for replacements.
+Update project agent instructions or scripts that refer to removed Pi tools or slash commands. The new `/unity-open` is a user-facing shortcut, not a replacement for the former execution tools or launch settings. Use native CLI and Pipeline commands for execution, `unity_find_projects` for copy discovery, and native test results or reports instead of `pi-unity-tests-*.json`. The old launch and close settings no longer apply. See [0.17.0 changes](CHANGELOG.md#0170---2026-11-22) for the removal list and the [workflow skill](skills/unity-pipeline-workflows/SKILL.md) for replacements.
 
 ## Included skills
 

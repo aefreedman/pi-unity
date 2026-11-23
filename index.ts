@@ -1,3 +1,4 @@
+import { relative } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resolveUnityProjectCandidates } from "./src/unity-projects";
@@ -63,6 +64,51 @@ export default function registerUnity(pi: ExtensionAPI): void {
         if (result.incomplete) lines.push("Some filesystem entries could not be checked; additional copies may exist.");
       }
       return { content: [{ type: "text", text: lines.join("\n") }], details: result };
+    },
+  });
+
+  pi.registerCommand("unity-open", {
+    description: "Open the Unity project for this workspace, or choose a nearby copy. Usage: /unity-open [directory]",
+    async handler(args, ctx) {
+      if (!ctx.hasUI) throw new Error("/unity-open needs a Pi UI. For scripts, use unity open <absolute project path>.");
+
+      // Pi passes the whole argument string. Treat it as one path, not as shell words or CLI flags.
+      const input = args.trim();
+      const quoted = input.length >= 2 && (
+        (input.startsWith('"') && input.endsWith('"')) || (input.startsWith("'") && input.endsWith("'"))
+      );
+      const requestedPath = quoted ? input.slice(1, -1) : input || undefined;
+      const result = await resolveUnityProjectCandidates(ctx.cwd, requestedPath, ctx.signal);
+      const limited = result.incomplete || result.truncated;
+      if (result.candidates.length === 0) {
+        const reason = limited ? "Unity project discovery was incomplete" : "No Unity project found";
+        ctx.ui.notify(`${reason} from ${result.startDirectory}. Try /unity-open <project directory>.`, "warning");
+        return;
+      }
+
+      let projectRoot: string;
+      if (result.candidates.length === 1 && !limited) {
+        projectRoot = result.candidates[0].projectRoot;
+      } else {
+        const choices = new Map(result.candidates.map(({ projectRoot }) => [relative(result.startDirectory, projectRoot), projectRoot]));
+        const title = limited ? "Open a found Unity project (search was incomplete)" : "Open which Unity project?";
+        const selected = await ctx.ui.select(title, [...choices.keys()]);
+        if (selected === undefined) return;
+        const selectedRoot = choices.get(selected);
+        if (selectedRoot === undefined) return;
+        projectRoot = selectedRoot;
+      }
+
+      ctx.signal?.throwIfAborted();
+      const launch = await pi.exec("unity", ["--no-banner", "--no-color", "--non-interactive", "open", projectRoot], {
+        cwd: ctx.cwd,
+        signal: ctx.signal,
+      });
+      const output = [launch.stdout.trim(), launch.stderr.trim()].filter(Boolean).join("\n");
+      const summary = launch.code === 0
+        ? `Unity open succeeded for ${projectRoot}`
+        : `Unity open failed for ${projectRoot} (exit ${launch.code})`;
+      ctx.ui.notify(output ? `${summary}\n${output}` : summary, launch.code === 0 ? "info" : "error");
     },
   });
 
